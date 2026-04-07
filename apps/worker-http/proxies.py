@@ -1,0 +1,21 @@
+import random
+import os
+
+# Example Proxy List - In production, load from environment or Secrets Manager
+def get_proxy_list():
+    raw = os.getenv("PROXY_LIST", "")
+    if not raw:
+        return []
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+def get_random_proxy():
+    proxies = get_proxy_list()
+    if not proxies:
+        return None
+    
+    proxy = random.choice(proxies)
+    # Expected format: http://user:pass@host:port
+    return {
+        "http://": proxy,
+        "https://": proxy,
+    }

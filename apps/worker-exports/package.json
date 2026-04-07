@@ -1,0 +1,25 @@
+{
+  "name": "@enrichment-saas/worker-exports",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.500.0",
+    "csv-stringify": "^6.4.5",
+    "dotenv": "^16.4.5",
+    "pino": "^8.19.0",
+    "@enrichment-saas/contracts": "workspace:*",
+    "@enrichment-saas/db": "workspace:*",
+    "@enrichment-saas/queue": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "tsx": "^4.7.1",
+    "@types/node": "^20.11.24"
+  }
+}

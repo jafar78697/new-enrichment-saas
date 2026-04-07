@@ -1,0 +1,25 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/jafar-tayyar-siddiqi/Documents/Amazon extention/enrichment-saas-aws/packages/extractor-core
+plugins: hypothesis-6.151.11
+collected 7 items
+
+tests/test_extraction.py .....DEBUG: Found tel link: +15551234567
+DEBUG: Parsed: Country Code: 1 National Number: 5551234567, Valid: False
+DEBUG: Final found set: set()
+F.
+
+=================================== FAILURES ===================================
+_____________________ TestExtraction.test_phone_extraction _____________________
+
+self = <test_extraction.TestExtraction testMethod=test_phone_extraction>
+
+    def test_phone_extraction(self):
+        phones = extract_phones(HTML_FIXTURE, region='US')
+>       self.assertIn('+15551234567', phones)
+E       AssertionError: '+15551234567' not found in []
+
+tests/test_extraction.py:54: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_extraction.py::TestExtraction::test_phone_extraction - Asse...
+========================= 1 failed, 6 passed in 0.45s ==========================

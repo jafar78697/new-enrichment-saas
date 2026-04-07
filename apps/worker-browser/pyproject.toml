@@ -1,0 +1,17 @@
+[project]
+name = "worker-browser"
+version = "0.1.0"
+dependencies = [
+    "playwright",
+    "boto3",
+    "beautifulsoup4",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "pydantic",
+    "python-dotenv",
+    "asyncio"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

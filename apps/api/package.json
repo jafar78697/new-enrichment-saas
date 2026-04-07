@@ -1,0 +1,28 @@
+{
+  "name": "@enrichment-saas/api",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "fastify": "^4.26.0",
+    "@fastify/cors": "^9.0.1",
+    "@fastify/helmet": "^11.1.1",
+    "@fastify/rate-limit": "^9.1.0",
+    "dotenv": "^16.4.5",
+    "pino": "^8.19.0",
+    "@enrichment-saas/contracts": "workspace:*",
+    "@enrichment-saas/db": "workspace:*",
+    "@enrichment-saas/auth": "workspace:*",
+    "@enrichment-saas/queue": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "tsx": "^4.7.1",
+    "@types/node": "^20.11.24"
+  }
+}
