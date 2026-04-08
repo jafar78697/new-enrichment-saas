@@ -87,24 +87,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate as any]
   }, async (request: any, reply) => {
     const { tenantId } = request.tenant;
-    // Schedule deletion — soft delete tenant
     await fastify.db.query(
       `UPDATE tenants SET deleted_at = now() + interval '30 days' WHERE id = $1`,
       [tenantId]
     );
     return { message: 'Account scheduled for deletion in 30 days' };
-  });
-
-  // GET /health
-  fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
-
-  // GET /ready
-  fastify.get('/ready', async (request, reply) => {
-    try {
-      await fastify.db.query('SELECT 1');
-      return { status: 'ready' };
-    } catch {
-      return reply.code(503).send({ status: 'not ready' });
-    }
   });
 }
