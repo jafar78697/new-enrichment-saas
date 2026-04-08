@@ -14,17 +14,21 @@ export class AuthManager {
     private readonly publicKey: string
   ) {}
 
-  signUserToken(payload: UserTokenPayload, expiresIn: string = '24h'): string {
-    return jwt.sign(payload, this.privateKey, {
-      algorithm: 'RS256',
+  signUserToken(payload: UserTokenPayload, expiresIn = 86400): string {
+    return jwt.sign(payload as object, this.privateKey, {
+      algorithm: 'HS256',
       expiresIn
     });
+  }
+
+  signUserTokenStr(payload: UserTokenPayload): string {
+    return this.signUserToken(payload);
   }
 
   verifyUserToken(token: string): UserTokenPayload {
     try {
       return jwt.verify(token, this.publicKey, {
-        algorithms: ['RS256']
+        algorithms: ['HS256']
       }) as UserTokenPayload;
     } catch (err) {
       throw new Error('Unauthorized: Invalid or expired token');

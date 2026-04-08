@@ -88,10 +88,11 @@ export const billingApi = {
     return api.get('/billing/usage');
   },
   getPlan: async () => {
-    if (MOCK) { await delay(); return { data: { plan: 'growth' } }; }
+    if (MOCK) { await delay(); return { data: { plan: 'growth', ls_subscription_id: null } }; }
     return api.get('/billing/plan');
   },
   checkout: (data: any) => api.post('/billing/checkout', data),
+  portal: () => api.post('/billing/portal'),
 };
 
 export const apiKeysApi = {

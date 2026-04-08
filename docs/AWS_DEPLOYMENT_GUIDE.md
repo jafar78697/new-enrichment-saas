@@ -77,7 +77,7 @@ git init
 git add .
 git commit -m "Initial commit: Enrichment SaaS"
 git branch -M main
-git remote add origin https://github.com/[aapka-username]/enrichment-saas.git
+git remote add origin https://github.com/jafar78697/enrichment-saas
 git push -u origin main
 ```
 
