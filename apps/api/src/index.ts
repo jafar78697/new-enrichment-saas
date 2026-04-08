@@ -37,7 +37,12 @@ fastify.register(billingRoutes);
 
 // Register Plugins
 fastify.register(helmet);
-fastify.register(cors);
+fastify.register(cors, {
+  origin: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+});
 fastify.register(rateLimit, {
   max: 100,
   timeWindow: '1 minute'
