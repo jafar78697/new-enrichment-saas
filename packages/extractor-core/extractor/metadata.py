@@ -73,3 +73,9 @@ def detect_company_info(metadata: dict) -> dict:
                 info['industry'] = entry.get('industry', '')
     
     return info
+
+
+def extract_company_name(metadata: dict) -> str:
+    """Extract company name from metadata."""
+    info = detect_company_info(metadata)
+    return info.get('company_name', '')
