@@ -196,7 +196,7 @@ npm run dev
 # Build
 npm run build
 
-# Deploy to your hosting (Vercel, Netlify, etc.)
+# Deploy to your hosting (Cloudflare, etc.)
 # Or copy 'dist' folder to your server
 ```
 
