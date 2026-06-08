@@ -1,120 +1,146 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { billingApi, jobsApi } from '../services/api';
-
-const S = {
-  card: { background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, padding: '20px 22px' } as React.CSSProperties,
-  label: { fontSize: 11, fontWeight: 600, color: '#7B8794', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 8 },
-  metric: { fontFamily: 'JetBrains Mono, monospace', fontSize: 30, fontWeight: 700, color: '#14202B', lineHeight: 1 },
-  sub: { fontSize: 12, color: '#52606D', marginTop: 6 },
-};
-
-const STATUS_PILL: Record<string, React.CSSProperties> = {
-  queued:    { background: '#F3F4F6', color: '#6B7280' },
-  running:   { background: '#DBEAFE', color: '#1D4ED8' },
-  completed: { background: '#DCFCE7', color: '#15803D' },
-  partial:   { background: '#FEF3C7', color: '#B45309' },
-  failed:    { background: '#FEE2E2', color: '#DC2626' },
-  cancelled: { background: '#F3F4F6', color: '#9CA3AF' },
-};
-
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
-  return (
-    <div style={S.card}>
-      <p style={S.label}>{label}</p>
-      <p style={S.metric}>{value}</p>
-      {sub && <p style={S.sub}>{sub}</p>}
-    </div>
-  );
-}
+import { employeesApi, getCallUser } from '../services/employeesApi';
 
 export default function DashboardPage() {
-  const { data: usage } = useQuery({ queryKey: ['billing-usage'], queryFn: () => billingApi.getUsage().then(r => r.data), retry: false });
-  const { data: jobsData } = useQuery({ queryKey: ['jobs'], queryFn: () => jobsApi.list({ limit: 5 }).then(r => r.data), retry: false });
+  const user = getCallUser();
+  
+  // Fetch real employee summary from API
+  const { data: employeeSummary, isLoading: loadingSummary } = useQuery({
+    queryKey: ['employee-summary', 24],
+    queryFn: () => employeesApi.getSummary(24),
+    enabled: user?.role === 'manager' // Only managers can see all stats
+  });
 
-  const httpUsed = usage?.http_enrichments_used ?? 0;
-  const httpLimit = usage?.http_limit ?? 5000;
-  const creditsLeft = usage?.browser_credits_remaining ?? 0;
-  const activeJobs = jobsData?.jobs?.filter((j: any) => j.status === 'running').length ?? 0;
+  // Fetch real Twilio pool data
+  const { data: poolData, isLoading: loadingPool } = useQuery({
+    queryKey: ['twilio-pool'],
+    queryFn: () => employeesApi.numbersPool(),
+    enabled: user?.role === 'manager'
+  });
+
+  const employees = employeeSummary?.employees || [];
+  const pool = poolData?.numbers || [];
+
+  // Calculate real stats
+  const totalEmployees = employees.length;
+  const activeEmployees = employees.filter(e => e.status === 'active').length;
+  const totalCalls = employees.reduce((sum, e) => sum + e.calls_in_period, 0);
+  const totalAssignedNumbers = pool.filter(n => n.assigned).length;
+
+  const isLoading = loadingSummary || loadingPool;
+
+  if (isLoading) {
+    return <div style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>Loading dashboard...</div>;
+  }
 
   return (
-    <div style={{ maxWidth: 1100 }}>
-      {/* Hero */}
-      <div style={{ ...S.card, background: 'linear-gradient(135deg, #F6F7F2 0%, #fff 42%, #EAF6F3 100%)', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 20, fontWeight: 700, color: '#14202B', margin: '0 0 6px' }}>
-            Your enrichment pipeline is ready
-          </h1>
-          <p style={{ color: '#52606D', fontSize: 14, margin: 0 }}>Monitor active jobs, usage, and result quality from one place.</p>
-        </div>
-        <Link to="/jobs/new" style={{ background: '#0F766E', color: '#fff', textDecoration: 'none', padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
-          + New Enrichment Job
-        </Link>
+    <div style={{ maxWidth: 1200 }}>
+      {/* Header */}
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 28, fontWeight: 700, color: '#14202B', margin: '0 0 8px' }}>
+          Dashboard
+        </h1>
+        <p style={{ color: '#52606D', fontSize: 15, margin: 0 }}>
+          Overview of leads and employee performance
+        </p>
       </div>
 
-      {/* Stats grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
-        <StatCard label="Enriched This Month" value={httpUsed.toLocaleString()} />
-        <StatCard label="Browser Credits Left" value={creditsLeft} />
-        <StatCard label="Active Jobs" value={activeJobs} />
-        <StatCard label="HTTP Rows Used" value={`${httpUsed.toLocaleString()} / ${httpLimit.toLocaleString()}`} sub={`${Math.round((httpUsed / httpLimit) * 100)}% used`} />
-        <StatCard label="Success Rate" value="—" sub="Complete jobs only" />
-        <StatCard label="Recent Exports" value="—" />
-      </div>
-
-      {/* Recent Jobs */}
-      <div style={S.card}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #D8E1D7' }}>
-          <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 15, fontWeight: 600, color: '#14202B', margin: 0 }}>Recent Jobs</h2>
-          <Link to="/jobs" style={{ fontSize: 13, color: '#0F766E', textDecoration: 'none' }}>View all →</Link>
-        </div>
-
-        {!jobsData?.jobs?.length ? (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <p style={{ color: '#7B8794', fontSize: 14, marginBottom: 6 }}>No enrichment jobs yet</p>
-            <p style={{ color: '#7B8794', fontSize: 12, marginBottom: 16 }}>Start your first job with pasted domains, a CSV, or a Google Sheet.</p>
-            <Link to="/jobs/new" style={{ background: '#0F766E', color: '#fff', textDecoration: 'none', padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}>
-              Create New Job
-            </Link>
+      {/* Stats Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20, marginBottom: 32 }}>
+        <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, padding: 24 }}>
+          <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 8 }}>Total Employees</div>
+          <div style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 36, fontWeight: 700, color: '#0F766E' }}>
+            {totalEmployees}
           </div>
-        ) : (
+        </div>
+        
+        <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, padding: 24 }}>
+          <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 8 }}>Active Employees</div>
+          <div style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 36, fontWeight: 700, color: '#10B981' }}>
+            {activeEmployees}
+          </div>
+        </div>
+        
+        <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, padding: 24 }}>
+          <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 8 }}>Total Calls (24h)</div>
+          <div style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 36, fontWeight: 700, color: '#6D28D9' }}>
+            {totalCalls}
+          </div>
+        </div>
+        
+        <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, padding: 24 }}>
+          <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 8 }}>Twilio Numbers</div>
+          <div style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 36, fontWeight: 700, color: '#F59E0B' }}>
+            {totalAssignedNumbers} / {pool.length}
+          </div>
+          <div style={{ fontSize: 11, color: '#7B8794', marginTop: 4 }}>
+            {pool.length - totalAssignedNumbers} unassigned
+          </div>
+        </div>
+      </div>
+
+      {/* Employee Performance */}
+      <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, padding: 24 }}>
+        <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 18, fontWeight: 700, color: '#14202B', margin: '0 0 20px' }}>
+          Employee Performance
+        </h2>
+        
+        <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr>
-                {['Job ID', 'Mode', 'Status', 'Progress', 'Created'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#7B8794', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 0 10px', borderBottom: '1px solid #EEF2EA' }}>{h}</th>
-                ))}
+              <tr style={{ borderBottom: '2px solid #D8E1D7' }}>
+                <th style={{ textAlign: 'left', padding: '12px 16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Employee</th>
+                <th style={{ textAlign: 'center', padding: '12px 16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Contacted</th>
+                <th style={{ textAlign: 'center', padding: '12px 16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Calls</th>
+                <th style={{ textAlign: 'center', padding: '12px 16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Last Active</th>
               </tr>
             </thead>
             <tbody>
-              {jobsData.jobs.map((job: any) => {
-                const pct = job.total_items ? Math.round((job.completed_items / job.total_items) * 100) : 0;
-                return (
-                  <tr key={job.id} style={{ borderBottom: '1px solid #F6F7F2' }}>
-                    <td style={{ padding: '12px 0' }}>
-                      <Link to={`/jobs/${job.id}`} style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: '#0F766E', textDecoration: 'none' }}>
-                        {job.id.slice(0, 12)}...
-                      </Link>
+              {employees.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: '#7B8794' }}>
+                    No employees found
+                  </td>
+                </tr>
+              ) : (
+                employees.map(emp => (
+                  <tr key={emp.id} style={{ borderBottom: '1px solid #E5E7EB' }}>
+                    <td style={{ padding: '16px' }}>
+                      <div style={{ fontWeight: 600, color: '#14202B' }}>{emp.name}</div>
+                      <div style={{ fontSize: 12, color: '#7B8794' }}>{emp.email}</div>
+                      {emp.twilio_phone_number && (
+                        <div style={{ fontSize: 11, color: '#0F766E', marginTop: 4 }}>📞 {emp.twilio_phone_number}</div>
+                      )}
                     </td>
-                    <td style={{ padding: '12px 0', fontSize: 13, color: '#52606D', textTransform: 'capitalize' }}>{job.mode?.replace('_', ' ')}</td>
-                    <td style={{ padding: '12px 0' }}>
-                      <span style={{ ...STATUS_PILL[job.status], fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20 }}>{job.status}</span>
+                    <td style={{ textAlign: 'center', padding: '16px', fontFamily: 'Space Grotesk, sans-serif', fontSize: 20, fontWeight: 700, color: '#0F766E' }}>
+                      {emp.calls_in_period}
                     </td>
-                    <td style={{ padding: '12px 0' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 80, height: 5, background: '#EEF2EA', borderRadius: 3 }}>
-                          <div style={{ width: `${pct}%`, height: 5, background: '#0F766E', borderRadius: 3 }} />
-                        </div>
-                        <span style={{ fontSize: 11, color: '#7B8794', fontFamily: 'JetBrains Mono, monospace' }}>{job.completed_items}/{job.total_items}</span>
-                      </div>
+                    <td style={{ textAlign: 'center', padding: '16px', fontFamily: 'Space Grotesk, sans-serif', fontSize: 14, fontWeight: 600, color: '#6D28D9' }}>
+                      {Math.floor(emp.talk_time_in_period / 3600)}h {Math.floor((emp.talk_time_in_period % 3600) / 60)}m
                     </td>
-                    <td style={{ padding: '12px 0', fontSize: 12, color: '#7B8794' }}>{new Date(job.created_at).toLocaleDateString()}</td>
+                    <td style={{ textAlign: 'center', padding: '16px', fontSize: 13, color: '#52606D' }}>
+                      {emp.last_call_at ? new Date(emp.last_call_at).toLocaleString() : 'Never'}
+                    </td>
                   </tr>
-                );
-              })}
+                ))
+              )}
             </tbody>
           </table>
-        )}
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginTop: 24 }}>
+        <Link to="/enrichment" style={{ background: '#0F766E', color: '#fff', padding: '16px 20px', borderRadius: 10, textDecoration: 'none', fontWeight: 600, textAlign: 'center' }}>
+          🔍 Start Enrichment
+        </Link>
+        <Link to="/leads" style={{ background: '#fff', border: '2px solid #0F766E', color: '#0F766E', padding: '16px 20px', borderRadius: 10, textDecoration: 'none', fontWeight: 600, textAlign: 'center' }}>
+          👥 View Leads
+        </Link>
+        <Link to="/employees" style={{ background: '#fff', border: '2px solid #6D28D9', color: '#6D28D9', padding: '16px 20px', borderRadius: 10, textDecoration: 'none', fontWeight: 600, textAlign: 'center' }}>
+          👨‍💼 Employee Details
+        </Link>
       </div>
     </div>
   );

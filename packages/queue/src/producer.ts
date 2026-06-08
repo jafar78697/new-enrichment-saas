@@ -1,6 +1,6 @@
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { HttpJobPayload, BrowserJobPayload, WebhookJobPayload, ExportJobPayload } from '@enrichment-saas/contracts';
-import { ENR_HTTP_QUEUE, ENR_BROWSER_QUEUE, ENR_WEBHOOK_QUEUE, ENR_EXPORT_QUEUE } from './names';
+import { ENR_HTTP_QUEUE, ENR_BROWSER_QUEUE, ENR_WEBHOOK_QUEUE, ENR_EXPORT_QUEUE, ENR_HTTP_QUEUE_PRIORITY, ENR_BROWSER_QUEUE_PRIORITY } from './names.js';
 
 const sqs = new SQSClient({});
 
@@ -14,8 +14,10 @@ export async function sendToQueue<T>(queueUrl: string, payload: T, delaySeconds?
 }
 
 export const producer = {
-  sendToHttpQueue: (payload: HttpJobPayload) => sendToQueue(ENR_HTTP_QUEUE, payload),
-  sendToBrowserQueue: (payload: BrowserJobPayload) => sendToQueue(ENR_BROWSER_QUEUE, payload),
+  sendToHttpQueue: (payload: HttpJobPayload, priority = false) =>
+    sendToQueue(priority ? ENR_HTTP_QUEUE_PRIORITY : ENR_HTTP_QUEUE, payload),
+  sendToBrowserQueue: (payload: BrowserJobPayload, priority = false) =>
+    sendToQueue(priority ? ENR_BROWSER_QUEUE_PRIORITY : ENR_BROWSER_QUEUE, payload),
   sendToWebhookQueue: (payload: WebhookJobPayload) => sendToQueue(ENR_WEBHOOK_QUEUE, payload),
   sendToExportQueue: (payload: ExportJobPayload) => sendToQueue(ENR_EXPORT_QUEUE, payload)
 };

@@ -1,0 +1,489 @@
+// Employees + Twilio number provisioning routes (manager-only).
+//
+// New flow (no email):
+//   1. Admin POSTs { name, email } → backend auto-generates a 16-char password,
+//      bcrypt-hashes it, creates agent with status='active', and returns the
+//      plain-text password ONCE in the response. The admin reads it to the
+//      employee out-of-band (Slack, in person, etc).
+//   2. Admin separately POSTs to /employees/:id/assign-number with either an
+//      existing pool number or an areaCode for a fresh purchase.
+//   3. Admin can call /reset-password to regenerate a new one-time password,
+//      and /release-number to send a number back to the pool.
+import { Router } from 'express';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import { z } from 'zod';
+import { db } from '../db/index.js';
+import { asyncHandler, AppError } from '../utils/errors.js';
+import { requireManager } from '../middleware/auth.js';
+import { twilioClient } from '../config/twilio.js';
+import { CALLS_ENABLED } from '../config/env.js';
+import {
+  searchUsNumbers,
+  purchaseNumber,
+  releaseNumber,
+} from '../services/twilio-numbers.service.js';
+
+const router = Router();
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+function generateMemorablePassword() {
+  // 16 chars, mix of upper/lower/digits — avoids ambiguous (0/O, 1/l/I).
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = crypto.randomBytes(16);
+  let out = '';
+  for (let i = 0; i < 16; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
+function slugifyIdentity(base, fallback) {
+  const cleaned = String(base || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned || fallback;
+}
+
+function uniqueIdentity(emailLocalPart) {
+  const base = slugifyIdentity(emailLocalPart, `user_${Date.now()}`);
+  let identity = base;
+  let suffix = 1;
+  while (db.prepare('SELECT id FROM agents WHERE twilio_identity = ?').get(identity)) {
+    identity = `${base}_${suffix++}`;
+  }
+  return identity;
+}
+
+// ─── List employees with rollup stats ─────────────────────────────────
+router.get(
+  '/employees',
+  requireManager,
+  asyncHandler(async (_req, res) => {
+    const rows = db
+      .prepare(
+        `SELECT a.id, a.name, a.email, a.role, a.status, a.twilio_identity,
+                a.twilio_phone_number, a.twilio_phone_sid, a.twilio_phone_area_code,
+                a.twilio_phone_purchased_at, a.is_available,
+                a.last_login_at, a.invite_accepted_at, a.created_at,
+                COALESCE(stats.total_calls, 0) AS total_calls,
+                COALESCE(stats.connected_calls, 0) AS connected_calls,
+                COALESCE(stats.total_seconds, 0) AS total_seconds,
+                COALESCE(stats.recordings_count, 0) AS recordings_count,
+                GROUP_CONCAT(DISTINCT n.id) as niche_ids,
+                GROUP_CONCAT(DISTINCT n.name) as niche_names
+           FROM agents a
+           LEFT JOIN employee_niches en ON en.agent_id = a.id
+           LEFT JOIN niches n ON n.id = en.niche_id
+           LEFT JOIN (
+             SELECT agent_id,
+                    COUNT(*) AS total_calls,
+                    SUM(CASE WHEN outcome = 'connected' THEN 1 ELSE 0 END) AS connected_calls,
+                    SUM(COALESCE(duration_seconds, 0)) AS total_seconds,
+                    SUM(CASE WHEN recording_url IS NOT NULL AND recording_url != '' THEN 1 ELSE 0 END) AS recordings_count
+               FROM calls
+              GROUP BY agent_id
+           ) stats ON stats.agent_id = a.id
+          WHERE a.role = 'employee'
+          GROUP BY a.id
+          ORDER BY a.created_at DESC`,
+      )
+      .all();
+    
+    // Transform to include assigned_niches array
+    const employees = rows.map(row => {
+      const niches = [];
+      if (row.niche_ids && row.niche_names) {
+        const ids = row.niche_ids.split(',').map(Number);
+        const names = row.niche_names.split(',');
+        ids.forEach((id, i) => {
+          niches.push({ id, name: names[i] });
+        });
+      }
+      return {
+        ...row,
+        assigned_niches: niches,
+        niche_ids: undefined,
+        niche_names: undefined,
+      };
+    });
+    
+    res.json({ employees });
+  }),
+);
+
+// ─── Search available US numbers (live Twilio) ───────────────────────
+router.get(
+  '/twilio/numbers/search',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const q = z
+      .object({
+        areaCode: z.string().optional(),
+        contains: z.string().optional(),
+        limit: z.coerce.number().min(1).max(25).optional(),
+      })
+      .parse(req.query);
+    const numbers = await searchUsNumbers(q);
+    res.json({ numbers });
+  }),
+);
+
+// ─── Pool: numbers we own, joined with current assignment ─────────────
+router.get(
+  '/twilio/numbers/pool',
+  requireManager,
+  asyncHandler(async (_req, res) => {
+    if (!CALLS_ENABLED || !twilioClient) {
+      return res.json({ numbers: [], assigned: [] });
+    }
+    const owned = await twilioClient.incomingPhoneNumbers.list({ limit: 100 });
+    const assignmentRows = db
+      .prepare(
+        `SELECT id AS agent_id, name, email, twilio_phone_number, twilio_phone_sid
+           FROM agents
+          WHERE twilio_phone_sid IS NOT NULL`,
+      )
+      .all();
+    const bySid = new Map(assignmentRows.map((r) => [r.twilio_phone_sid, r]));
+    const numbers = owned.map((n) => {
+      const a = bySid.get(n.sid);
+      return {
+        sid: n.sid,
+        phoneNumber: n.phoneNumber,
+        friendlyName: n.friendlyName,
+        assigned: a
+          ? { agent_id: a.agent_id, name: a.name, email: a.email }
+          : null,
+      };
+    });
+    res.json({ numbers });
+  }),
+);
+
+// ─── Create employee — auto-generates password (no email) ─────────────
+const createSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: z.string().email(),
+  nicheIds: z.array(z.number().int().positive()).optional(), // NEW
+});
+
+router.post(
+  '/employees',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const payload = createSchema.parse(req.body);
+    const existing = db
+      .prepare('SELECT id FROM agents WHERE LOWER(email) = LOWER(?)')
+      .get(payload.email);
+    if (existing) throw new AppError('An employee with that email already exists', 409);
+
+    const tempPassword = generateMemorablePassword();
+    const hash = await bcrypt.hash(tempPassword, 10);
+    const identity = uniqueIdentity(payload.email.split('@')[0]);
+
+    const result = db
+      .prepare(
+        `INSERT INTO agents
+          (name, email, twilio_identity, role, status, password_hash,
+           is_available, invite_accepted_at)
+         VALUES (?, ?, ?, 'employee', 'active', ?, 0, CURRENT_TIMESTAMP)`,
+      )
+      .run(payload.name, payload.email, identity, hash);
+    const newId = Number(result.lastInsertRowid);
+
+    // Assign niches if provided
+    if (payload.nicheIds && payload.nicheIds.length > 0) {
+      const insertNiches = db.prepare(
+        'INSERT OR IGNORE INTO employee_niches (agent_id, niche_id) VALUES (?, ?)'
+      );
+      for (const nicheId of payload.nicheIds) {
+        insertNiches.run(newId, nicheId);
+      }
+    }
+
+    const fresh = db
+      .prepare(
+        `SELECT id, name, email, role, status, twilio_identity,
+                twilio_phone_number, twilio_phone_sid, twilio_phone_area_code,
+                twilio_phone_purchased_at, is_available, last_login_at,
+                invite_accepted_at, created_at
+           FROM agents WHERE id = ?`,
+      )
+      .get(newId);
+    
+    // Get assigned niches
+    const assignedNiches = db
+      .prepare(
+        `SELECT n.id, n.name
+           FROM niches n
+           JOIN employee_niches en ON en.niche_id = n.id
+          WHERE en.agent_id = ?`,
+      )
+      .all(newId);
+    
+    res.status(201).json({
+      employee: {
+        ...fresh,
+        assigned_niches: assignedNiches,
+      },
+      // ⚠️ Returned ONCE — admin must copy and share with the employee.
+      generatedPassword: tempPassword,
+    });
+  }),
+);
+
+// ─── Reset password (admin) — generates a fresh one-time password ─────
+router.post(
+  '/employees/:id/reset-password',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const row = db
+      .prepare('SELECT id, name, email FROM agents WHERE id = ? AND role = ?')
+      .get(id, 'employee');
+    if (!row) throw new AppError('Employee not found', 404);
+
+    const newPassword = generateMemorablePassword();
+    const hash = await bcrypt.hash(newPassword, 10);
+    db.prepare(
+      `UPDATE agents
+          SET password_hash = ?, status = 'active',
+              invite_token = NULL, invite_expires_at = NULL,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+    ).run(hash, id);
+
+    res.json({ ok: true, generatedPassword: newPassword });
+  }),
+);
+
+// ─── Assign / reassign a Twilio number ────────────────────────────────
+const assignSchema = z
+  .object({
+    phoneNumber: z.string().optional(), // pick from pool by E.164
+    twilioSid: z.string().optional(),   // pick from pool by SID
+    areaCode: z.string().optional(),    // OR purchase fresh in this area code
+  })
+  .refine((v) => v.phoneNumber || v.twilioSid || v.areaCode, {
+    message: 'Provide phoneNumber, twilioSid, or areaCode',
+  });
+
+router.post(
+  '/employees/:id/assign-number',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const emp = db
+      .prepare('SELECT id, name, twilio_phone_sid FROM agents WHERE id = ? AND role = ?')
+      .get(id, 'employee');
+    if (!emp) throw new AppError('Employee not found', 404);
+    const { phoneNumber, twilioSid, areaCode } = assignSchema.parse(req.body);
+
+    if (!CALLS_ENABLED || !twilioClient) {
+      throw new AppError('Twilio calling is not configured on this server', 503);
+    }
+
+    // If employee already has a number, refuse — caller must release first.
+    if (emp.twilio_phone_sid) {
+      throw new AppError(
+        'Employee already has a number. Release the current one before reassigning.',
+        409,
+      );
+    }
+
+    let chosen = null; // { sid, phoneNumber, areaCode }
+
+    if (phoneNumber || twilioSid) {
+      // Verify the number is OWNED by us and NOT assigned to anyone else.
+      const owned = await twilioClient.incomingPhoneNumbers.list({ limit: 100 });
+      const match = owned.find((n) =>
+        twilioSid ? n.sid === twilioSid : n.phoneNumber === phoneNumber,
+      );
+      if (!match) throw new AppError('That number is not in your Twilio account', 404);
+      const conflict = db
+        .prepare('SELECT id, name FROM agents WHERE twilio_phone_sid = ? AND id != ?')
+        .get(match.sid, id);
+      if (conflict) {
+        throw new AppError(`That number is already assigned to ${conflict.name}`, 409);
+      }
+      chosen = {
+        sid: match.sid,
+        phoneNumber: match.phoneNumber,
+        areaCode: areaCode || null,
+      };
+    } else {
+      // Purchase fresh in the given area code.
+      const candidates = await searchUsNumbers({ areaCode, limit: 1 });
+      if (candidates.length === 0) {
+        throw new AppError(
+          areaCode
+            ? `No US numbers available in area code ${areaCode}`
+            : 'No US numbers available right now',
+          502,
+        );
+      }
+      const purchased = await purchaseNumber({
+        phoneNumber: candidates[0].phoneNumber,
+        friendlyName: `JentoAI · ${emp.name}`,
+      });
+      chosen = {
+        sid: purchased.sid,
+        phoneNumber: purchased.phoneNumber,
+        areaCode: areaCode || null,
+      };
+    }
+
+    db.prepare(
+      `UPDATE agents
+          SET twilio_phone_number = ?, twilio_phone_sid = ?,
+              twilio_phone_area_code = ?, twilio_phone_purchased_at = CURRENT_TIMESTAMP,
+              is_available = 1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+    ).run(chosen.phoneNumber, chosen.sid, chosen.areaCode, id);
+
+    const fresh = db
+      .prepare(
+        `SELECT id, name, email, role, status, twilio_identity,
+                twilio_phone_number, twilio_phone_sid, twilio_phone_area_code,
+                twilio_phone_purchased_at, is_available, last_login_at,
+                invite_accepted_at, created_at
+           FROM agents WHERE id = ?`,
+      )
+      .get(id);
+    res.json({ employee: fresh });
+  }),
+);
+
+// ─── Release a Twilio number (back to pool, keeps DID purchased) ──────
+router.post(
+  '/employees/:id/release-number',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const row = db
+      .prepare(
+        'SELECT id, twilio_phone_number, twilio_phone_sid FROM agents WHERE id = ? AND role = ?',
+      )
+      .get(id, 'employee');
+    if (!row) throw new AppError('Employee not found', 404);
+    if (!row.twilio_phone_sid) throw new AppError('Employee has no number assigned', 400);
+
+    db.prepare(
+      `UPDATE agents
+          SET twilio_phone_number = NULL, twilio_phone_sid = NULL,
+              twilio_phone_area_code = NULL, twilio_phone_purchased_at = NULL,
+              is_available = 0, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+    ).run(id);
+
+    res.json({
+      ok: true,
+      released: {
+        phoneNumber: row.twilio_phone_number,
+        sid: row.twilio_phone_sid,
+      },
+    });
+  }),
+);
+
+// ─── Suspend / reactivate ─────────────────────────────────────────────
+router.patch(
+  '/employees/:id/status',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const { status } = z.object({ status: z.enum(['active', 'suspended']) }).parse(req.body);
+    const result = db
+      .prepare('UPDATE agents SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND role = ?')
+      .run(status, id, 'employee');
+    if (result.changes === 0) throw new AppError('Employee not found', 404);
+    res.json({ ok: true, status });
+  }),
+);
+
+// ─── Delete employee (keeps Twilio number in pool, unassigned) ────────
+// We DO NOT call Twilio releaseNumber — the DID stays purchased and simply
+// returns to the pool as unassigned, ready to be reassigned to a new employee.
+router.delete(
+  '/employees/:id',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const row = db
+      .prepare(
+        'SELECT id, twilio_phone_number, twilio_phone_sid FROM agents WHERE id = ? AND role = ?',
+      )
+      .get(id, 'employee');
+    if (!row) throw new AppError('Employee not found', 404);
+
+    // Detach call history so we don't lose audit trail.
+    db.prepare('UPDATE calls SET agent_id = NULL WHERE agent_id = ?').run(id);
+    db.prepare('DELETE FROM agents WHERE id = ?').run(id);
+
+    res.json({
+      ok: true,
+      numberReturnedToPool: row.twilio_phone_sid
+        ? { phoneNumber: row.twilio_phone_number, sid: row.twilio_phone_sid }
+        : null,
+    });
+  }),
+);
+
+// ─── Get employee hourly activity ─────────────────────────────────────
+router.get(
+  '/employees/:id/activity',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const hours = Number(req.query.hours) || 24;
+    
+    const hourlyStats = db
+      .prepare(
+        `SELECT 
+          strftime('%Y-%m-%d %H:00:00', started_at) as hour,
+          COUNT(*) as total_calls,
+          SUM(CASE WHEN outcome = 'connected' THEN 1 ELSE 0 END) as connected_calls,
+          SUM(COALESCE(duration_seconds, 0)) as total_seconds,
+          SUM(CASE WHEN recording_url IS NOT NULL AND recording_url != '' THEN 1 ELSE 0 END) as recordings
+         FROM calls
+         WHERE agent_id = ?
+           AND started_at >= datetime('now', ?)
+         GROUP BY hour
+         ORDER BY hour DESC`,
+      )
+      .all(id, `-${hours} hours`);
+    
+    res.json({ activity: hourlyStats });
+  }),
+);
+
+// ─── Get all employees summary (for team dashboard) ───────────────────
+router.get(
+  '/employees/summary',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const hours = Number(req.query.hours) || 1;
+    
+    const summary = db
+      .prepare(
+        `SELECT 
+          a.id, a.name, a.email, a.status, a.twilio_phone_number,
+          a.last_login_at,
+          COUNT(c.id) as calls_in_period,
+          SUM(COALESCE(c.duration_seconds, 0)) as talk_time_in_period,
+          MAX(c.started_at) as last_call_at,
+          (SELECT COUNT(*) FROM employee_niches WHERE agent_id = a.id) as niche_count
+         FROM agents a
+         LEFT JOIN calls c ON c.agent_id = a.id 
+           AND c.started_at >= datetime('now', ?)
+         WHERE a.role = 'employee'
+         GROUP BY a.id
+         ORDER BY a.name`,
+      )
+      .all(`-${hours} hours`);
+    
+    res.json({ employees: summary });
+  }),
+);
+
+export default router;

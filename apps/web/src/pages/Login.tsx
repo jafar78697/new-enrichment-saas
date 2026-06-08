@@ -36,10 +36,10 @@ export default function LoginPage() {
             <div style={{ width: 32, height: 32, background: '#0F766E', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>E</span>
             </div>
-            <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 15, color: '#14202B' }}>Enrichment SaaS</span>
+            <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 15, color: '#14202B' }}>Enrichment Sys</span>
           </div>
           <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 24, fontWeight: 700, color: '#14202B', margin: '0 0 6px' }}>Sign in to your account</h1>
-          <p style={{ color: '#52606D', fontSize: 14, margin: 0 }}>Track jobs, enrich domains, and export verified company data.</p>
+          <p style={{ color: '#52606D', fontSize: 14, margin: 0 }}>Track jobs, enrich domains, and review verified company data.</p>
         </div>
 
         {error && (
@@ -89,9 +89,14 @@ export default function LoginPage() {
         </form>
 
         <p style={{ textAlign: 'center', fontSize: 13, color: '#7B8794', marginTop: 20 }}>
-          No account?{' '}
+          No account yet?{' '}
           <Link to="/signup" style={{ color: '#0F766E', textDecoration: 'none', fontWeight: 600 }}>
             Create one free
+          </Link>
+        </p>
+        <p style={{ textAlign: 'center', fontSize: 13, color: '#7B8794', marginTop: 8 }}>
+          <Link to="/forgot-password" style={{ color: '#0F766E', textDecoration: 'none' }}>
+            Forgot your password?
           </Link>
         </p>
       </div>

@@ -6,6 +6,7 @@ import { createPool } from '@enrichment-saas/db';
 declare module 'fastify' {
   interface FastifyInstance {
     db: Pool;
+    authenticate: (request: any, reply: any) => Promise<void>;
   }
 }
 

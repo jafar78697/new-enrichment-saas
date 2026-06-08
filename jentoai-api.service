@@ -1,0 +1,18 @@
+[Unit]
+Description=JentoAI merged API (enrichment + calls on :3000)
+After=network.target
+
+[Service]
+Type=simple
+User=jafar-tayyar-siddiqi
+WorkingDirectory=/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas-aws/apps/api
+ExecStart=/home/jafar-tayyar-siddiqi/.nvm/versions/node/v20.19.6/bin/npx tsx src/index.ts
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PATH=/home/jafar-tayyar-siddiqi/.nvm/versions/node/v20.19.6/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+StandardOutput=append:/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas-aws/apps/api/api.log
+StandardError=append:/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas-aws/apps/api/api.log
+
+[Install]
+WantedBy=multi-user.target

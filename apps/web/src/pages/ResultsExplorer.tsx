@@ -119,6 +119,29 @@ export default function ResultsExplorerPage() {
             <p>CMS: <span className="text-text-primary">{selected.cms_guess || '—'}</span></p>
             <p>Ecommerce: <span className="text-text-primary">{selected.ecommerce_signal ? 'Yes' : 'No'}</span></p>
             <p>SaaS: <span className="text-text-primary">{selected.saas_signal ? 'Yes' : 'No'}</span></p>
+
+            <p className="font-medium text-text-secondary mt-3">Social Profiles</p>
+            {([
+              ['LinkedIn', selected.linkedin_url],
+              ['Facebook', selected.facebook_url],
+              ['Instagram', selected.instagram_url],
+              ['Twitter/X', selected.twitter_url],
+              ['YouTube', selected.youtube_url],
+              ['TikTok', selected.tiktok_url],
+              ['WhatsApp', selected.whatsapp_link],
+            ] as [string, string | null][]).map(([label, url]) => (
+              <p key={label}>
+                {label}:{' '}
+                {url ? (
+                  <a href={url} target="_blank" rel="noreferrer" className="text-brand-primary hover:underline break-all">
+                    {url.replace(/^https?:\/\//, '')}
+                  </a>
+                ) : (
+                  <span className="text-text-muted">—</span>
+                )}
+              </p>
+            ))}
+            <p className="text-text-muted text-[10px] mt-2">Scraped for context only — not used for automated messaging.</p>
           </div>
         </aside>
       )}

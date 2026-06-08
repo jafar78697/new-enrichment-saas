@@ -3,5 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+account_id = "738727b5f0ea48fe0789ed9651969ca8"
+
+routes = [
+  { pattern = "api.jentoai.pro", custom_domain = true, zone_id = "85131cafd240160f79ca5a77b8edb678" }
+]
+
 [vars]
 NODE_ENV = "production"

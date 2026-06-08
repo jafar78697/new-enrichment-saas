@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { jobsApi } from '../services/api';
 
@@ -12,7 +12,30 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function JobsListPage() {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ['jobs-list'], queryFn: () => jobsApi.list({ limit: 50 }).then(r => r.data) });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => jobsApi.remove(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs-list'] })
+  });
+
+  const clearAllMutation = useMutation({
+    mutationFn: () => jobsApi.clearAll(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs-list'] })
+  });
+
+  const handleDelete = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this job?')) {
+      deleteMutation.mutate(id);
+    }
+  };
+
+  const handleClearAll = () => {
+    if (window.confirm('Are you sure you want to clear ALL enrichment jobs? This cannot be undone.')) {
+      clearAllMutation.mutate();
+    }
+  };
 
   if (isLoading) return <div className="text-text-muted text-sm">Loading jobs...</div>;
 
@@ -20,15 +43,26 @@ export default function JobsListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="font-heading text-2xl font-bold text-text-primary">Jobs</h1>
-        <Link to="/jobs/new" className="bg-brand-primary hover:bg-brand-hover text-white px-4 py-2 rounded-lg text-sm font-medium">+ New Job</Link>
+        <div className="flex items-center gap-3">
+          {data?.jobs?.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              disabled={clearAllMutation.isPending}
+              className="bg-red-100 text-red-700 hover:bg-red-200 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              {clearAllMutation.isPending ? 'Clearing...' : 'Clear All'}
+            </button>
+          )}
+          <Link to="/jobs/new" className="bg-brand-primary hover:bg-brand-hover text-white px-4 py-2 rounded-lg text-sm font-medium">+ New Job</Link>
+        </div>
       </div>
 
       <div className="bg-surface border border-border-soft rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-subtle border-b border-border-soft">
             <tr>
-              {['Job ID', 'Mode', 'Status', 'Progress', 'Created'].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wide">{h}</th>
+              {['Job ID', 'Mode', 'Status', 'Progress', 'Created', ''].map((h, i) => (
+                <th key={i} className="px-4 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
@@ -54,6 +88,15 @@ export default function JobsListPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3 text-text-muted text-xs">{new Date(job.created_at).toLocaleDateString()}</td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    onClick={() => handleDelete(job.id)}
+                    className="text-gray-400 hover:text-red-600 transition-colors"
+                    title="Delete Job"
+                  >
+                    🗑️
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

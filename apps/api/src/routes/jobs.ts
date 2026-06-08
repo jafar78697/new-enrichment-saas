@@ -271,4 +271,38 @@ export default async function jobRoutes(fastify: FastifyInstance) {
 
     return reply.code(201).send({ job_id: job.id, status: JobStatus.QUEUED });
   });
+
+  // DELETE /v1/jobs/:id
+  fastify.delete('/v1/jobs/:id', {
+    preHandler: [fastify.authenticate as any]
+  }, async (request: any, reply) => {
+    const { tenantId } = request.tenant;
+    const { id } = request.params;
+    
+    const { rowCount } = await fastify.db.query(
+      `DELETE FROM enrichment_jobs WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    
+    if (rowCount === 0) return reply.code(404).send({ error: 'NOT_FOUND' });
+    return { success: true, message: 'Job deleted' };
+  });
+
+  // DELETE /v1/jobs
+  fastify.delete('/v1/jobs', {
+    preHandler: [fastify.authenticate as any]
+  }, async (request: any, reply) => {
+    const { tenantId, role } = request.tenant;
+    
+    if (role !== 'owner' && role !== 'manager') {
+      return reply.code(403).send({ error: 'FORBIDDEN', message: 'Only managers can clear all jobs' });
+    }
+    
+    const { rowCount } = await fastify.db.query(
+      `DELETE FROM enrichment_jobs WHERE tenant_id = $1`,
+      [tenantId]
+    );
+    
+    return { success: true, deletedCount: rowCount, message: 'All jobs cleared' };
+  });
 }

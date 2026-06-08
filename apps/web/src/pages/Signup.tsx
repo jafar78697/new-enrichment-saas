@@ -37,10 +37,10 @@ export default function SignupPage() {
             <div style={{ width: 32, height: 32, background: '#0F766E', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>E</span>
             </div>
-            <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 15, color: '#14202B' }}>Enrichment SaaS</span>
+            <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 15, color: '#14202B' }}>Enrichment Sys</span>
           </div>
           <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 24, fontWeight: 700, color: '#14202B', margin: '0 0 6px' }}>Create your account</h1>
-          <p style={{ color: '#52606D', fontSize: 14, margin: 0 }}>No outreach tools. Pure enrichment workflow.</p>
+          <p style={{ color: '#52606D', fontSize: 14, margin: 0 }}>Start your enrichment workflow without extra setup.</p>
         </div>
 
         {error && (
@@ -51,7 +51,7 @@ export default function SignupPage() {
 
         <form onSubmit={handleSubmit}>
           {[
-            { key: 'name', label: 'Your Name', type: 'text', placeholder: 'Jafar Tayyar' },
+            { key: 'name', label: 'Your name', type: 'text', placeholder: 'Jafar Tayyar' },
             { key: 'workspace_name', label: 'Company / Workspace', type: 'text', placeholder: 'Acme Corp' },
             { key: 'email', label: 'Email address', type: 'email', placeholder: 'you@company.com' },
             { key: 'password', label: 'Password', type: 'password', placeholder: '••••••••' },

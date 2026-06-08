@@ -22,3 +22,15 @@ services:
         sync: false
       - key: AWS_REGION
         value: us-east-1
+
+  # Calls Backend — NOW MERGED INTO apps/api (served at api.jentoai.pro/api/*).
+  # The separate Render service was retired; keep the entry commented so the
+  # required env vars are documented in one place. Set these same vars on the
+  # apps/api host (EC2/Render/wherever it runs) to enable Twilio voice:
+  #   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_API_KEY, TWILIO_API_SECRET,
+  #   TWILIO_TWIML_APP_SID, TWILIO_PHONE_NUMBER, JWT_SECRET, INVITE_BASE_URL,
+  #   DATABASE_PATH (writable path for calls.sqlite), MAILER_DB_PATH (for invite emails).
+  # Without Twilio vars the API still boots — only the dialer routes return 503.
+  #
+  # - type: web
+  #   name: jento-calls-backend  (removed — merged into apps/api)

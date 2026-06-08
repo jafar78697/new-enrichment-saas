@@ -1,0 +1,168 @@
+nohup: ignoring input
+{"level":30,"time":1778666547641,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"calls-module socket.io live"}
+🚀 API Server running on port 3000
+{"level":30,"time":1778666547652,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"Server listening at http://0.0.0.0:3000"}
+{"level":30,"time":1778666551935,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1","req":{"method":"GET","url":"/api/calls-health","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":33660},"msg":"incoming request"}
+[0mGET /api/calls-health [32m200[0m 1.629 ms - 28[0m
+{"level":30,"time":1778666551943,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1","res":{"statusCode":200},"responseTime":7.929304003715515,"msg":"request completed"}
+{"level":30,"time":1778666551952,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-2","req":{"method":"GET","url":"/api/auth/bootstrap-status","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":33668},"msg":"incoming request"}
+[0mGET /api/auth/bootstrap-status [32m200[0m 1.399 ms - 23[0m
+{"level":30,"time":1778666551955,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-2","res":{"statusCode":200},"responseTime":3.1584570109844208,"msg":"request completed"}
+{"level":30,"time":1778666551971,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-3","req":{"method":"POST","url":"/api/auth/bootstrap-manager","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":33684},"msg":"incoming request"}
+{"level":30,"time":1778666552108,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-3","res":{"statusCode":200},"responseTime":137.22026002407074,"msg":"request completed"}
+[0mPOST /api/auth/bootstrap-manager [32m200[0m 136.381 ms - 415[0m
+{"level":30,"time":1778666552116,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-4","req":{"method":"POST","url":"/api/auth/login","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":33688},"msg":"incoming request"}
+{"level":30,"time":1778666552226,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-4","res":{"statusCode":200},"responseTime":109.02966299653053,"msg":"request completed"}
+[0mPOST /api/auth/login [32m200[0m 108.273 ms - 415[0m
+{"level":30,"time":1778666662370,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-5","req":{"method":"GET","url":"/api/calls-health","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":54160},"msg":"incoming request"}
+[0mGET /api/calls-health [32m200[0m 3.962 ms - 28[0m
+{"level":30,"time":1778666662386,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-5","res":{"statusCode":200},"responseTime":14.575639009475708,"msg":"request completed"}
+{"level":30,"time":1778666662982,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-6","req":{"method":"POST","url":"/api/auth/login","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":54160},"msg":"incoming request"}
+[0mPOST /api/auth/login [32m200[0m 167.298 ms - 415[0m
+{"level":30,"time":1778666663157,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-6","res":{"statusCode":200},"responseTime":173.1776770055294,"msg":"request completed"}
+{"level":30,"time":1778666801950,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-7","req":{"method":"GET","url":"/api/calls-health","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":45442},"msg":"incoming request"}
+[0mGET /api/calls-health [32m200[0m 1.100 ms - 28[0m
+{"level":30,"time":1778666801955,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-7","res":{"statusCode":200},"responseTime":4.150616019964218,"msg":"request completed"}
+{"level":30,"time":1778666802379,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-8","req":{"method":"GET","url":"/api/calls-health","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":45456},"msg":"incoming request"}
+[0mGET /api/calls-health [32m200[0m 0.453 ms - 28[0m
+{"level":30,"time":1778666802383,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-8","res":{"statusCode":200},"responseTime":3.257537007331848,"msg":"request completed"}
+{"level":30,"time":1778667260910,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-9","req":{"method":"GET","url":"/","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":34088},"msg":"incoming request"}
+{"level":30,"time":1778667260913,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-9","msg":"Route GET:/ not found"}
+[0mGET / [33m404[0m 2.185 ms - 72[0m
+{"level":30,"time":1778667260915,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-9","res":{"statusCode":404},"responseTime":4.033585011959076,"msg":"request completed"}
+{"level":30,"time":1778667261517,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-a","req":{"method":"GET","url":"/favicon.ico","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":34088},"msg":"incoming request"}
+{"level":30,"time":1778667261522,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-a","msg":"Route GET:/favicon.ico not found"}
+[0mGET /favicon.ico [33m404[0m 1.578 ms - 83[0m
+{"level":30,"time":1778667261524,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-a","res":{"statusCode":404},"responseTime":6.1751919984817505,"msg":"request completed"}
+{"level":30,"time":1778667521599,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-b","req":{"method":"POST","url":"/api/auth/login","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":32928},"msg":"incoming request"}
+{"level":30,"time":1778667521774,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-b","res":{"statusCode":200},"responseTime":174.46805602312088,"msg":"request completed"}
+[0mPOST /api/auth/login [32m200[0m 171.061 ms - 415[0m
+{"level":30,"time":1778667522296,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-c","req":{"method":"POST","url":"/api/auth/login","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":32932},"msg":"incoming request"}
+[0mPOST /api/auth/login [32m200[0m 212.968 ms - 415[0m
+{"level":30,"time":1778667522512,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-c","res":{"statusCode":200},"responseTime":215.25067999958992,"msg":"request completed"}
+{"level":30,"time":1778932523569,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-d","req":{"method":"GET","url":"/","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":59656},"msg":"incoming request"}
+{"level":30,"time":1778932523675,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-d","msg":"Route GET:/ not found"}
+[0mGET / [33m404[0m 21.067 ms - 72[0m
+{"level":30,"time":1778932523693,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-d","res":{"statusCode":404},"responseTime":99.7920510172844,"msg":"request completed"}
+{"level":30,"time":1778932524328,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-e","req":{"method":"GET","url":"/favicon.ico","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":59656},"msg":"incoming request"}
+{"level":30,"time":1778932524336,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-e","msg":"Route GET:/favicon.ico not found"}
+[0mGET /favicon.ico [33m404[0m 1.159 ms - 83[0m
+{"level":30,"time":1778932524341,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-e","res":{"statusCode":404},"responseTime":11.029996991157532,"msg":"request completed"}
+{"level":30,"time":1778939108481,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-f","req":{"method":"GET","url":"/dashboard","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":35414},"msg":"incoming request"}
+[0mGET /dashboard [33m404[0m 34.525 ms - 81[0m
+{"level":30,"time":1778939108520,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-f","msg":"Route GET:/dashboard not found"}
+{"level":30,"time":1778939108521,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-f","res":{"statusCode":404},"responseTime":39.61184099316597,"msg":"request completed"}
+{"level":30,"time":1778939108699,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-g","req":{"method":"GET","url":"/favicon.ico","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":35414},"msg":"incoming request"}
+{"level":30,"time":1778939108704,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-g","msg":"Route GET:/favicon.ico not found"}
+[0mGET /favicon.ico [33m404[0m 4.202 ms - 83[0m
+{"level":30,"time":1778939108705,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-g","res":{"statusCode":404},"responseTime":6.075883001089096,"msg":"request completed"}
+{"level":30,"time":1778939113876,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-h","req":{"method":"GET","url":"/","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":35414},"msg":"incoming request"}
+{"level":30,"time":1778939113881,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-h","msg":"Route GET:/ not found"}
+[0mGET / [33m404[0m 2.820 ms - 72[0m
+{"level":30,"time":1778939113904,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-h","res":{"statusCode":404},"responseTime":28.03210699558258,"msg":"request completed"}
+{"level":30,"time":1778939130649,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-i","req":{"method":"GET","url":"/api/services","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":35414},"msg":"incoming request"}
+[0mGET /api/services [33m404[0m 32.208 ms - 46[0m
+{"level":30,"time":1778939130683,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-i","res":{"statusCode":404},"responseTime":33.79965898394585,"msg":"request completed"}
+{"level":30,"time":1778939155773,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-j","req":{"method":"GET","url":"/dashboard","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":35414},"msg":"incoming request"}
+[0mGET /dashboard [33m404[0m 2.227 ms - 81[0m
+{"level":30,"time":1778939155774,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-j","msg":"Route GET:/dashboard not found"}
+{"level":30,"time":1778939155777,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-j","res":{"statusCode":404},"responseTime":3.4174380004405975,"msg":"request completed"}
+{"level":30,"time":1778939244407,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-k","req":{"method":"GET","url":"/dashboard","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":55030},"msg":"incoming request"}
+{"level":30,"time":1778939244417,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-k","msg":"Route GET:/dashboard not found"}
+[0mGET /dashboard [33m404[0m 2.720 ms - 81[0m
+{"level":30,"time":1778939244420,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-k","res":{"statusCode":404},"responseTime":12.933134973049164,"msg":"request completed"}
+{"level":30,"time":1778939341449,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-l","req":{"method":"GET","url":"/test.html","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":60310},"msg":"incoming request"}
+{"level":30,"time":1778939341475,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-l","msg":"Route GET:/test.html not found"}
+[0mGET /test.html [33m404[0m 19.728 ms - 81[0m
+{"level":30,"time":1778939341481,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-l","res":{"statusCode":404},"responseTime":30.14444899559021,"msg":"request completed"}
+{"level":30,"time":1779025356748,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-m","req":{"method":"OPTIONS","url":"/api/employees","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52206},"msg":"incoming request"}
+{"level":30,"time":1779025356807,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-m","res":{"statusCode":204},"responseTime":42.63999396562576,"msg":"request completed"}
+{"level":30,"time":1779025356815,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-n","req":{"method":"OPTIONS","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52218},"msg":"incoming request"}
+{"level":30,"time":1779025356819,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-n","res":{"statusCode":204},"responseTime":3.2722820043563843,"msg":"request completed"}
+{"level":30,"time":1779025356821,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-o","req":{"method":"OPTIONS","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+{"level":30,"time":1779025356822,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-o","res":{"statusCode":204},"responseTime":0.847724974155426,"msg":"request completed"}
+{"level":30,"time":1779025356824,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-p","req":{"method":"OPTIONS","url":"/api/employees","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52230},"msg":"incoming request"}
+{"level":30,"time":1779025356824,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-p","res":{"statusCode":204},"responseTime":0.8565059900283813,"msg":"request completed"}
+{"level":30,"time":1779025357057,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-q","req":{"method":"GET","url":"/api/employees","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52230},"msg":"incoming request"}
+[0mGET /api/employees [33m401[0m 55.837 ms - 50[0m
+{"level":30,"time":1779025357138,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-q","res":{"statusCode":401},"responseTime":81.0474060177803,"msg":"request completed"}
+[0mGET /api/calls [32m200[0m 77.758 ms - 12[0m
+{"level":30,"time":1779025357142,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-r","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+{"level":30,"time":1779025357246,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-r","res":{"statusCode":200},"responseTime":103.82418894767761,"msg":"request completed"}
+{"level":30,"time":1779025357379,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-s","req":{"method":"GET","url":"/api/employees","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/employees [33m401[0m 0.861 ms - 50[0m
+{"level":30,"time":1779025357382,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-s","res":{"statusCode":401},"responseTime":2.899172008037567,"msg":"request completed"}
+{"level":30,"time":1779025357481,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-t","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 1.196 ms - 12[0m
+{"level":30,"time":1779025357483,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-t","res":{"statusCode":200},"responseTime":1.7194870114326477,"msg":"request completed"}
+{"level":30,"time":1779025357737,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-u","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 8.207 ms - 12[0m
+{"level":30,"time":1779025357748,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-u","res":{"statusCode":200},"responseTime":10.474983990192413,"msg":"request completed"}
+{"level":30,"time":1779025357988,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-v","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 2.257 ms - 12[0m
+{"level":30,"time":1779025357993,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-v","res":{"statusCode":200},"responseTime":4.173705995082855,"msg":"request completed"}
+{"level":30,"time":1779025358249,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-w","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 2.837 ms - 12[0m
+{"level":30,"time":1779025358255,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-w","res":{"statusCode":200},"responseTime":5.809758007526398,"msg":"request completed"}
+{"level":30,"time":1779025358494,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-x","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 1.673 ms - 12[0m
+{"level":30,"time":1779025358497,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-x","res":{"statusCode":200},"responseTime":3.721569001674652,"msg":"request completed"}
+{"level":30,"time":1779025358759,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-y","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 1.757 ms - 12[0m
+{"level":30,"time":1779025358763,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-y","res":{"statusCode":200},"responseTime":3.6877689957618713,"msg":"request completed"}
+{"level":30,"time":1779025359000,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-z","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 2.623 ms - 12[0m
+{"level":30,"time":1779025359005,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-z","res":{"statusCode":200},"responseTime":5.205833971500397,"msg":"request completed"}
+{"level":30,"time":1779025359244,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-10","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 3.265 ms - 12[0m
+{"level":30,"time":1779025359250,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-10","res":{"statusCode":200},"responseTime":6.138799965381622,"msg":"request completed"}
+{"level":30,"time":1779025359484,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-11","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 6.433 ms - 12[0m
+{"level":30,"time":1779025359492,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-11","res":{"statusCode":200},"responseTime":7.353300034999847,"msg":"request completed"}
+{"level":30,"time":1779025362760,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-12","req":{"method":"OPTIONS","url":"/api/employees","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+{"level":30,"time":1779025362760,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-12","res":{"statusCode":204},"responseTime":0.40187203884124756,"msg":"request completed"}
+{"level":30,"time":1779025362765,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-13","req":{"method":"OPTIONS","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+{"level":30,"time":1779025362766,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-13","res":{"statusCode":204},"responseTime":0.3564620018005371,"msg":"request completed"}
+{"level":30,"time":1779025362770,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-14","req":{"method":"OPTIONS","url":"/api/employees","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+{"level":30,"time":1779025362771,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-14","res":{"statusCode":204},"responseTime":0.4812450408935547,"msg":"request completed"}
+{"level":30,"time":1779025362773,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-15","req":{"method":"OPTIONS","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+{"level":30,"time":1779025362774,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-15","res":{"statusCode":204},"responseTime":0.38353103399276733,"msg":"request completed"}
+{"level":30,"time":1779025363005,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-16","req":{"method":"GET","url":"/api/employees","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/employees [33m401[0m 1.247 ms - 50[0m
+{"level":30,"time":1779025363015,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-16","res":{"statusCode":401},"responseTime":9.593891978263855,"msg":"request completed"}
+[0mGET /api/calls [32m200[0m 4.052 ms - 12[0m
+{"level":30,"time":1779025363017,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-17","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52230},"msg":"incoming request"}
+{"level":30,"time":1779025363024,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-17","res":{"statusCode":200},"responseTime":6.774590015411377,"msg":"request completed"}
+{"level":30,"time":1779025363256,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-18","req":{"method":"GET","url":"/api/employees","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52230},"msg":"incoming request"}
+[0mGET /api/employees [33m401[0m 1.300 ms - 50[0m
+{"level":30,"time":1779025363261,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-18","res":{"statusCode":401},"responseTime":4.478781998157501,"msg":"request completed"}
+[0mGET /api/calls [32m200[0m 2.498 ms - 12[0m
+{"level":30,"time":1779025363263,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-19","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+{"level":30,"time":1779025363268,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-19","res":{"statusCode":200},"responseTime":4.924443006515503,"msg":"request completed"}
+{"level":30,"time":1779025363514,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1a","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 8.077 ms - 12[0m
+{"level":30,"time":1779025363531,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1a","res":{"statusCode":200},"responseTime":16.541808009147644,"msg":"request completed"}
+{"level":30,"time":1779025363767,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1b","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 2.733 ms - 12[0m
+{"level":30,"time":1779025363773,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1b","res":{"statusCode":200},"responseTime":5.031969964504242,"msg":"request completed"}
+{"level":30,"time":1779025364014,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1c","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 2.253 ms - 12[0m
+{"level":30,"time":1779025364024,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1c","res":{"statusCode":200},"responseTime":9.681154012680054,"msg":"request completed"}
+{"level":30,"time":1779025364262,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1d","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 1.722 ms - 12[0m
+{"level":30,"time":1779025364266,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1d","res":{"statusCode":200},"responseTime":3.997296988964081,"msg":"request completed"}
+{"level":30,"time":1779025364519,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1e","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 0.579 ms - 12[0m
+{"level":30,"time":1779025364526,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1e","res":{"statusCode":200},"responseTime":6.66940701007843,"msg":"request completed"}
+{"level":30,"time":1779025364759,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1f","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 1.733 ms - 12[0m
+{"level":30,"time":1779025364762,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1f","res":{"statusCode":200},"responseTime":3.488154947757721,"msg":"request completed"}
+{"level":30,"time":1779025365018,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1g","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 2.067 ms - 12[0m
+{"level":30,"time":1779025365023,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1g","res":{"statusCode":200},"responseTime":4.75934898853302,"msg":"request completed"}
+{"level":30,"time":1779025365350,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1h","req":{"method":"GET","url":"/api/calls","hostname":"calls.jentoai.com","remoteAddress":"127.0.0.1","remotePort":52228},"msg":"incoming request"}
+[0mGET /api/calls [32m200[0m 1.624 ms - 12[0m
+{"level":30,"time":1779025365354,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1h","res":{"statusCode":200},"responseTime":3.6021010279655457,"msg":"request completed"}
+{"level":30,"time":1779039490090,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1i","req":{"method":"GET","url":"/health","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":43726},"msg":"incoming request"}
+{"level":30,"time":1779039490095,"pid":798592,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1i","res":{"statusCode":200},"responseTime":4.319736957550049,"msg":"request completed"}
+[0mGET /health [32m200[0m 3.258 ms - 54[0m

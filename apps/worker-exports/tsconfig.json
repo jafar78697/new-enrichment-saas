@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "skipLibCheck": true,
+    "noEmitOnError": false,
+    "strict": false,
+    "paths": {
+      "@enrichment-saas/queue": ["../../packages/queue/src/index.ts"],
+      "@enrichment-saas/contracts": ["../../packages/contracts/src/index.ts"],
+      "@enrichment-saas/db": ["../../packages/db/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

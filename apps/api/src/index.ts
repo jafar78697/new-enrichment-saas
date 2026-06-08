@@ -2,6 +2,8 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+// @ts-ignore — JS module shipped without types
+import expressPlugin from '@fastify/express';
 import dotenv from 'dotenv';
 import { AuthManager, TenantGuard } from '@enrichment-saas/auth';
 import { createPool } from '@enrichment-saas/db';
@@ -29,11 +31,21 @@ import authRoutes from './routes/auth';
 import jobRoutes from './routes/jobs';
 import apiKeyRoutes from './routes/api-keys';
 import billingRoutes from './routes/billing';
+import affiliateRoutes from './routes/affiliates';
+import passwordResetRoutes from './routes/password-reset';
+import publicEnrichRoutes from './routes/public-enrich';
+import crmRoutes from './routes/crm';
+import googleMapsRoutes from './routes/google-maps';
 
 fastify.register(authRoutes);
 fastify.register(jobRoutes);
 fastify.register(apiKeyRoutes);
 fastify.register(billingRoutes);
+fastify.register(affiliateRoutes);
+fastify.register(passwordResetRoutes);
+fastify.register(publicEnrichRoutes);
+fastify.register(crmRoutes);
+fastify.register(googleMapsRoutes);
 
 // Register Plugins
 fastify.register(helmet);
@@ -63,9 +75,53 @@ fastify.get('/health', async () => {
   return { status: 'ok', timestamp: new Date().toISOString() };
 });
 
+// ── Calls module mount ─────────────────────────────────────────────────
+// Mounts the unified Express-based calls-backend (auth, employees, twilio,
+// contacts, calls, agents) at /api/* on the same host that serves /v1/* for
+// enrichment. Lets app.jentoai.pro use ONE backend host for everything.
+async function mountCallsModule() {
+  await fastify.register(expressPlugin);
+  // @ts-ignore — JS interop
+  const { createCallsApp } = await import('./calls-module/mount.js');
+  // @ts-ignore — db init lazy
+  const { initializeDatabase } = await import('./calls-module/db/index.js');
+  try {
+    await initializeDatabase();
+  } catch (err) {
+    fastify.log.warn({ err }, 'calls-module DB init failed — calls features disabled');
+    return;
+  }
+  // @ts-ignore — express type
+  fastify.use(createCallsApp());
+
+  // socket.io is wired only when Twilio is configured; otherwise the live
+  // dialer events stay dormant but the rest of /api keeps working.
+  // @ts-ignore — JS interop
+  const { CALLS_ENABLED } = await import('./calls-module/config/env.js');
+  if (CALLS_ENABLED) {
+    try {
+      // @ts-ignore — JS interop
+      const { Server } = await import('socket.io');
+      // @ts-ignore — JS interop
+      const { initializeSocket } = await import('./calls-module/services/socket.service.js');
+      const io = new Server(fastify.server, {
+        cors: { origin: true, credentials: true },
+        path: '/socket.io',
+      });
+      initializeSocket(io);
+      fastify.log.info('calls-module socket.io live');
+    } catch (err) {
+      fastify.log.warn({ err }, 'socket.io init failed');
+    }
+  } else {
+    fastify.log.info('calls-module mounted (Twilio disabled — set TWILIO_* env vars to enable)');
+  }
+}
+
 // Start Server
 const start = async () => {
   try {
+    await mountCallsModule();
     const port = parseInt(process.env.PORT || '3000');
     await fastify.listen({ port, host: '0.0.0.0' });
     console.log(`🚀 API Server running on port ${port}`);

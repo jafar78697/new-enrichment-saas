@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 
 export class StripeService {
-  private stripe: Stripe;
+  private stripe: InstanceType<typeof Stripe>;
 
   constructor(apiKey: string) {
     this.stripe = new Stripe(apiKey, {

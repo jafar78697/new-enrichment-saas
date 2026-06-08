@@ -14,15 +14,23 @@ api.interceptors.response.use(
   (r) => r,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('enr_token');
-      window.location.href = '/login';
+      // If the user is signed in via the calls-module JWT, a 401 from a /v1/*
+      // endpoint just means that endpoint doesn't accept this token (Clerk-only
+      // routes). Don't kick the user back to login — let the page show its own
+      // empty/error state.
+      const hasCallSession = !!localStorage.getItem('call_token');
+      if (!hasCallSession) {
+        localStorage.removeItem('enr_token');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(err);
   }
 );
 
-// Mock mode — active when VITE_MOCK=true (no backend needed)
-const MOCK = import.meta.env.VITE_MOCK === 'true';
+// Mock mode — always ON until a real backend is configured
+// To connect real backend: set VITE_MOCK=false in .env
+const MOCK = import.meta.env.VITE_MOCK !== 'false';
 const delay = (ms = 400) => new Promise(r => setTimeout(r, ms));
 
 const MOCK_TOKEN = 'mock-jwt-dev';
@@ -81,6 +89,14 @@ export const jobsApi = {
   export: async (id: string, format: string) => {
     if (MOCK) { await delay(); return { data: { export_id: 'exp-' + Date.now(), status: 'pending' } }; }
     return api.post(`/jobs/${id}/export`, { format });
+  },
+  remove: async (id: string) => {
+    if (MOCK) { await delay(); return { data: { success: true } }; }
+    return api.delete(`/jobs/${id}`);
+  },
+  clearAll: async () => {
+    if (MOCK) { await delay(); return { data: { success: true, deletedCount: MOCK_JOBS.length } }; }
+    return api.delete(`/jobs`);
   },
 };
 

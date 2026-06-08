@@ -1,41 +1,58 @@
+import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
+import { getCallUser } from './services/employeesApi';
 import Layout from './components/Layout';
-import LoginPage from './pages/Login';
+import LandingPage from './pages/Landing';
 import SignupPage from './pages/Signup';
 import DashboardPage from './pages/Dashboard';
-import NewJobPage from './pages/NewJob';
-import JobsListPage from './pages/JobsList';
-import JobDetailPage from './pages/JobDetail';
-import ResultsExplorerPage from './pages/ResultsExplorer';
-import BillingPage from './pages/Billing';
-import ApiKeysPage from './pages/ApiKeys';
-import IntegrationsPage from './pages/Integrations';
-import TeamSettingsPage from './pages/TeamSettings';
+import CallLoginPage from './pages/CallLogin';
+import AcceptInvitePage from './pages/AcceptInvite';
+import CallLogsPage from './pages/CallLogs';
+import CallDetailPage from './pages/CallDetail';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+// New pages
+import EnrichmentPage from './pages/Enrichment';
+import LeadsPage from './pages/Leads';
+import AccessManagementPage from './pages/AccessManagement';
+import EmployeesPage from './pages/Employees';
+import TwilioNumbersPage from './pages/TwilioNumbers';
+import GoogleMapScraperPage from './pages/GoogleMapScraper';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
-  return token ? <>{children}</> : <Navigate to="/login" replace />;
+  return token ? <>{children}</> : <Navigate to="/call-login" replace />;
+}
+
+function ManagerRoute({ children }: { children: React.ReactNode }) {
+  const callUser = getCallUser();
+  return callUser?.role === 'manager' ? <>{children}</> : <Navigate to="/contacts" replace />;
 }
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<Navigate to="/call-login" replace />} />
         <Route path="/signup" element={<SignupPage />} />
-        <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
           <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="jobs/new" element={<NewJobPage />} />
-          <Route path="jobs" element={<JobsListPage />} />
-          <Route path="jobs/:id" element={<JobDetailPage />} />
-          <Route path="results/:jobId" element={<ResultsExplorerPage />} />
-          <Route path="billing" element={<BillingPage />} />
-          <Route path="api-keys" element={<ApiKeysPage />} />
-          <Route path="integrations" element={<IntegrationsPage />} />
-          <Route path="settings/team" element={<TeamSettingsPage />} />
+          <Route path="enrichment" element={<EnrichmentPage />} />
+          <Route path="leads" element={<LeadsPage />} />
+          <Route path="access" element={<AccessManagementPage />} />
+          <Route path="employees" element={<EmployeesPage />} />
+          <Route path="twilio-numbers" element={<TwilioNumbersPage />} />
+          <Route path="calls" element={<CallLogsPage />} />
+          <Route path="calls/:id" element={<CallDetailPage />} />
+          <Route path="google-maps" element={<GoogleMapScraperPage />} />
         </Route>
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/call-login" element={<CallLoginPage />} />
+        <Route path="/accept-invite" element={<AcceptInvitePage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

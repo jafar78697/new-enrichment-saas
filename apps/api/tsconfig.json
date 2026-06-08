@@ -4,8 +4,12 @@
     "rootDir": "src",
     "outDir": "dist",
     "skipLibCheck": true,
+    "noEmit": true,
     "noEmitOnError": false,
-    "strict": false
+    "strict": false,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false
   },
   "include": ["src/**/*"]
 }
