@@ -246,7 +246,7 @@ def calculate_ai_score(emails: list, phones: list, tech: list, industry: str, pi
             score += 10
     return min(score, 100)
 
-def sync_to_contacts_pg(domain: str, emails: list, phones: list, socials: dict, ai_score: int, company_name: str | None):
+def sync_to_contacts_pg(domain: str, emails: list, phones: list, socials: dict, ai_score: int, company_name: str | None, needs_browser: bool = False):
     try:
         with engine.connect() as conn:
             # PostgreSQL syntax: ILIKE for case-insensitive matching
@@ -281,6 +281,10 @@ def sync_to_contacts_pg(domain: str, emails: list, phones: list, socials: dict, 
                 
                 updates.append("score = :score")
                 params["score"] = score
+                
+                if needs_browser:
+                    updates.append("stage = :stage")
+                    params["stage"] = "needs_browser"
                 
                 if updates:
                     query = f"UPDATE contacts SET {', '.join(updates)} WHERE id = :contact_id"
@@ -441,10 +445,13 @@ async def process_task(task: dict):
     confidence = score_confidence(all_emails, all_phones, social_mapping, all_meta)
 
     # JS detection for smart_hybrid
+    needs_browser = False
     if mode == 'smart_hybrid' and is_js_heavy(html) and not all_emails and not all_phones:
-        logger.info(f"JS-heavy detected for {normalized_domain}, but browser worker is disabled. Saving HTTP results.")
-        # We skip escalating to browser queue because the browser worker is not deployed
-        pass
+        logger.info(f"JS-heavy detected for {normalized_domain}, escalating to browser.")
+        needs_browser = True
+    elif not all_emails and not all_phones:
+        # If we couldn't find anything via HTTP, escalate to browser queue anyway
+        needs_browser = True
 
     # Save result
     save_result(job_item_id, tenant_id, normalized_domain, all_emails, all_phones, social_mapping, all_meta, all_tech, industry, pitch, confidence, 'http')
@@ -452,7 +459,7 @@ async def process_task(task: dict):
     # Sync to PostgreSQL so it shows up in the Leads dashboard immediately
     company_name = all_meta.get('title') if all_meta else None
     ai_score = calculate_ai_score(all_emails, all_phones, all_tech, industry, pitch)
-    sync_to_contacts_pg(normalized_domain, all_emails, all_phones, social_mapping, ai_score, company_name)
+    sync_to_contacts_pg(normalized_domain, all_emails, all_phones, social_mapping, ai_score, company_name, needs_browser)
     
     status = 'completed' if all_emails or all_phones else 'partial'
     update_job_item_status(job_item_id, status)

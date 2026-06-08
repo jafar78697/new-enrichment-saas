@@ -30,8 +30,9 @@ export default function EnrichmentPage() {
   const leads = data?.contacts || [];
   
   // Categorize leads
-  const pendingLeads = leads.filter(l => !l.score || l.score <= 0);
-  const enrichedLeads = leads.filter(l => l.score && l.score > 0);
+  const pendingLeads = leads.filter(l => (!l.score || l.score <= 0) && l.stage !== 'needs_browser');
+  const browserLeads = leads.filter(l => l.stage === 'needs_browser');
+  const enrichedLeads = leads.filter(l => l.score && l.score > 0 && l.stage !== 'needs_browser');
   
   const handleClearAll = () => {
     if (window.confirm('Are you sure you want to clear ALL leads? This cannot be undone.')) {
@@ -136,21 +137,30 @@ export default function EnrichmentPage() {
       </div>
 
       {/* Live Dashboard */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
         <div style={{ background: '#fff', padding: 24, borderRadius: 16, border: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase' }}>Total Scraped</span>
           <span style={{ fontSize: 32, fontWeight: 800, color: '#111827' }}>{leads.length}</span>
         </div>
         <div style={{ background: '#F0FDFA', padding: 24, borderRadius: 16, border: '1px solid #A7F3D0', display: 'flex', flexDirection: 'column', gap: 8, position: 'relative', overflow: 'hidden' }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#047857', textTransform: 'uppercase' }}>Enriched & Sent to Leads</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#047857', textTransform: 'uppercase' }}>Ready (Enriched)</span>
           <span style={{ fontSize: 32, fontWeight: 800, color: '#065F46', display: 'flex', alignItems: 'center', gap: 12 }}>
             {enrichedLeads.length}
-            {enrichedLeads.length > 0 && <span style={{ fontSize: 14, background: '#D1FAE5', color: '#065F46', padding: '4px 8px', borderRadius: 12, fontWeight: 700 }}>Ready</span>}
+            {enrichedLeads.length > 0 && <span style={{ fontSize: 14, background: '#D1FAE5', color: '#065F46', padding: '4px 8px', borderRadius: 12, fontWeight: 700 }}>Sent</span>}
           </span>
+        </div>
+        <div style={{ background: '#EEF2FF', padding: 24, borderRadius: 16, border: '1px solid #C7D2FE', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#4338CA', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+            Browser Queue
+            {browserLeads.length > 0 && (
+              <span style={{ display: 'inline-block', width: 8, height: 8, background: '#6366F1', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />
+            )}
+          </span>
+          <span style={{ fontSize: 32, fontWeight: 800, color: '#312E81' }}>{browserLeads.length}</span>
         </div>
         <div style={{ background: '#FEF2F2', padding: 24, borderRadius: 16, border: '1px solid #FECACA', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#B91C1C', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
-            Pending Enrichment
+            Pending HTTP
             {pendingLeads.length > 0 && (
               <span style={{ display: 'inline-block', width: 8, height: 8, background: '#EF4444', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />
             )}
@@ -178,7 +188,23 @@ export default function EnrichmentPage() {
                   animation: 'pulse 1.5s infinite' 
                 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }}></span>
-                  {pendingLeads.length} Remaining
+                  {pendingLeads.length} Processing
+                </span>
+              )}
+              {browserLeads.length > 0 && (
+                <span style={{ 
+                  fontSize: 12, 
+                  padding: '4px 10px', 
+                  background: '#EEF2FF', 
+                  color: '#4338CA', 
+                  borderRadius: 12, 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  animation: 'pulse 1.5s infinite' 
+                }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366F1' }}></span>
+                  {browserLeads.length} Escalated
                 </span>
               )}
               {enrichedLeads.length > 0 && (
@@ -217,16 +243,11 @@ export default function EnrichmentPage() {
             <tr style={{ background: '#F6F7F2', borderBottom: '2px solid #D8E1D7' }}>
               <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Lead Name</th>
               <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Website</th>
-              <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Status</th>
+              <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Status / Queue</th>
             </tr>
           </thead>
           <tbody>
-            {/* 
-              USER REQUIREMENT IMPLEMENTED: 
-              Only show pending leads in this table.
-              Leads that are enriched will disappear from here and show up in the main 'Leads' page.
-            */}
-            {pendingLeads.length === 0 && leads.length > 0 && (
+            {(pendingLeads.length === 0 && browserLeads.length === 0) && leads.length > 0 && (
               <tr>
                 <td colSpan={3} style={{ padding: 40, textAlign: 'center', color: '#059669', fontWeight: 600 }}>
                   All scraped leads have been successfully enriched! Check the Leads section.
@@ -238,6 +259,38 @@ export default function EnrichmentPage() {
                 <td colSpan={3} style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>No leads found. Scrape some leads first!</td>
               </tr>
             )}
+            
+            {/* Show Browser Leads First (so user sees them escalated) */}
+            {browserLeads.map(lead => (
+              <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: '#F8FAFC' }}>
+                <td style={{ padding: '16px', fontWeight: 600, color: '#1E293B' }}>
+                  {lead.name}
+                </td>
+                <td style={{ padding: '16px' }}>
+                  <a href={lead.website} target="_blank" rel="noopener noreferrer" style={{ color: '#0F766E', textDecoration: 'none' }}>
+                    {lead.website}
+                  </a>
+                </td>
+                <td style={{ padding: '16px' }}>
+                  <span style={{
+                    background: '#EEF2FF',
+                    color: '#4338CA',
+                    padding: '6px 12px',
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    border: '1px solid #C7D2FE'
+                  }}>
+                    Headless Browser Escalated
+                  </span>
+                </td>
+              </tr>
+            ))}
+
+            {/* Show Pending HTTP Leads Below */}
             {pendingLeads.map(lead => (
               <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: '#fff' }}>
                 <td style={{ padding: '16px', fontWeight: 600, color: '#14202B' }}>
@@ -260,14 +313,7 @@ export default function EnrichmentPage() {
                     alignItems: 'center',
                     gap: 6
                   }}>
-                    {/* 
-                      PERFORMANCE OPTIMIZATION: 
-                      Removed the <svg className="animate-spin ..."> here.
-                      Having hundreds of spinning SVGs in a long table causes the browser's 
-                      GPU/CPU to max out and the UI to lag terribly. 
-                      A simple text indicator is much faster to render.
-                    */}
-                    Pending Enrichment
+                    Pending HTTP
                   </span>
                 </td>
               </tr>
