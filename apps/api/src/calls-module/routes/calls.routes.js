@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/index.js';
-import { twilioClient } from '../config/twilio.js';
+import { twilioClient, twilio } from '../config/twilio.js';
 import { asyncHandler, AppError } from '../utils/errors.js';
 import { absoluteUrl } from '../utils/http.js';
 import { emitToAgent } from '../services/socket.service.js';
@@ -245,6 +245,57 @@ router.get(
 
     res.setHeader('Content-Type', 'audio/mpeg');
     response.data.pipe(res);
+  })
+);
+
+router.post(
+  '/:callSid/transfer',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const params = z.object({
+      callSid: z.string().min(1)
+    }).parse(req.params);
+
+    const payload = z.object({
+      targetAgentId: z.coerce.number().int().positive()
+    }).parse(req.body);
+
+    const targetAgentResult = await query(
+      `SELECT id, twilio_identity FROM agents WHERE id = $1 AND is_available = true AND status = 'active' LIMIT 1`,
+      [payload.targetAgentId]
+    );
+
+    const targetAgent = targetAgentResult.rows[0];
+    if (!targetAgent) {
+      throw new AppError('Target closer is not available or does not exist', 400);
+    }
+
+    if (!targetAgent.twilio_identity) {
+      throw new AppError('Target closer does not have a Twilio identity setup', 400);
+    }
+
+    const callRecord = await query(
+      `SELECT id, call_sid, child_call_sid FROM calls WHERE call_sid = $1 OR child_call_sid = $1 LIMIT 1`,
+      [params.callSid]
+    );
+
+    if (callRecord.rows.length === 0) {
+      throw new AppError('Call record not found in database', 404);
+    }
+
+    // Always transfer the parent call (the customer's leg)
+    const parentCallSid = callRecord.rows[0].call_sid;
+
+    const response = new twilio.twiml.VoiceResponse();
+    response.say({ voice: 'alice' }, 'Please hold while we transfer your call.');
+    const dial = response.dial({ answerOnBridge: true });
+    dial.client(targetAgent.twilio_identity);
+
+    await twilioClient.calls(parentCallSid).update({
+      twiml: response.toString()
+    });
+
+    res.json({ success: true, message: 'Call transferred successfully' });
   })
 );
 

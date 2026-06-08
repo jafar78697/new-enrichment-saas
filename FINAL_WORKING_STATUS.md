@@ -14,7 +14,7 @@ API:      http://localhost:3000
 
 ### **Production (Not Ready Yet):**
 ```
-Frontend: https://app.jentoai.pro  (needs EC2 API)
+Frontend: https://app.jentoai.pro  (needs Google Cloud VM API)
 API:      https://api.jentoai.pro  (NOT running)
 ```
 
@@ -163,7 +163,7 @@ tail -f /tmp/api.log
 ### **DO NOT Use https://app.jentoai.pro**
 ```
 ❌ Points to Cloudflare Pages
- Backend API is on EC2 (not running)
+ Backend API is on Google Cloud VM (not running)
  Will get "Authentication required" errors
 ```
 

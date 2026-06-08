@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import employeesApi from '../services/employeesApi';
 import callsApi from '../services/callsApi';
+import teamsApi from '../services/teamsApi';
 
 function formatDuration(seconds: number | null | undefined): string {
   if (!seconds) return '0:00';
@@ -19,6 +20,7 @@ function formatLongDuration(seconds: number | null | undefined): string {
 
 export default function EmployeesPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<number | null>(null);
+  const [teamFilter, setTeamFilter] = useState<string>('');
 
   const { data: employeesData, isLoading: isLoadingEmployees } = useQuery({
     queryKey: ['employees'],
@@ -31,7 +33,18 @@ export default function EmployeesPage() {
     enabled: !!selectedEmployee,
   });
 
+  const { data: teamsData } = useQuery({
+    queryKey: ['teams'],
+    queryFn: () => teamsApi.list()
+  });
+
   const employees = employeesData?.employees || [];
+  const teams = teamsData?.teams || [];
+  
+  const filteredEmployees = teamFilter 
+    ? employees.filter((e: any) => e.team_id === Number(teamFilter))
+    : employees;
+
   const selected = employees.find(e => e.id === selectedEmployee);
   
   const recordings = callsData?.calls?.filter(c => c.recording_url) || [];
@@ -48,6 +61,19 @@ export default function EmployeesPage() {
         </p>
       </div>
 
+      <div style={{ marginBottom: 24, display: 'flex', gap: 16 }}>
+        <select 
+          value={teamFilter} 
+          onChange={e => setTeamFilter(e.target.value)}
+          style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #D8E1D7', fontSize: 14 }}
+        >
+          <option value="">All Teams</option>
+          {teams.map(t => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+      </div>
+
       {isLoadingEmployees && (
         <div style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>Loading employees...</div>
       )}
@@ -55,7 +81,7 @@ export default function EmployeesPage() {
       {/* Employee Cards */}
       {!isLoadingEmployees && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20, marginBottom: 32 }}>
-          {employees.map(emp => (
+          {filteredEmployees.map(emp => (
             <div
               key={emp.id}
               onClick={() => setSelectedEmployee(selectedEmployee === emp.id ? null : emp.id)}
@@ -85,9 +111,14 @@ export default function EmployeesPage() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 16, color: '#14202B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.name}</div>
                   <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.email}</div>
-                  <div style={{ fontSize: 12, color: '#0F766E', fontWeight: 600 }}>
+                  <div style={{ fontSize: 12, color: '#0F766E', fontWeight: 600, marginBottom: 4 }}>
                     {emp.twilio_phone_number ? `📱 ${emp.twilio_phone_number}` : 'No Twilio Number'}
                   </div>
+                  {(emp as any).team_name && (
+                    <div style={{ fontSize: 11, background: '#F5F3FF', color: '#6D28D9', padding: '2px 8px', borderRadius: 4, display: 'inline-block', fontWeight: 600 }}>
+                      👥 {(emp as any).team_name}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -110,26 +141,51 @@ export default function EmployeesPage() {
               )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {/* Today's Stats */}
+                <div style={{ background: '#F0FDF4', padding: 12, borderRadius: 8, border: '1px solid #BBF7D0' }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#166534' }}>{emp.today_leads || 0}</div>
+                  <div style={{ fontSize: 12, color: '#15803D', fontWeight: 600 }}>Leads Today</div>
+                </div>
+                <div style={{ background: '#EFF6FF', padding: 12, borderRadius: 8, border: '1px solid #BFDBFE' }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#1E40AF' }}>{emp.today_calls || 0}</div>
+                  <div style={{ fontSize: 12, color: '#1D4ED8', fontWeight: 600 }}>Calls Today</div>
+                </div>
+
+                {/* Total Stats */}
                 <div style={{ background: '#F6F7F2', padding: 12, borderRadius: 8 }}>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#0F766E' }}>{emp.total_calls || 0}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#0F766E' }}>{emp.total_calls || 0}</div>
                   <div style={{ fontSize: 12, color: '#7B8794' }}>Total Calls</div>
                 </div>
                 <div style={{ background: '#F6F7F2', padding: 12, borderRadius: 8 }}>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#10B981' }}>{emp.connected_calls || 0}</div>
-                  <div style={{ fontSize: 12, color: '#7B8794' }}>Connected</div>
-                </div>
-                <div style={{ background: '#F6F7F2', padding: 12, borderRadius: 8 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#6D28D9' }}>{formatLongDuration(emp.total_seconds)}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#6D28D9' }}>{formatLongDuration(emp.total_seconds)}</div>
                   <div style={{ fontSize: 12, color: '#7B8794' }}>Talk Time</div>
                 </div>
-                <div style={{ background: '#F6F7F2', padding: 12, borderRadius: 8 }}>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#F59E0B' }}>{emp.recordings_count || 0}</div>
-                  <div style={{ fontSize: 12, color: '#7B8794' }}>Recordings</div>
-                </div>
+              </div>
+
+              {/* Call Recordings Prompt */}
+              <div style={{ marginTop: 16, textAlign: 'center' }}>
+                <button
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #D8E1D7',
+                    color: '#0F766E',
+                    padding: '8px 16px',
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    width: '100%',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseOver={e => (e.currentTarget.style.background = '#F6F7F2')}
+                  onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  {selectedEmployee === emp.id ? 'Hide Call Recordings ▲' : 'View Twilio Call Recordings ▼'}
+                </button>
               </div>
             </div>
           ))}
-          {employees.length === 0 && (
+          {filteredEmployees.length === 0 && (
             <div style={{ gridColumn: '1 / -1', padding: 40, textAlign: 'center', color: '#7B8794', background: '#fff', borderRadius: 12, border: '1px solid #D8E1D7' }}>
               No employees found.
             </div>

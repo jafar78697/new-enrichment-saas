@@ -35,7 +35,7 @@ import affiliateRoutes from './routes/affiliates';
 import passwordResetRoutes from './routes/password-reset';
 import publicEnrichRoutes from './routes/public-enrich';
 import crmRoutes from './routes/crm';
-import googleMapsRoutes from './routes/google-maps';
+import outreachRoutes from './routes/outreach';
 
 fastify.register(authRoutes);
 fastify.register(jobRoutes);
@@ -45,7 +45,7 @@ fastify.register(affiliateRoutes);
 fastify.register(passwordResetRoutes);
 fastify.register(publicEnrichRoutes);
 fastify.register(crmRoutes);
-fastify.register(googleMapsRoutes);
+fastify.register(outreachRoutes);
 
 // Register Plugins
 fastify.register(helmet);
@@ -61,12 +61,36 @@ fastify.register(rateLimit, {
 });
 
 // Middleware for Auth
+import jwt from 'jsonwebtoken';
+
 fastify.decorate('authenticate', async (request: any, reply: any) => {
+  const authHeader = request.headers.authorization;
+  if (!authHeader) {
+    return reply.code(401).send({ error: 'Missing token' });
+  }
+
   try {
-    const authHeader = request.headers.authorization;
+    // Try the original enrichment token format first
     request.tenant = tenantGuard.authorizeRequest(authHeader);
   } catch (err: any) {
-    reply.code(401).send({ error: err.message });
+    // Fallback to the new calls-module token (call_token)
+    try {
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret-change-me-change-me-change-me');
+      
+      // Mock a tenant object so Fastify enrichment routes don't crash.
+      // We map the calls-module user to a default tenant.
+      request.tenant = { 
+        tenantId: 'c1f6f7a0-f75d-46a2-afc7-810bde42c467', 
+        userId: '40c3d04e-2394-4471-b5c6-251a17063fdd', 
+        workspaceId: null, 
+        plan: 'pro',
+        role: (decoded as any).role || 'owner'
+      };
+      request.user = decoded;
+    } catch (fallbackErr: any) {
+      reply.code(401).send({ error: 'Invalid token: ' + fallbackErr.message });
+    }
   }
 });
 

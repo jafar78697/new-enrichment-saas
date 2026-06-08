@@ -13,13 +13,13 @@ SOCIAL_REGEXES = {
     'telegram': re.compile(r't\.me/([^/?\s]+)')
 }
 
-def extract_socials(html: str) -> dict[str, str]:
+def extract_socials(html: str) -> list[str]:
     """
     Extracts social media links from HTML.
-    Returns a dictionary mapping platform name to link.
+    Returns a list of social media URLs.
     """
     if not html:
-        return {}
+        return []
 
     results = {}
     from bs4 import BeautifulSoup
@@ -33,7 +33,10 @@ def extract_socials(html: str) -> dict[str, str]:
             if regex.search(href):
                 # Ensure it's a full URL if it doesn't have protocol
                 if not href.startswith('http'):
-                    continue # Should be caught by common scraping
+                    if href.startswith('//'):
+                        href = 'https:' + href
+                    else:
+                        href = 'https://' + href.lstrip('/')
                 results[platform] = href
                 
     # 2. From text fallback
@@ -44,7 +47,7 @@ def extract_socials(html: str) -> dict[str, str]:
             # Reconstruct URL if only part found (optional, better to stay with links)
             pass
             
-    return results
+    return list(results.values())
 
 def is_linkedin_company(url: str) -> bool:
     """Check if LinkedIn URL is for a company or personal profile."""

@@ -75,7 +75,7 @@ export default function EnrichmentPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 28, fontWeight: 700, color: '#14202B', margin: '0 0 8px' }}>
-            ✨ Smart Enrichment
+            Smart Enrichment
           </h1>
           <p style={{ color: '#52606D', fontSize: 15, margin: 0 }}>
             Automatically enrich your scraped leads with Deep Research
@@ -129,7 +129,7 @@ export default function EnrichmentPage() {
                 Starting...
               </span>
             ) : (
-              <>🚀 Enrich {pendingLeads.length} Pending Leads</>
+              <>Start Enrichment ({pendingLeads.length} Pending)</>
             )}
           </button>
         </div>
@@ -142,7 +142,7 @@ export default function EnrichmentPage() {
           <span style={{ fontSize: 32, fontWeight: 800, color: '#111827' }}>{leads.length}</span>
         </div>
         <div style={{ background: '#F0FDFA', padding: 24, borderRadius: 16, border: '1px solid #A7F3D0', display: 'flex', flexDirection: 'column', gap: 8, position: 'relative', overflow: 'hidden' }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#047857', textTransform: 'uppercase' }}>✅ Enriched & Sent to Leads</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#047857', textTransform: 'uppercase' }}>Enriched & Sent to Leads</span>
           <span style={{ fontSize: 32, fontWeight: 800, color: '#065F46', display: 'flex', alignItems: 'center', gap: 12 }}>
             {enrichedLeads.length}
             {enrichedLeads.length > 0 && <span style={{ fontSize: 14, background: '#D1FAE5', color: '#065F46', padding: '4px 8px', borderRadius: 12, fontWeight: 700 }}>Ready</span>}
@@ -150,7 +150,7 @@ export default function EnrichmentPage() {
         </div>
         <div style={{ background: '#FEF2F2', padding: 24, borderRadius: 16, border: '1px solid #FECACA', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#B91C1C', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
-            ⏳ Pending Enrichment
+            Pending Enrichment
             {pendingLeads.length > 0 && (
               <span style={{ display: 'inline-block', width: 8, height: 8, background: '#EF4444', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />
             )}
@@ -183,7 +183,7 @@ export default function EnrichmentPage() {
               )}
               {enrichedLeads.length > 0 && (
                 <span style={{ fontSize: 12, padding: '4px 10px', background: '#F0FDFA', color: '#047857', borderRadius: 12 }}>
-                  ✅ {enrichedLeads.length} Completed
+                  {enrichedLeads.length} Completed
                 </span>
               )}
             </div>
@@ -229,7 +229,7 @@ export default function EnrichmentPage() {
             {pendingLeads.length === 0 && leads.length > 0 && (
               <tr>
                 <td colSpan={3} style={{ padding: 40, textAlign: 'center', color: '#059669', fontWeight: 600 }}>
-                  🎉 All scraped leads have been successfully enriched! Check the Leads section.
+                  All scraped leads have been successfully enriched! Check the Leads section.
                 </td>
               </tr>
             )}
@@ -267,7 +267,7 @@ export default function EnrichmentPage() {
                       GPU/CPU to max out and the UI to lag terribly. 
                       A simple text indicator is much faster to render.
                     */}
-                    ⏳ Pending Enrichment
+                    Pending Enrichment
                   </span>
                 </td>
               </tr>

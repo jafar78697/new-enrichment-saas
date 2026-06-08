@@ -3,14 +3,14 @@ import { env } from '../config/env.js';
 
 async function updateTwilio() {
   try {
-    const baseUrl = env.PUBLIC_BASE_URL;
+    const baseUrl = env.PUBLIC_BASE_URL.replace(/\/$/, '');
     if (!baseUrl) {
       console.error('PUBLIC_BASE_URL is missing in .env');
       process.exit(1);
     }
 
-    const inboundUrl = `${baseUrl}/api/twiml/inbound`;
-    const outboundUrl = `${baseUrl}/api/twiml/outbound`;
+    const inboundUrl = `${baseUrl}/api/twilio/twiml/inbound`;
+    const outboundUrl = `${baseUrl}/api/twilio/twiml/outbound`;
 
     console.log(`Setting Twilio Webhooks to: 
     - Inbound: ${inboundUrl}

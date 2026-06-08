@@ -380,7 +380,7 @@ function AddEmployeeModal({
     setBusy(true);
     try {
       const { employee, generatedPassword } = await employeesApi.create({
-        name: trimmedName, email: trimmedEmail,
+        name: trimmedName, username: trimmedEmail.split('@')[0],
         nicheIds: selectedNiches.length > 0 ? selectedNiches : undefined,
       });
       onCreated(employee, generatedPassword);

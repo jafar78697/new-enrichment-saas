@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS agents (
   stats_total_calls INTEGER NOT NULL DEFAULT 0,
   stats_connected_calls INTEGER NOT NULL DEFAULT 0,
   stats_total_seconds INTEGER NOT NULL DEFAULT 0,
+  team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CHECK (twilio_identity <> ''),
@@ -90,3 +91,13 @@ CREATE TABLE IF NOT EXISTS employee_niches (
 );
 CREATE INDEX IF NOT EXISTS idx_employee_niches_agent ON employee_niches(agent_id);
 CREATE INDEX IF NOT EXISTS idx_employee_niches_niche ON employee_niches(niche_id);
+
+CREATE TABLE IF NOT EXISTS teams (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT,
+  leader_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_teams_leader_id ON teams(leader_id);

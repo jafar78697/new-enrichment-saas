@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Jento Social Automator",
+  "version": "1.0.0",
+  "description": "Automates initial cold outreach on Facebook and Instagram for Jento CRM.",
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://*.facebook.com/*",
+    "https://*.instagram.com/*",
+    "https://app.jentoai.pro/*"
+  ],
+  "background": {
+    "service_worker": "src/background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.facebook.com/*"],
+      "js": ["src/content/facebook.js"]
+    },
+    {
+      "matches": ["https://*.instagram.com/*"],
+      "js": ["src/content/instagram.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "Jento Social Automator"
+  }
+}

@@ -1,4 +1,4 @@
-# Requirements Document — Enrichment SaaS AWS
+# Requirements Document — Enrichment SaaS Google Cloud
 
 ## Introduction
 
@@ -11,7 +11,7 @@ Core promise: "Website links ya CSV do — hum bulk me companies ki websites ko 
 ### Scope — Kya Hai Is SaaS Mein
 
 - Website enrichment — HTTP (simple/static sites) aur Browser/JS (JavaScript-heavy SPAs)
-- Bulk async enrichment jobs via AWS queues
+- Bulk async enrichment jobs via Google Cloud queues
 - Multi-tenant dashboard, API keys, billing
 - Export (CSV/JSON), webhooks, n8n/Google Sheets integration
 
@@ -77,7 +77,7 @@ Platform multi-tenant hoga jahan har user ka apna dashboard, apna data, apni API
 | `packages/contracts` | TypeScript | Shared types — sab services use karein |
 | `packages/extractor-core` | Python | Existing enrichment.py se refactor |
 | `packages/domain-normalizer` | Python | HTTP worker ke saath use hoga |
-| `infra/` | Terraform (HCL) | AWS infrastructure as code |
+| `infra/` | Terraform (HCL) | Google Cloud infrastructure as code |
 
 ---
 
@@ -357,9 +357,9 @@ enrichment-saas/
 
 ---
 
-### Requirement 13: AWS Infrastructure aur Observability
+### Requirement 13: Google Cloud Infrastructure aur Observability
 
-**User Story:** As a developer, I want platform AWS par properly deploy ho aur production-grade monitoring ho, so that yeh reliable scale kare aur issues quickly detect hon.
+**User Story:** As a developer, I want platform Google Cloud par properly deploy ho aur production-grade monitoring ho, so that yeh reliable scale kare aur issues quickly detect hon.
 
 **IDE Ownership: IDE_2 (infra folder)**
 
@@ -368,7 +368,7 @@ enrichment-saas/
 1. THE System SHALL React Dashboard ko S3 static hosting + CloudFront CDN par deploy kare.
 2. THE API_Service SHALL ECS Fargate par run kare Application Load Balancer ke peeche.
 3. THE HTTP_Worker aur Webhook_Worker aur Export_Worker SHALL ECS Fargate par run karein.
-4. THE Browser_Worker SHALL ECS EC2 autoscaling group par run kare Playwright browser pool ke liye.
+4. THE Browser_Worker SHALL ECS Google Cloud VM autoscaling group par run kare Playwright browser pool ke liye.
 5. THE System SHALL Amazon RDS PostgreSQL use kare primary database ke liye, automated daily backups ke saath 7-day retention.
 6. THE System SHALL Amazon ElastiCache Redis use kare rate limiting, job locks, progress counters, aur webhook dedupe ke liye.
 7. THE System SHALL Amazon SQS use kare in queues ke liye: HTTP_Queue, Browser_Queue, Webhook_Queue, Export_Queue, aur ek DLQ.
@@ -379,7 +379,7 @@ enrichment-saas/
 12. THE API_Service SHALL `/health` aur `/ready` endpoints expose kare jo load balancer health checks ke liye use hon.
 13. THE System SHALL Sentry error tracking integrate kare API_Service aur workers me application-level errors capture karne ke liye.
 14. THE System SHALL per-worker CloudWatch metrics publish kare: enrichment throughput (domains/minute), success rate, average processing time.
-15. THE System SHALL AWS Budget alerts configure kare jo notify karein jab monthly spend threshold exceed ho.
+15. THE System SHALL Google Cloud Budget alerts configure kare jo notify karein jab monthly spend threshold exceed ho.
 16. THE System SHALL RDS automated snapshots configure kare aur ek manual restore procedure document kare.
 17. THE System SHALL SQS message visibility timeout aur DLQ redrive policy configure kare taake permanently failed messages track hon.
 
@@ -441,7 +441,7 @@ enrichment-saas/
 #### Acceptance Criteria
 
 1. THE System SHALL API keys ko hashed form me store kare, plain text me nahi.
-2. THE System SHALL saare sensitive secrets ko encrypted environment variables ya AWS Secrets Manager me store kare.
+2. THE System SHALL saare sensitive secrets ko encrypted environment variables ya Google Cloud Secrets Manager me store kare.
 3. THE System SHALL har API request par tenant isolation verify kare.
 4. THE System SHALL audit logs maintain kare jo sensitive operations record karein: API key creation/deletion, plan changes, data exports.
 5. THE System SHALL webhook signatures HMAC-SHA256 se generate kare taake clients authenticity verify kar sakein.

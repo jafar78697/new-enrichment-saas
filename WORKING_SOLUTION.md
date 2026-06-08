@@ -17,7 +17,7 @@
 http://localhost:5173
 ```
 
-**NOT:** ~~https://app.jentoai.pro~~ (that's for production EC2)
+**NOT:** ~~https://app.jentoai.pro~~ (that's for production Google Cloud VM)
 
 ---
 
@@ -206,7 +206,7 @@ SELECT id, name, assigned_agent_id FROM niches;
 
 ```
 ❌ app.jentoai.pro → Points to Cloudflare Pages (frontend only)
-❌ api.jentoai.pro → Points to EC2 server (NOT running)
+❌ api.jentoai.pro → Points to Google Cloud VM server (NOT running)
 ✅ localhost:5173  → Local dev server (RUNNING)
 ✅ localhost:3001  → Local API (RUNNING)
 ```
@@ -215,7 +215,7 @@ SELECT id, name, assigned_agent_id FROM niches;
 
 ```
 Production requires:
-1. EC2 server running API
+1. Google Cloud VM server running API
 2. PostgreSQL database
 3. Domain DNS configured
 4. SSL certificates
@@ -304,7 +304,7 @@ API:      http://localhost:3001
 
 ### **Production (Later):**
 ```
-Frontend: https://app.jentoai.pro (needs EC2 API running)
+Frontend: https://app.jentoai.pro (needs Google Cloud VM API running)
 API:      https://api.jentoai.pro (needs deployment)
 ```
 

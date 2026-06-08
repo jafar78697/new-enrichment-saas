@@ -1,7 +1,7 @@
 // JWT helper + request auth middleware.
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
-import { db } from '../db/index.js';
+import { query } from '../db/index.js';
 import { AppError } from '../utils/errors.js';
 
 export function signToken(agent) {
@@ -21,20 +21,38 @@ export function verifyToken(token) {
 function extractBearer(req) {
   const header = req.headers['authorization'] || '';
   const match = /^Bearer\s+(.+)$/i.exec(header);
-  return match ? match[1] : null;
+  if (match) return match[1];
+  return req.query?.token || null;
 }
 
-/** Attaches req.user if a valid token is present, but never rejects. */
-export function softAuth(req, _res, next) {
+export async function softAuth(req, _res, next) {
   try {
     const token = extractBearer(req);
     if (!token) return next();
-    const payload = verifyToken(token);
-    const row = db
-      .prepare('SELECT id, name, email, role, status, twilio_identity, twilio_phone_number FROM agents WHERE id = ?')
-      .get(payload.sub);
-    if (row && row.status !== 'suspended') {
-      req.user = row;
+    
+    // First try to decode as a regular Calls token
+    try {
+      const payload = verifyToken(token);
+      const { rows: agents } = await query('SELECT id, name, email, role, status, twilio_identity, twilio_phone_number FROM agents WHERE id = $1', [payload.sub]);
+      const user = agents[0];
+      if (user && user.status !== 'suspended') {
+        req.user = user;
+      }
+      return next();
+    } catch (e) {
+      // If it fails, try to decode as an Enrichment token
+      const enrichmentSecret = process.env.JWT_PRIVATE_KEY || 'jento-enrichment-secret-key-2024-change-this';
+      const enrichmentPayload = jwt.verify(token, enrichmentSecret);
+      
+      // If valid, and role is owner, grant manager access
+      if (enrichmentPayload && enrichmentPayload.role === 'owner') {
+        req.user = {
+          id: enrichmentPayload.user_id, // Map owner's ID
+          email: enrichmentPayload.email || 'admin@jentoai.com',
+          role: 'manager',
+          status: 'active'
+        };
+      }
     }
   } catch {
     /* ignore */
@@ -50,6 +68,14 @@ export function requireAuth(req, _res, next) {
 export function requireManager(req, _res, next) {
   if (!req.user) throw new AppError('Authentication required', 401);
   if (req.user.role !== 'manager') throw new AppError('Manager role required', 403);
+  next();
+}
+
+export function requireManagerOrLeader(req, _res, next) {
+  if (!req.user) throw new AppError('Authentication required', 401);
+  if (req.user.role !== 'manager' && req.user.role !== 'team_leader') {
+    throw new AppError('Manager or Team Leader role required', 403);
+  }
   next();
 }
 

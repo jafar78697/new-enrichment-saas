@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { useAuth } from './hooks/useAuth';
 import { getCallUser } from './services/employeesApi';
 import Layout from './components/Layout';
@@ -15,10 +16,16 @@ import ResetPassword from './pages/ResetPassword';
 // New pages
 import EnrichmentPage from './pages/Enrichment';
 import LeadsPage from './pages/Leads';
-import AccessManagementPage from './pages/AccessManagement';
+import OutreachPage from './pages/Outreach';
+import AccessSystemPage from './pages/AccessSystem';
 import EmployeesPage from './pages/Employees';
 import TwilioNumbersPage from './pages/TwilioNumbers';
 import GoogleMapScraperPage from './pages/GoogleMapScraper';
+import TeamsPage from './pages/Teams';
+import LeaderboardPage from './pages/Leaderboard';
+import AgentSettings from './pages/AgentSettings';
+
+import PrivacyPage from './pages/Privacy';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -33,20 +40,26 @@ function ManagerRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <Toaster richColors position="top-right" />
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/login" element={<Navigate to="/call-login" replace />} />
-        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/signup" element={<Navigate to="/login" replace />} />
         <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="enrichment" element={<EnrichmentPage />} />
           <Route path="leads" element={<LeadsPage />} />
-          <Route path="access" element={<AccessManagementPage />} />
+          <Route path="outreach" element={<OutreachPage />} />
+          <Route path="access-system" element={<AccessSystemPage />} />
           <Route path="employees" element={<EmployeesPage />} />
+          <Route path="teams" element={<TeamsPage />} />
+          <Route path="leaderboard" element={<LeaderboardPage />} />
           <Route path="twilio-numbers" element={<TwilioNumbersPage />} />
           <Route path="calls" element={<CallLogsPage />} />
           <Route path="calls/:id" element={<CallDetailPage />} />
           <Route path="google-maps" element={<GoogleMapScraperPage />} />
+          <Route path="settings" element={<AgentSettings />} />
         </Route>
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />

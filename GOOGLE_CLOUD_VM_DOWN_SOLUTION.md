@@ -1,4 +1,4 @@
-# 🚨 EC2 INSTANCE BAND HO GAYI HAI!
+# 🚨 Google Cloud VM INSTANCE BAND HO GAYI HAI!
 
 ## ❌ **CURRENT STATUS:**
 
@@ -7,35 +7,35 @@ ping 54.91.39.13
 # Result: 100% packet loss
 ```
 
-**EC2 Instance (54.91.39.13) accessible NAHI hai!**
+**Google Cloud VM Instance (54.91.39.13) accessible NAHI hai!**
 
 ---
 
 ## 🔍 **POSSIBLE REASONS:**
 
-1. **EC2 Instance STOPPED** (most likely)
-2. **EC2 Instance TERMINATED** (deleted)
+1. **Google Cloud VM Instance STOPPED** (most likely)
+2. **Google Cloud VM Instance TERMINATED** (deleted)
 3. **Security Group changed** (port blocked)
 4. **Elastic IP disassociated**
-5. **AWS Account billing issue**
+5. **Google Cloud Account billing issue**
 
 ---
 
 ## ✅ **SOLUTION - Step by Step:**
 
-### **Step 1: AWS Console Login**
+### **Step 1: Google Cloud Console Login**
 
 ```
 1. Go to: https://aws.amazon.com/console/
 2. Click "Sign In to Console"
-3. Enter your AWS account credentials
+3. Enter your Google Cloud account credentials
 ```
 
-### **Step 2: Go to EC2 Dashboard**
+### **Step 2: Go to Google Cloud VM Dashboard**
 
 ```
-1. Search "EC2" in top search bar
-2. Click "EC2" under Services
+1. Search "Google Cloud VM" in top search bar
+2. Click "Google Cloud VM" under Services
 3. Make sure you're in correct region (top-right corner)
    - Likely: US East (N. Virginia) us-east-1
 ```
@@ -66,20 +66,20 @@ ping 54.91.39.13
 - If NOT using Elastic IP, IP might CHANGE
 - If IP changed, update Cloudflare DNS
 
-### **Step 5: SSH Into EC2**
+### **Step 5: SSH Into Google Cloud VM**
 
 ```bash
 # From your local machine:
 ssh -i ~/Downloads/enrichment-key.pem ubuntu@54.91.39.13
 
 # If connection successful:
-echo "✅ EC2 is running!"
+echo "✅ Google Cloud VM is running!"
 ```
 
 ### **Step 6: Check Services**
 
 ```bash
-# On EC2 server:
+# On Google Cloud VM server:
 
 # Check if API is running
 pm2 status
@@ -107,7 +107,7 @@ sudo systemctl start nginx
 ### **Step 7: Test API**
 
 ```bash
-# On EC2 (local test):
+# On Google Cloud VM (local test):
 curl http://localhost:3000/health
 
 # Should return:
@@ -128,7 +128,7 @@ curl https://api.jentoai.pro/health
 
 ## 🔧 **If IP Address Changed:**
 
-If EC2 started but has NEW IP:
+If Google Cloud VM started but has NEW IP:
 
 ### **Option A: Update Cloudflare DNS**
 
@@ -137,7 +137,7 @@ If EC2 started but has NEW IP:
 2. Select your domain: jentoai.pro
 3. Click "DNS"
 4. Find record: api.jentoai.pro
-5. Edit IP address to new EC2 IP
+5. Edit IP address to new Google Cloud VM IP
 6. Save
 7. Wait 1-2 minutes
 ```
@@ -145,7 +145,7 @@ If EC2 started but has NEW IP:
 ### **Option B: Use Elastic IP (Recommended)**
 
 ```
-1. AWS Console → EC2 → Elastic IPs
+1. Google Cloud Console → Google Cloud VM → Elastic IPs
 2. Allocate new Elastic IP (if don't have)
 3. Associate with your instance
 4. Update Cloudflare DNS to Elastic IP
@@ -160,14 +160,14 @@ If instance shows "Terminated" status:
 
 ```
 ❌ Can't recover terminated instance
-✅ Need to create NEW EC2 instance
+✅ Need to create NEW Google Cloud VM instance
 ✅ Redeploy everything
 ```
 
 ### **Re-deployment Steps:**
 
 ```bash
-# 1. Create new EC2 instance
+# 1. Create new Google Cloud VM instance
 #    - Ubuntu 22.04
 #    - t3.medium or t3.small
 #    - Create/download new .pem key
@@ -187,9 +187,9 @@ bash deploy-to-ec2.sh
 
 ## 📊 **Checklist:**
 
-### **AWS Console:**
-- [ ] Login to AWS Console
-- [ ] Go to EC2 Dashboard
+### **Google Cloud Console:**
+- [ ] Login to Google Cloud Console
+- [ ] Go to Google Cloud VM Dashboard
 - [ ] Find instance (54.91.39.13)
 - [ ] Check instance state
 - [ ] If stopped → Start it
@@ -197,7 +197,7 @@ bash deploy-to-ec2.sh
 
 ### **After Starting:**
 - [ ] Note Public IP address
-- [ ] SSH into EC2
+- [ ] SSH into Google Cloud VM
 - [ ] Check PM2 status
 - [ ] Start API if needed
 - [ ] Check PostgreSQL
@@ -216,10 +216,10 @@ bash deploy-to-ec2.sh
 ## 💡 **Quick Commands Summary:**
 
 ```bash
-# Check if EC2 is up:
+# Check if Google Cloud VM is up:
 ping 54.91.39.13
 
-# SSH into EC2:
+# SSH into Google Cloud VM:
 ssh -i ~/Downloads/enrichment-key.pem ubuntu@54.91.39.13
 
 # Check services:
@@ -241,11 +241,11 @@ curl http://localhost:3000/health
 ## ⚠️ **IMPORTANT NOTES:**
 
 1. **Billing Check:**
-   - AWS account mein credits/billing check karo
+   - Google Cloud account mein credits/billing check karo
    - Agar bill pending hai, instance stop ho sakti hai
 
 2. **Auto-Stop:**
-   - Kuch AWS accounts me instances auto-stop ho jati hain
+   - Kuch Google Cloud accounts me instances auto-stop ho jati hain
    - Check if you have any auto-stop rules
 
 3. **Data Safety:**
@@ -261,8 +261,8 @@ curl http://localhost:3000/health
 ## 🎯 **IMMEDIATE ACTION:**
 
 ```
-1. AWS Console login karo
-2. EC2 instance dhundho
+1. Google Cloud Console login karo
+2. Google Cloud VM instance dhundho
 3. Check karo: Running ya Stopped?
 4. If Stopped → Start karo
 5. SSH karo aur services check karo
@@ -271,4 +271,4 @@ curl http://localhost:3000/health
 
 ---
 
-**EC2 instance start karo, sab wapis chal padega!** 🚀
+**Google Cloud VM instance start karo, sab wapis chal padega!** 🚀

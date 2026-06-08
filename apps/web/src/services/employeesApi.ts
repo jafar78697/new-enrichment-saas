@@ -37,6 +37,7 @@ export type UserRole = 'manager' | 'employee';
 export interface Employee {
   id: number;
   name: string;
+  username?: string;
   email: string;
   role: UserRole;
   status: EmployeeStatus;
@@ -53,6 +54,8 @@ export interface Employee {
   connected_calls: number;
   total_seconds: number;
   recordings_count: number;
+  today_calls?: number;
+  today_leads?: number;
   assigned_niches?: { id: number; name: string }[]; // NEW
 }
 
@@ -69,6 +72,7 @@ export interface TwilioAvailableNumber {
 export interface AuthUser {
   id: number;
   name: string;
+  username?: string;
   email: string;
   role: UserRole;
   status: EmployeeStatus;
@@ -78,7 +82,7 @@ export interface AuthUser {
 
 export interface CreateEmployeePayload {
   name: string;
-  email: string;
+  username: string;
   nicheIds?: number[]; // NEW
 }
 
@@ -166,6 +170,7 @@ export const employeesApi = {
       id: number;
       name: string;
       email: string;
+      username?: string;
       status: string;
       twilio_phone_number: string | null;
       last_login_at: string | null;
@@ -175,8 +180,11 @@ export const employeesApi = {
       niche_count: number;
     }> }>(`/employees/summary?hours=${hours}`),
 
+  getMeDashboard: (hours: number = 24) =>
+    request<{ stats: { calls_in_period: number; talk_time_in_period: number; last_call_at: string | null } }>(`/auth/me/dashboard?hours=${hours}`),
+
   // NEW: Google Maps Scraper
-  scrapeGoogleMaps: (payload: { keyword: string; location: string }) =>
+  scrapeGoogleMaps: (payload: { keywords: string[]; location?: string; limit?: number; niche_name?: string }) =>
     request<{ success: boolean; leads: any[] }>('/v1/google-maps/scrape', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -185,11 +193,16 @@ export const employeesApi = {
 
 // ─── Auth helpers ─────────────────────────────────────────────────────
 export const callAuthApi = {
-  login: (email: string, password: string) =>
-    request<{ token: string; user: AuthUser }>('/auth/login', {
+  login: (identifier: string, password: string) => {
+    const isEmail = identifier.includes('@');
+    return request<{ token: string; user: AuthUser }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
-    }),
+      body: JSON.stringify({ 
+        [isEmail ? 'email' : 'username']: identifier, 
+        password 
+      }),
+    });
+  },
 
   acceptInvite: (token: string, password: string) =>
     request<{ token: string; user: AuthUser }>('/auth/accept-invite', {

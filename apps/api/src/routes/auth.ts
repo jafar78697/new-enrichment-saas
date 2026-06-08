@@ -10,44 +10,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
   // POST /v1/auth/signup
   fastify.post('/v1/auth/signup', async (request, reply) => {
-    const { name, email, password, workspace_name } = request.body as any;
-    if (!email || !password || !name) return reply.code(422).send({ error: 'name, email, password required' });
-
-    const existing = await fastify.db.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (existing.rows[0]) return reply.code(409).send({ error: 'Email already registered' });
-
-    const password_hash = bcrypt.hashSync(password, 12);
-    const slug = (name as string).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now();
-
-    const { rows: tenantRows } = await fastify.db.query(
-      `INSERT INTO tenants (name, slug, plan) VALUES ($1, $2, 'starter') RETURNING id`,
-      [name, slug]
-    );
-    const tenantId = tenantRows[0].id;
-
-    const { rows: userRows } = await fastify.db.query(
-      `INSERT INTO users (tenant_id, email, password_hash, role) VALUES ($1, $2, $3, 'owner') RETURNING id`,
-      [tenantId, email, password_hash]
-    );
-    const userId = userRows[0].id;
-
-    const { rows: wsRows } = await fastify.db.query(
-      `INSERT INTO workspaces (tenant_id, name) VALUES ($1, $2) RETURNING id`,
-      [tenantId, workspace_name || `${name}'s Workspace`]
-    );
-    const workspaceId = wsRows[0].id;
-
-    // Initialize usage counters
-    const today = new Date();
-    const billingStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-    await fastify.db.query(
-      `INSERT INTO usage_counters (tenant_id, billing_period_start, http_enrichments_used, browser_credits_used, browser_credits_remaining, http_limit)
-       VALUES ($1, $2, 0, 0, $3, $4)`,
-      [tenantId, billingStart, PLAN_BROWSER_CREDITS['starter'], PLAN_HTTP_LIMITS['starter']]
-    );
-
-    const token = authManager.signUserToken({ user_id: userId, tenant_id: tenantId, workspace_id: workspaceId, role: 'owner', plan: 'starter' });
-    return reply.code(201).send({ token, user: { id: userId, email, role: 'owner' } });
+    return reply.code(403).send({ error: 'Signups are currently disabled. This is a private system.' });
   });
 
   // POST /v1/auth/login

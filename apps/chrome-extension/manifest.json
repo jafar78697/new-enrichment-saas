@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "JentoAI Outreach Bridge",
+  "version": "1.0.0",
+  "description": "Extract leads and send automated DMs on Facebook and Instagram for JentoAI CRM.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://*.facebook.com/*",
+    "https://*.instagram.com/*",
+    "https://*.linkedin.com/*",
+    "https://*.reddit.com/*",
+    "https://api.jentoai.pro/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.facebook.com/*",
+        "https://*.instagram.com/*"
+      ],
+      "js": ["content_script.js"],
+      "css": ["content.css"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://*.reddit.com/*"],
+      "js": ["reddit_script.js"]
+    },
+    {
+      "matches": [
+        "https://*.linkedin.com/*"
+      ],
+      "js": ["linkedin_script.js"],
+      "css": ["content.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "JentoAI Outreach"
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}

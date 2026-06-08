@@ -5,6 +5,7 @@ import Timeline from '../components/Timeline';
 import DialerPopup from '../components/DialerPopup';
 import type { FunnelLead, FunnelCampaign, FunnelStats, LeadEvent } from '../types';
 import { funnelApi, FUNNEL_API_BASE } from '../services/funnelApi';
+import { toast } from 'sonner';
 
 const CALLS_URL = (import.meta.env.VITE_CALLS_URL as string | undefined) || '';
 const SOFTPHONE_ENABLED = !!CALLS_URL;
@@ -85,7 +86,7 @@ function LeadDetailPanel({ leadId, onClose, onUpdate }: { leadId: string; onClos
       await load();
       onUpdate();
     } catch (err) {
-      alert('Failed to update stage');
+      toast.error('Failed to update stage');
     } finally {
       setSaving(false);
     }
@@ -95,7 +96,7 @@ function LeadDetailPanel({ leadId, onClose, onUpdate }: { leadId: string; onClos
     setSaving(true);
     try {
       await funnelApi.callLog(leadId, { outcome: lead?.last_call_outcome || 'voicemail', notes });
-      alert('Notes saved');
+      toast.success('Notes saved');
       onUpdate();
     } catch (err) {
       console.error(err);
@@ -238,14 +239,14 @@ function EmailModal({ lead, onClose, onSent }: { lead: FunnelLead; onClose: () =
     try {
       const res = await funnelApi.sendManualEmail(lead.id, { subject, body });
       if (res.ok) {
-        alert('Email sent successfully!');
+        toast.success('Email sent successfully!');
         onSent();
         onClose();
       } else {
-        alert('Error: ' + res.error);
+        toast.error('Error: ' + res.error);
       }
     } catch (err) {
-      alert('Failed to send email');
+      toast.error('Failed to send email');
     } finally {
       setSending(false);
     }
@@ -419,7 +420,7 @@ export default function FunnelScreen() {
       await loadStats();
     } catch (err) {
       console.error('Delete selected failed', err);
-      alert('Delete failed. See console for details.');
+      toast.error('Delete failed. See console for details.');
     } finally {
       setDeleting(false);
     }
@@ -437,7 +438,7 @@ export default function FunnelScreen() {
       await loadStats();
     } catch (err) {
       console.error('Delete all failed', err);
-      alert('Delete all failed. See console for details.');
+      toast.error('Delete all failed. See console for details.');
     } finally {
       setDeleting(false);
     }

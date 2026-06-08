@@ -3,6 +3,8 @@ import { useState } from 'react';
 import callsApi, { Contact } from '../services/callsApi';
 import { getCallUser } from '../services/employeesApi';
 import DialerPopup from '../components/DialerPopup';
+import EmailPopup from '../components/EmailPopup';
+import { toast } from 'sonner';
 
 const SvgIcons = {
   email: <svg fill="currentColor" viewBox="0 0 20 20"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" /><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" /></svg>,
@@ -20,57 +22,77 @@ const platformConfig: any = {
   website: { color: '#4B5563', bg: '#F3F4F6', icon: SvgIcons.website }
 };
 
-function SocialIcon({ platform, url }: { platform: string; url: string | null | undefined }) {
+function SocialIcon({ platform, url, count, onClick, disabled, badgeText }: { platform: string; url: string | null | undefined; count?: number; onClick?: (e: React.MouseEvent) => void; disabled?: boolean; badgeText?: string }) {
   const hasUrl = Boolean(url);
   const config = platformConfig[platform];
 
   return (
-    <a 
-      href={hasUrl ? (platform === 'email' && !url?.startsWith('mailto:') ? `mailto:${url}` : url!) : '#'} 
-      target={hasUrl && platform !== 'email' ? "_blank" : undefined} 
-      rel="noopener noreferrer" 
-      title={hasUrl ? `${platform} link` : `No ${platform} found`} 
-      style={{ 
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 36,
-        height: 36,
-        borderRadius: '50%',
-        background: hasUrl ? config.bg : '#F9FAFB',
-        color: hasUrl ? config.color : '#D1D5DB',
-        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-        cursor: hasUrl ? 'pointer' : 'default',
-        marginRight: 10,
-        pointerEvents: hasUrl ? 'auto' : 'none',
-        boxShadow: hasUrl ? `0 2px 8px ${config.color}25` : 'inset 0 2px 4px rgba(0,0,0,0.02)',
-        transform: 'scale(1)'
-      }}
-      onMouseEnter={(e) => {
-        if (hasUrl) {
-          e.currentTarget.style.transform = 'scale(1.1)';
-          e.currentTarget.style.boxShadow = `0 4px 12px ${config.color}40`;
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (hasUrl) {
-          e.currentTarget.style.transform = 'scale(1)';
-          e.currentTarget.style.boxShadow = `0 2px 8px ${config.color}25`;
-        }
-      }}
-    >
-      <div style={{ width: 18, height: 18, display: 'flex' }}>
-        {config.icon}
-      </div>
-    </a>
+    <div style={{ position: 'relative', display: 'inline-block', marginRight: 10 }}>
+      <a 
+        href={hasUrl && !onClick ? (platform === 'email' && !url?.startsWith('mailto:') ? `mailto:${url}` : url!) : '#'} 
+        target={hasUrl && platform !== 'email' ? "_blank" : undefined} 
+        rel="noopener noreferrer" 
+        title={hasUrl ? `${platform} link` : `No ${platform} found`} 
+        onClick={(e) => {
+          if (onClick && hasUrl && !disabled) {
+            e.preventDefault();
+            onClick(e);
+          } else if (disabled || !hasUrl) {
+            e.preventDefault();
+          }
+        }}
+        style={{ 
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 36,
+          height: 36,
+          borderRadius: '50%',
+          background: hasUrl ? config.bg : '#F9FAFB',
+          color: hasUrl ? config.color : '#D1D5DB',
+          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+          cursor: hasUrl && !disabled ? 'pointer' : 'default',
+          pointerEvents: hasUrl ? 'auto' : 'none',
+          boxShadow: hasUrl ? `0 2px 8px ${config.color}25` : 'inset 0 2px 4px rgba(0,0,0,0.02)',
+          transform: 'scale(1)',
+          opacity: disabled ? 0.6 : 1
+        }}
+        onMouseEnter={(e) => {
+          if (hasUrl && !disabled) {
+            e.currentTarget.style.transform = 'scale(1.1)';
+            e.currentTarget.style.boxShadow = `0 4px 12px ${config.color}40`;
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (hasUrl && !disabled) {
+            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.boxShadow = `0 2px 8px ${config.color}25`;
+          }
+        }}
+      >
+        <div style={{ width: 18, height: 18, display: 'flex' }}>
+          {config.icon}
+        </div>
+      </a>
+      {count !== undefined && count > 0 && (
+        <div style={{
+          position: 'absolute', top: -6, right: -6, background: '#DC2626', color: '#fff', fontSize: 10,
+          fontWeight: 800, padding: '2px 6px', borderRadius: 10, border: '2px solid #fff', zIndex: 10
+        }}>
+          {badgeText || count}
+        </div>
+      )}
+    </div>
   );
 }
 
 export default function LeadsPage() {
   const [search, setSearch] = useState('');
   const [activeCall, setActiveCall] = useState<Contact | null>(null);
+  const [activeEmailLead, setActiveEmailLead] = useState<Contact | null>(null);
   const [editingNoteLead, setEditingNoteLead] = useState<Contact | null>(null);
   const [editingNoteText, setEditingNoteText] = useState('');
+  const [activeTab, setActiveTab] = useState<'new_lead' | 'in_progress' | 'converted_lost'>('new_lead');
   const queryClient = useQueryClient();
 
   const updateNoteMutation = useMutation({
@@ -81,9 +103,45 @@ export default function LeadsPage() {
     }
   });
 
+  const markRepliedMutation = useMutation({
+    mutationFn: (id: number) => callsApi.markContactReplied(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['contacts'] })
+  });
+
   const handleOpenNoteModal = (lead: Contact) => {
     setEditingNoteLead(lead);
     setEditingNoteText(lead.notes || '');
+  };
+
+  const updateStageMutation = useMutation({
+    mutationFn: ({ id, stage }: { id: number; stage: string }) => callsApi.updateContact(id, { stage }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['contacts'] })
+  });
+
+  const linkedinMutation = useMutation({
+    mutationFn: ({ id, task_type }: { id: number; task_type: any }) => callsApi.queueLinkedinTask(id, task_type),
+    onSuccess: () => {
+      toast.success('LinkedIn task queued! The background worker will process it safely.');
+    },
+    onError: (err: any) => {
+      toast.error('Failed to queue LinkedIn task. Check settings.');
+    }
+  });
+
+  const handleDragStart = (e: React.DragEvent, leadId: number) => {
+    e.dataTransfer.setData('leadId', leadId.toString());
+  };
+
+  const handleDrop = (e: React.DragEvent, newStage: string) => {
+    e.preventDefault();
+    const leadId = parseInt(e.dataTransfer.getData('leadId'), 10);
+    if (!isNaN(leadId)) {
+      updateStageMutation.mutate({ id: leadId, stage: newStage });
+    }
+  };
+
+  const allowDrop = (e: React.DragEvent) => {
+    e.preventDefault();
   };
 
   const { data, isLoading } = useQuery({
@@ -113,11 +171,16 @@ export default function LeadsPage() {
     }
   };
 
-  const filteredLeads = data?.contacts.filter(lead => 
+  const enrichedOrManualLeads = data?.contacts.filter(lead => 
+    // Keep manually added leads, but hide Google Maps leads until they are enriched (score > 0)
+    lead.source !== 'google-maps-scraper' || (lead.score && lead.score > 0)
+  ) || [];
+
+  const filteredLeads = enrichedOrManualLeads.filter(lead => 
     lead.name.toLowerCase().includes(search.toLowerCase()) ||
     (lead.niche_name && lead.niche_name.toLowerCase().includes(search.toLowerCase())) ||
     (lead.company && lead.company.toLowerCase().includes(search.toLowerCase()))
-  ) || [];
+  );
 
   const todayStr = new Date().toISOString().split('T')[0];
   const todayMeetings = filteredLeads.filter(l => l.meeting_time && l.meeting_time.startsWith(todayStr));
@@ -150,24 +213,27 @@ export default function LeadsPage() {
                 </span>
               )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#52606D', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {lead.company && <span style={{ fontWeight: 600 }}>{lead.company}</span>}
-              {lead.company && <span style={{ color: '#D1D5DB' }}>|</span>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {lead.notes ? (
                  <span 
-                   style={{ fontStyle: 'italic', color: '#6B7280', display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+                   style={{ fontWeight: 800, color: '#111827', display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', letterSpacing: 0.2 }}
                    onClick={() => handleOpenNoteModal(lead)}
                    title="Click to edit note"
                  >
-                   <span style={{ fontSize: 11 }}>📝</span> {lead.notes.split(' ').slice(0, 5).join(' ')}{lead.notes.split(' ').length > 5 ? '...' : ''}
-                   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 14, height: 14, opacity: 1, color: '#0F766E' }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                   {lead.notes.split(' ').slice(0, 5).join(' ')}{lead.notes.split(' ').length > 5 ? '...' : ''}
+                   <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, background: '#F0FDFA', borderRadius: '50%', color: '#0F766E', boxShadow: '0 1px 2px rgba(15,118,110,0.1)' }}>
+                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                   </span>
                  </span>
               ) : (
                  <button
                    onClick={() => handleOpenNoteModal(lead)}
-                   style={{ background: 'transparent', border: 'none', color: '#9CA3AF', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: 0 }}
+                   style={{ background: '#F0FDFA', border: '1px dashed #5EEAD4', color: '#0F766E', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '4px 10px', borderRadius: 12, fontWeight: 600, transition: 'all 0.2s ease' }}
+                   onMouseEnter={(e) => { e.currentTarget.style.background = '#CCFBF1'; e.currentTarget.style.borderStyle = 'solid'; }}
+                   onMouseLeave={(e) => { e.currentTarget.style.background = '#F0FDFA'; e.currentTarget.style.borderStyle = 'dashed'; }}
                  >
-                   <span style={{ fontSize: 11 }}>📝</span> Add Note
+                   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                   Add Note
                  </button>
               )}
             </div>
@@ -195,7 +261,18 @@ export default function LeadsPage() {
 
           {/* 3. Social Icons */}
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <SocialIcon platform="email" url={lead.email} />
+            <SocialIcon 
+              platform="email" 
+              url={lead.email} 
+              count={lead.emails_sent} 
+              badgeText={lead.emails_sent ? "A" : undefined}
+              disabled={!!lead.emails_sent}
+              onClick={() => {
+                if (!lead.emails_sent && lead.email) {
+                  setActiveEmailLead(lead);
+                }
+              }}
+            />
             <SocialIcon platform="website" url={lead.website} />
             <SocialIcon platform="linkedin" url={lead.linkedin} />
             <SocialIcon platform="facebook" url={lead.facebook} />
@@ -203,7 +280,49 @@ export default function LeadsPage() {
           </div>
 
           {/* 4. Actions */}
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              value={lead.stage || 'new_lead'}
+              onChange={(e) => updateStageMutation.mutate({ id: lead.id, stage: e.target.value })}
+              disabled={updateStageMutation.isPending}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                border: '1px solid #D8E1D7',
+                background: '#F9FAFB',
+                fontSize: 12,
+                fontWeight: 600,
+                color: '#4B5563',
+                cursor: 'pointer',
+                outline: 'none'
+              }}
+            >
+              <option value="new_lead">New Lead</option>
+              <option value="in_progress">In Progress</option>
+              <option value="converted_lost">Converted / Lost</option>
+            </select>
+            {lead.email_opened ? (
+               <div style={{ fontSize: 11, color: '#0F766E', fontWeight: 700, background: '#CCFBF1', padding: '4px 8px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                 Seen
+               </div>
+            ) : null}
+            {lead.emails_received ? (
+               <div style={{ fontSize: 11, color: '#4338CA', fontWeight: 700, background: '#E0E7FF', padding: '4px 8px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+                 Replied
+               </div>
+            ) : (
+              lead.emails_sent ? (
+                <button 
+                  onClick={() => markRepliedMutation.mutate(lead.id)}
+                  disabled={markRepliedMutation.isPending}
+                  style={{ fontSize: 10, color: '#6B7280', background: 'transparent', border: '1px solid #D1D5DB', padding: '4px 8px', borderRadius: 12, cursor: 'pointer' }}
+                >
+                  Mark Replied
+                </button>
+              ) : null
+            )}
             {lead.meeting_time && (
                <div style={{ fontSize: 12, color: isHighlighted ? '#DC2626' : '#D97706', fontWeight: 700, background: isHighlighted ? '#FEE2E2' : '#FEF3C7', padding: '6px 12px', borderRadius: 20, marginRight: 8, whiteSpace: 'nowrap' }}>
                  🗓 {new Date(lead.meeting_time).toLocaleDateString()}
@@ -237,6 +356,32 @@ export default function LeadsPage() {
                 <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
               </svg>
               {lead.phone_number ? 'Call Now' : 'No Phone'}
+            </button>
+            <button
+              onClick={() => linkedinMutation.mutate({ id: lead.id, task_type: 'scrape_profile' })}
+              disabled={linkedinMutation.isPending}
+              style={{
+                background: '#0A66C2',
+                color: '#fff',
+                border: 'none', padding: '8px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: linkedinMutation.isPending ? 'wait' : 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6,
+                boxShadow: '0 4px 10px rgba(10, 102, 194, 0.2)',
+                transition: 'all 0.2s ease', whiteSpace: 'nowrap'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 6px 12px rgba(10, 102, 194, 0.3)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 10px rgba(10, 102, 194, 0.2)';
+              }}
+              title="Auto-Scrape Profile"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
+                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+              </svg>
+              Scrape
             </button>
             {getCallUser()?.role === 'manager' && (
               <button
@@ -322,13 +467,50 @@ export default function LeadsPage() {
         </div>
       )}
 
+      {/* Stage Tabs */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #E5E7EB', paddingBottom: 8 }}>
+        <button 
+          onClick={() => setActiveTab('new_lead')}
+          style={{ 
+            background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
+            color: activeTab === 'new_lead' ? '#0F766E' : '#6B7280',
+            borderBottom: activeTab === 'new_lead' ? '2px solid #0F766E' : 'none',
+            paddingBottom: 8
+          }}
+        >
+          New Leads ({otherLeads.filter(l => !l.stage || l.stage === 'new_lead').length})
+        </button>
+        <button 
+          onClick={() => setActiveTab('in_progress')}
+          style={{ 
+            background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
+            color: activeTab === 'in_progress' ? '#0F766E' : '#6B7280',
+            borderBottom: activeTab === 'in_progress' ? '2px solid #0F766E' : 'none',
+            paddingBottom: 8
+          }}
+        >
+          In-Progress ({otherLeads.filter(l => l.stage === 'in_progress').length})
+        </button>
+        <button 
+          onClick={() => setActiveTab('converted_lost')}
+          style={{ 
+            background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
+            color: activeTab === 'converted_lost' ? '#0F766E' : '#6B7280',
+            borderBottom: activeTab === 'converted_lost' ? '2px solid #0F766E' : 'none',
+            paddingBottom: 8
+          }}
+        >
+          Converted / Lost ({otherLeads.filter(l => l.stage === 'converted_lost').length})
+        </button>
+      </div>
+
       {/* Leads Grid */}
       <div style={{ display: 'grid', gap: 16 }}>
-        {otherLeads.map(lead => renderLead(lead, false))}
+        {otherLeads.filter(l => l.stage === activeTab || (!l.stage && activeTab === 'new_lead')).map(lead => renderLead(lead, false))}
 
-        {filteredLeads.length === 0 && (
+        {otherLeads.filter(l => l.stage === activeTab || (!l.stage && activeTab === 'new_lead')).length === 0 && (
           <div style={{ padding: 60, textAlign: 'center', color: '#7B8794', background: '#fff', borderRadius: 12, border: '1px solid #D8E1D7' }}>
-            No leads found matching your search.
+            No leads in this stage.
           </div>
         )}
       </div>
@@ -346,6 +528,15 @@ export default function LeadsPage() {
           onEnded={({ connected, seconds }) => {
             console.log(`Call to ${activeCall.name} ended. Connected: ${connected}, Duration: ${seconds}s`);
           }}
+        />
+      )}
+
+      {activeEmailLead && activeEmailLead.email && (
+        <EmailPopup
+          contactId={activeEmailLead.id}
+          contactName={activeEmailLead.name}
+          contactEmail={activeEmailLead.email}
+          onClose={() => setActiveEmailLead(null)}
         />
       )}
 

@@ -1,4 +1,4 @@
-# Implementation Plan: Enrichment SaaS AWS
+# Implementation Plan: Enrichment SaaS Google Cloud
 
 ## Overview
 
@@ -70,7 +70,7 @@ Yeh implementation plan 3 IDEs ke parallel kaam ke liye 3 phases mein organize k
     - _Requirements: 1.4, 13.7_
   - [ ] A3.2 `packages/queue/src/producer.ts` banao
     - `sendToHttpQueue()`, `sendToBrowserQueue()`, `sendToWebhookQueue()`, `sendToExportQueue()`
-    - AWS SDK v3 SQS client use karo
+    - Google Cloud SDK v3 SQS client use karo
     - _Requirements: 1.4, 3.4_
   - [ ] A3.3 `packages/queue/src/consumer.ts` banao
     - `receiveMessages()`, `deleteMessage()`, `changeVisibility()` helpers
@@ -160,7 +160,7 @@ Yeh implementation plan 3 IDEs ke parallel kaam ke liye 3 phases mein organize k
     - RS256 JWT sign/verify implement karo
     - Claims: `{ tenant_id, user_id, workspace_id, role, plan }`
     - Access token: 1 hour, refresh token: 30 days
-    - AWS Secrets Manager se private key load karo
+    - Google Cloud Secrets Manager se private key load karo
     - _Requirements: 2.2, 11.1_
   - [ ] B1.2 `packages/auth/src/api_keys.ts` banao
     - API key generate: `enr_sk_{random_32_bytes_hex}` format
@@ -446,9 +446,9 @@ Yeh implementation plan 3 IDEs ke parallel kaam ke liye 3 phases mein organize k
 
 ### B-IDE_2: Infrastructure (Terraform)
 
-- [ ] B10. `infra/terraform` — AWS infrastructure as code (IDE_2)
+- [ ] B10. `infra/terraform` — Google Cloud infrastructure as code (IDE_2)
   - [ ] B10.1 Terraform root setup karo: `main.tf`, `variables.tf`, `outputs.tf`
-    - AWS provider, remote state (S3 backend), VPC, subnets, security groups
+    - Google Cloud provider, remote state (S3 backend), VPC, subnets, security groups
     - _Requirements: 13.1_
   - [ ] B10.2 `infra/terraform/rds.tf` banao
     - RDS PostgreSQL instance, automated daily backups, 7-day retention
@@ -468,7 +468,7 @@ Yeh implementation plan 3 IDEs ke parallel kaam ke liye 3 phases mein organize k
     - _Requirements: 13.8, 19.2, 19.3_
   - [ ] B10.6 `infra/terraform/ecs.tf` banao
     - ECS Fargate: API service, HTTP worker, Webhook worker, Export worker
-    - ECS EC2 ASG: Browser worker (Playwright pool)
+    - ECS Google Cloud VM ASG: Browser worker (Playwright pool)
     - ECR repositories for all services
     - ALB + target groups + health checks
     - _Requirements: 13.2, 13.3, 13.4_
@@ -478,10 +478,10 @@ Yeh implementation plan 3 IDEs ke parallel kaam ke liye 3 phases mein organize k
   - [ ] B10.8 CloudWatch alarms configure karo
     - Queue depth alarms (Design Section 7.6)
     - ECS auto scaling: CPU, memory, queue depth metrics
-    - AWS Budget alerts
+    - Google Cloud Budget alerts
     - Per-worker metrics: throughput, success rate, avg processing time
     - _Requirements: 13.9, 13.10, 13.11, 13.14, 13.15_
-  - [ ] B10.9 AWS Secrets Manager resources configure karo
+  - [ ] B10.9 Google Cloud Secrets Manager resources configure karo
     - DB password, Redis auth, JWT keys, Stripe keys, SES credentials
     - IAM roles + policies for each service
     - _Requirements: 13.2, 16.2_

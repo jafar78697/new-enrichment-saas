@@ -1,4 +1,8 @@
 infra/terraform/.terraform/
 infra/terraform/.terraform.lock.hcl
-node_modules
+node_modules/
 *.sqlite*
+.env
+.env.*
+*.pem
+.DS_Store

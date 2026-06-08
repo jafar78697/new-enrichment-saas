@@ -17,6 +17,8 @@ export default fp(async (fastify: FastifyInstance) => {
 
   fastify.decorate('db', pool);
 
+  // Removed auto-migrations to prevent locking/timeout issues on startup
+
   fastify.addHook('onClose', async (instance) => {
     await instance.db.end();
   });

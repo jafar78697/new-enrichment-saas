@@ -169,7 +169,7 @@ router.post(
     
     if (payload.record === 'true') {
       dialOptions.record = 'record-from-answer';
-      dialOptions.recordingStatusCallback = absoluteUrl(req, '/api/webhooks/call-status');
+      dialOptions.recordingStatusCallback = absoluteUrl(req, '/api/twilio/webhooks/call-status');
       dialOptions.recordingStatusCallbackMethod = 'POST';
       dialOptions.recordingStatusCallbackEvent = 'in-progress completed absent';
     }
@@ -178,7 +178,7 @@ router.post(
 
     dial.number(
       {
-        statusCallback: absoluteUrl(req, '/api/webhooks/call-status'),
+        statusCallback: absoluteUrl(req, '/api/twilio/webhooks/call-status'),
         statusCallbackMethod: 'POST',
         statusCallbackEvent: 'initiated ringing answered completed'
       },
@@ -261,7 +261,7 @@ router.post(
 
     dial.client(
       {
-        statusCallback: absoluteUrl(req, '/api/webhooks/call-status'),
+        statusCallback: absoluteUrl(req, '/api/twilio/webhooks/call-status'),
         statusCallbackMethod: 'POST',
         statusCallbackEvent: 'initiated ringing answered completed'
       },

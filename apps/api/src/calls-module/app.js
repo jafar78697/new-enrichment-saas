@@ -12,6 +12,8 @@ import authRoutes from './routes/auth.routes.js';
 import employeesRoutes from './routes/employees.routes.js';
 import nichesRoutes from './routes/niches.routes.js';
 import scraperBridgeRoutes from './routes/scraper-bridge.routes.js';
+import campaignsRoutes from './routes/campaigns.routes.js';
+import emailAccountsRoutes from './routes/email-accounts.routes.js';
 import { env } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { softAuth } from './middleware/auth.js';
@@ -19,7 +21,7 @@ import { softAuth } from './middleware/auth.js';
 export function createApp() {
   const app = express();
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const frontendPath = path.join(__dirname, '../../frontend/dist');
+  const frontendPath = path.join(__dirname, '../../../web/dist');
 
   app.set('trust proxy', true);
 
@@ -59,6 +61,8 @@ export function createApp() {
   app.use('/api/calls', callsRoutes);
   app.use('/api/niches', nichesRoutes);
   app.use('/api/scraper', scraperBridgeRoutes);
+  app.use('/api/campaigns', campaignsRoutes);
+  app.use('/api/email-accounts', emailAccountsRoutes);
   app.use('/api', twilioRoutes);
 
   // Serve frontend static files

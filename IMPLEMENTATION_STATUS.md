@@ -9,8 +9,8 @@
 ### 1. **Scraper → SaaS Pipeline**
 | Component | Status | Location |
 |-----------|--------|----------|
-| Google Maps Scraper | ✅ DONE | `jento-mailer/scraper/tests/keyword-based-scraper.spec.js` |
-| Website Intelligence | ✅ DONE | `jento-mailer/scraper/website-intelligence.js` |
+| Google Maps API Route | ✅ DONE | `apps/api/src/routes/google-maps.ts` |
+| Leads Extraction | ✅ DONE | Fetches from Google Places API directly |
 | Scraper Bridge API | ✅ DONE | `apps/api/src/calls-module/routes/scraper-bridge.routes.js` |
 | Niche auto-creation | ✅ DONE | Line 55: `INSERT INTO niches (name) VALUES ($1)` |
 | Niche assignment | ✅ DONE | Line 48-53: Gets `assigned_agent_id` from niche |
@@ -140,9 +140,9 @@
    POST /api/niches
    { "name": "Beauty Salons", "assigned_agent_id": 5 }
 
-2. Run scraper with niche                  ✅ WORKING
-   Job file: { "crm_niche": "Beauty Salons" }
-   npx playwright test tests/keyword-based-scraper.spec.js
+2. Fetch leads from SaaS App               ✅ WORKING
+   Dashboard uses /v1/google-maps/scrape API
+   Searches for Keyword: "Beauty Salons", Location: "New York"
 
 3. Leads auto-push to CRM                  ✅ WORKING
    Scraper → /api/scraper-bridge/push-leads
@@ -192,13 +192,9 @@
      -d '{"name": "Beauty Salons", "assigned_agent_id": 5}'
    ```
 
-2. ✅ **Run Scraper**
-   ```bash
-   cd jento-mailer/scraper
-   echo '{"job_id":"job-001","keyword":"Beauty Salons","location":"New York","crm_niche":"Beauty Salons"}' > job-001.json
-   export BOT_TRIGGER_FILE=job-001.json
-   npx playwright test tests/keyword-based-scraper.spec.js
-   ```
+2. ✅ **Fetch Leads**
+   Use the SaaS Dashboard to trigger Google Maps API fetch.
+   Leads will be pushed automatically to the chosen niche.
 
 3. ✅ **Employee Login**
    ```
@@ -283,9 +279,11 @@ curl -X POST https://api.jentoai.pro/api/niches \
   -H "Authorization: Bearer TOKEN" \
   -d '{"name": "Test Niche", "assigned_agent_id": 1}'
 
-# 3. Run scraper
-cd jento-mailer/scraper
-npx playwright test tests/keyword-based-scraper.spec.js
+# 3. Fetch leads via API
+curl -X POST https://api.jentoai.pro/v1/google-maps/scrape \
+  -H "Authorization: Bearer TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"keyword": "Beauty Salons", "location": "New York"}'
 
 # 4. Check leads in database
 # Go to: app.jentoai.pro/leads

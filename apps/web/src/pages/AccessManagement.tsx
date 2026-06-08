@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 const employees = [
   { id: 1, name: 'John Doe', email: 'john@example.com', role: 'SDR', status: 'active' },
@@ -11,10 +12,10 @@ export default function AccessManagementPage() {
 
   const handleAddEmployee = () => {
     if (!newEmployee.email) {
-      alert('Please enter employee email');
+      toast.error('Please enter employee email');
       return;
     }
-    alert(`Access granted to ${newEmployee.email} with role: ${newEmployee.role}`);
+    toast.error(`Access granted to ${newEmployee.email} with role: ${newEmployee.role}`);
     setShowAddForm(false);
     setNewEmployee({ name: '', email: '', role: 'SDR' });
   };

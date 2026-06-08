@@ -5,7 +5,7 @@ const BASE_URL = import.meta.env.VITE_API_URL || '';
 const api = axios.create({ baseURL: `${BASE_URL}/v1` });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('enr_token');
+  const token = localStorage.getItem('enr_token') || localStorage.getItem('call_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -135,6 +135,18 @@ export const webhooksApi = {
   },
   create: (data: any) => api.post('/webhooks', data),
   delete: (id: string) => api.delete(`/webhooks/${id}`),
+};
+
+export const scraperApi = {
+  scrapeGoogleMaps: async (payload: { keywords: string[]; location?: string; limit?: number; niche_name?: string }) => {
+    // Use the calls-module API (Express, /api/*) instead of enrichment API (/v1/*)
+    const BASE = import.meta.env.VITE_API_URL || '';
+    const token = localStorage.getItem('call_token');
+    const res = await axios.post(`${BASE}/api/google-maps/scrape`, payload, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return res.data as { success: boolean; leads: any[] };
+  }
 };
 
 export default api;

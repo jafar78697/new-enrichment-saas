@@ -1,9 +1,9 @@
-# ✅ EC2 Status Report - What's Working & What's Missing
+# ✅ Google Cloud VM Status Report - What's Working & What's Missing
 
 ## ✅ **WHAT'S WORKING:**
 
 ```
-✅ EC2 Instance: Running (54.91.39.13)
+✅ Google Cloud VM Instance: Running (54.91.39.13)
 ✅ Status Checks: 3/3 passed
 ✅ API Process: Running (PM2)
 ✅ Health Endpoint: Working
@@ -45,7 +45,7 @@ GET /api/employees/summary → 404 Not Found
 
 ## 🔧 **SOLUTION - Install Redis:**
 
-### **SSH into EC2:**
+### **SSH into Google Cloud VM:**
 
 ```bash
 ssh -i ~/Downloads/enrichment-key.pem ubuntu@54.91.39.13
@@ -79,7 +79,7 @@ pm2 logs enrichment-api
 ### **Test Enrichment:**
 
 ```bash
-# Test from EC2:
+# Test from Google Cloud VM:
 curl -X POST http://localhost:3000/v1/public/enrich \
   -H "Content-Type: application/json" \
   -H "x-api-key: jento-internal-enrich-key-2024" \
@@ -95,7 +95,7 @@ curl -X POST http://localhost:3000/v1/public/enrich \
 
 ```
 ┌──────────────────────────────────────────┐
-│  EC2 Instance (54.91.39.13)               │
+│  Google Cloud VM Instance (54.91.39.13)               │
 │                                           │
 │  ✅ Nginx (Port 80)                       │
 │     ↓                                     │
@@ -126,7 +126,7 @@ curl -X POST http://localhost:3000/v1/public/enrich \
 ## 🚀 **Quick Fix Commands:**
 
 ```bash
-# SSH to EC2
+# SSH to Google Cloud VM
 ssh -i ~/Downloads/enrichment-key.pem ubuntu@54.91.39.13
 
 # Install and start Redis
@@ -147,7 +147,7 @@ curl -X POST https://api.jentoai.pro/v1/public/enrich \
 
 ## 📝 **Summary:**
 
-**Root Cause:** Redis server not installed on EC2
+**Root Cause:** Redis server not installed on Google Cloud VM
 
 **Solution:** Install Redis → Restart API → Enrichment will work
 

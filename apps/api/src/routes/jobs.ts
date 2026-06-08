@@ -76,11 +76,12 @@ export default async function jobRoutes(fastify: FastifyInstance) {
       const item = await db.addItem({ job_id: job.id, raw_input: domain, normalized_domain: domain, shard_index: Math.floor(i / SHARD_SIZE) });
       if (!item) continue;
       const payload = { job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain, mode: body.mode, attempt: 1, enqueued_at: new Date().toISOString() };
-      if (body.mode === EnrichmentMode.PREMIUM_JS) {
-        await producer.sendToBrowserQueue(payload, isPriority);
-      } else {
-        await producer.sendToHttpQueue(payload, isPriority);
-      }
+      // Bypass SQS entirely - Python worker polls DB
+      // if (body.mode === EnrichmentMode.PREMIUM_JS) {
+      //   await producer.sendToBrowserQueue(payload, isPriority);
+      // } else {
+      //   await producer.sendToHttpQueue(payload, isPriority);
+      // }
     }
 
     await fastify.db.query(
@@ -125,7 +126,7 @@ export default async function jobRoutes(fastify: FastifyInstance) {
       const domain = uniqueDomains[i];
       const item = await db.addItem({ job_id: job.id, raw_input: domain, normalized_domain: domain, shard_index: Math.floor(i / SHARD_SIZE) });
       if (!item) continue;
-      await producer.sendToHttpQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain, mode: EnrichmentMode.SMART_HYBRID, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
+      // await producer.sendToHttpQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain, mode: EnrichmentMode.SMART_HYBRID, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
     }
 
     return reply.code(201).send({ job_id: job.id, total_items: uniqueDomains.length, status: JobStatus.QUEUED });
@@ -263,11 +264,11 @@ export default async function jobRoutes(fastify: FastifyInstance) {
     if (!item) return reply.code(500).send({ error: 'Failed to create job item' });
 
     const isPriority = plan === 'pro';
-    if (mode === EnrichmentMode.PREMIUM_JS) {
-      await producer.sendToBrowserQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain: normalized, mode, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
-    } else {
-      await producer.sendToHttpQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain: normalized, mode, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
-    }
+    // if (mode === EnrichmentMode.PREMIUM_JS) {
+    //   await producer.sendToBrowserQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain: normalized, mode, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
+    // } else {
+    //   await producer.sendToHttpQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain: normalized, mode, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
+    // }
 
     return reply.code(201).send({ job_id: job.id, status: JobStatus.QUEUED });
   });

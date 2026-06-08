@@ -1,0 +1,72 @@
+#jento-ext-wrapper {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 250px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  z-index: 999999;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+
+#jento-ext-header {
+  background: #4f46e5;
+  color: white;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+#jento-ext-header img {
+  border-radius: 4px;
+  background: white;
+  padding: 2px;
+}
+
+#jento-ext-close {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+#jento-ext-body {
+  padding: 16px;
+}
+
+#jento-ext-scrape {
+  width: 100%;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 0;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#jento-ext-scrape:hover {
+  background: #059669;
+}
+
+#jento-ext-status {
+  margin-top: 10px;
+  font-size: 12px;
+  text-align: center;
+}
+
+#jento-ext-status.success {
+  color: #10b981;
+}
+
+#jento-ext-status.error {
+  color: #ef4444;
+}

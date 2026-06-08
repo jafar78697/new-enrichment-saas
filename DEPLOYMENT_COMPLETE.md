@@ -1,4 +1,4 @@
-# 🎉 EC2 DEPLOYMENT COMPLETE - ALL SYSTEMS WORKING!
+# 🎉 Google Cloud VM DEPLOYMENT COMPLETE - ALL SYSTEMS WORKING!
 
 ## ✅ **STATUS: ALL FIXED!**
 
@@ -15,7 +15,7 @@
 ## 📊 **CURRENT STATUS:**
 
 ```
-✅ EC2 Instance: Running (54.91.39.13)
+✅ Google Cloud VM Instance: Running (54.91.39.13)
 ✅ API Server: Running (PM2)
 ✅ PostgreSQL: Running (enrichment_db)
 ✅ Redis: Running (localhost:6379)
@@ -118,7 +118,7 @@ async reportToJento(jobId, leads) {
 
 ## 📍 **ENVIRONMENT VARIABLES:**
 
-### **On EC2:**
+### **On Google Cloud VM:**
 ```bash
 DATABASE_URL=postgresql://enrichment:EnrichPass2024@localhost:5432/enrichment_db
 REDIS_URL=redis://localhost:6379
@@ -246,6 +246,6 @@ Your system is now ready to:
 ---
 
 **Deployment Date:** May 17, 2026  
-**EC2 IP:** 54.91.39.13  
+**Google Cloud VM IP:** 54.91.39.13  
 **API URL:** https://api.jentoai.pro  
 **Frontend URL:** https://app.jentoai.pro

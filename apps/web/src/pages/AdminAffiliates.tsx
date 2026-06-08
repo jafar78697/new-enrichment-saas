@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { affiliateApi } from '../services/affiliateApi';
+import { toast } from 'sonner';
 
 type Tab = 'affiliates' | 'applications' | 'commissions' | 'payouts' | 'settings' | 'flagged';
 
@@ -55,7 +56,7 @@ export default function AdminAffiliates() {
 
   const saveSettings = async () => {
     await affiliateApi.adminUpdateSettings(settings);
-    alert('Settings saved');
+    toast.success('Settings saved');
   };
 
   const exportCsv = async () => {

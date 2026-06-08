@@ -10,6 +10,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { EnrichmentMode } from '@enrichment-saas/contracts';
 
 const PUBLIC_API_KEY = process.env.PUBLIC_ENRICH_API_KEY || 'change-me-public-key';
 
@@ -103,7 +104,7 @@ export default async function publicEnrichRoutes(fastify: FastifyInstance) {
       job_id: jobId,
       tenant_id: tenantId,
       domain: normalized,
-      mode: 'smart_hybrid',
+      mode: EnrichmentMode.SMART_HYBRID,
       attempt: 1,
       enqueued_at: new Date().toISOString()
     });

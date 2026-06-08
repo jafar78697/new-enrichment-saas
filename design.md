@@ -1,8 +1,8 @@
-# Design Document — Enrichment SaaS AWS
+# Design Document — Enrichment SaaS Google Cloud
 
 ## Overview
 
-Yeh document **Enrichment SaaS** platform ka technical design hai — ek cloud-based, multi-tenant website enrichment service jo AWS par deploy hogi.
+Yeh document **Enrichment SaaS** platform ka technical design hai — ek cloud-based, multi-tenant website enrichment service jo Google Cloud par deploy hogi.
 
 **Core Promise:** "Website links ya CSV do — hum bulk me companies ki websites ko enrich karke aapko usable contact aur business data dein."
 
@@ -56,7 +56,7 @@ Existing `jento-mailer/services/enrichment.py` aur `jento-mailer/scraper/website
        ▼                                                             ▼
 ┌──────────────────────────┐                    ┌────────────────────────────┐
 │  HTTP Worker             │                    │  Browser Worker            │
-│  (ECS Fargate)           │                    │  (ECS EC2 Autoscaling)     │
+│  (ECS Fargate)           │                    │  (ECS Google Cloud VM Autoscaling)     │
 │  apps/worker-http        │                    │  apps/worker-browser       │
 │  Python + extractor-core │                    │  Node.js + Playwright      │
 └──────────────────────────┘                    └────────────────────────────┘
@@ -78,15 +78,15 @@ Existing `jento-mailer/services/enrichment.py` aur `jento-mailer/scraper/website
 
 ---
 
-## 2. AWS Services aur Unka Role
+## 2. Google Cloud Services aur Unka Role
 
-| AWS Service | Role | Details |
+| Google Cloud Service | Role | Details |
 |-------------|------|---------|
 | **CloudFront** | CDN + Static hosting | React SPA serve kare, S3 origin |
 | **S3** | Object storage | Raw HTML snapshots (7d), JSON blobs, CSV exports (48h), screenshots |
 | **ALB** | Load balancer | API service ke aage, health checks, SSL termination |
 | **ECS Fargate** | Container compute | API service, HTTP worker, Webhook worker, Export worker |
-| **ECS EC2 ASG** | Browser compute | Browser worker — Playwright pool ke liye EC2 cheaper hai |
+| **ECS Google Cloud VM ASG** | Browser compute | Browser worker — Playwright pool ke liye Google Cloud VM cheaper hai |
 | **RDS PostgreSQL** | Primary database | Multi-tenant tables, automated daily backups, 7-day retention |
 | **ElastiCache Redis** | Cache + coordination | Rate limiting, job locks, progress counters, webhook dedupe |
 | **SQS** | Message queues | HTTP_Queue, Browser_Queue, Webhook_Queue, Export_Queue, DLQ |
@@ -96,7 +96,7 @@ Existing `jento-mailer/services/enrichment.py` aur `jento-mailer/scraper/website
 | **Sentry** | Error tracking | Application-level errors in API + workers |
 | **Stripe** | Billing | Subscription plans, browser credit packs, payment webhooks |
 | **ECR** | Container registry | Docker images for all services |
-| **Terraform (infra/)** | IaC | Sab AWS resources code se manage hon |
+| **Terraform (infra/)** | IaC | Sab Google Cloud resources code se manage hon |
 
 ### SLA Targets
 - API uptime: 99.5% monthly
@@ -1197,7 +1197,7 @@ JWT Tokens:
   - Algorithm: RS256 (asymmetric)
   - Expiry: 1 hour (access token), 30 days (refresh token)
   - Claims: { tenant_id, user_id, workspace_id, role, plan }
-  - Secret: AWS Secrets Manager me store
+  - Secret: Google Cloud Secrets Manager me store
 
 API Keys:
   - Format: enr_sk_{random_32_bytes_hex}
@@ -1223,7 +1223,7 @@ Middleware (packages/auth/tenant_guard.ts):
 ### 11.3 Secrets Management
 
 ```
-AWS Secrets Manager:
+Google Cloud Secrets Manager:
   - DB password
   - Redis auth token
   - JWT signing keys (RS256 private key)
@@ -1251,7 +1251,7 @@ HMAC-SHA256 Signature:
 
 ```
 At Rest:
-  - RDS: AWS managed encryption (AES-256)
+  - RDS: Google Cloud managed encryption (AES-256)
   - S3: SSE-S3 encryption
   - Redis: encryption at rest enabled
 
@@ -1328,7 +1328,7 @@ Storage: audit_logs table (DB)
 
 ### IDE_2: Backend (apps/api + packages/* + infra/)
 
-**Stack:** TypeScript/Node.js, Express/Fastify, Prisma/pg, AWS SDK v3
+**Stack:** TypeScript/Node.js, Express/Fastify, Prisma/pg, Google Cloud SDK v3
 
 **Kya banana hai:**
 

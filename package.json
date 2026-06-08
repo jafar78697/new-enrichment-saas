@@ -9,7 +9,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "dev": "pnpm -r dev"
+    "dev": "pnpm -r dev",
+    "deploy:all": "bash deploy-all.sh"
   },
   "devDependencies": {
     "typescript": "^5.4.0"

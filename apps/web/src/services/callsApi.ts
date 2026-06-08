@@ -56,15 +56,22 @@ export interface Contact {
   company?: string | null;
   email?: string | null;
   notes?: string | null;
+  source?: string | null;
   meeting_time?: string | null;
+  campaign_id?: number | null;
   niche_id?: number | null;
   niche_name?: string | null;
   website?: string | null;
   linkedin?: string | null;
+  reddit_url?: string | null;
   facebook?: string | null;
   instagram?: string | null;
   score?: number | null;
+  stage?: 'new_lead' | 'in_progress' | 'converted_lost' | 'email_sent' | 'fallback_linkedin' | null;
   messages_count?: number | null;
+  emails_sent?: number | null;
+  emails_received?: number | null;
+  email_opened?: number | null;
   last_call_status?: string | null;
   last_call_outcome?: string | null;
   last_called_at?: string | null;
@@ -153,7 +160,7 @@ export const callsApi = {
 
   updateContact: (
     id: number,
-    payload: { notes?: string | null; meeting_time?: string | null },
+    payload: { notes?: string | null; meeting_time?: string | null; stage?: string | null },
   ) =>
     request<{ contact: Contact }>(`/contacts/${id}`, {
       method: 'PATCH',
@@ -163,6 +170,48 @@ export const callsApi = {
   clearAllContacts: () =>
     request<{ deletedCount: number; message: string }>(`/contacts`, {
       method: 'DELETE',
+    }),
+
+  queueLinkedinTask: (id: number, task_type: 'scrape_profile' | 'send_connection' | 'send_message') =>
+    request<{ task: any }>(`/contacts/${id}/linkedin-task`, {
+      method: 'POST',
+      body: JSON.stringify({ task_type }),
+    }),
+
+  startOutreach: (id: number, template: string) =>
+    request<{ success: boolean; message: string; fallbackTask?: any }>(`/contacts/${id}/outreach`, {
+      method: 'POST',
+      body: JSON.stringify({ template }),
+    }),
+
+  getCampaigns: (channel?: string) =>
+    request<{ campaigns: any[] }>(`/campaigns${channel ? `?channel=${channel}` : ''}`),
+    
+  createCampaign: (data: { name: string; base_template: string }) =>
+    request<{ campaign: any }>('/campaigns', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    
+  updateCampaignStatus: (id: number, status: 'active' | 'paused' | 'completed') =>
+    request<{ campaign: any }>(`/campaigns/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+    
+  assignToCampaign: (id: number, contact_ids: number[]) =>
+    request<{ success: boolean; count: number }>(`/campaigns/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ contact_ids }),
+    }),
+
+  getEmailAccounts: () =>
+    request<{ accounts: any[] }>('/email-accounts'),
+    
+  createEmailAccount: (data: { email: string; app_password: string }) =>
+    request<{ account: any }>('/email-accounts', {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 
   getCall: (id: number) =>
@@ -201,6 +250,35 @@ export const callsApi = {
 
   getToken: (agentId: number) =>
     request<{ token: string; agent: Agent }>(`/twilio/token?agentId=${agentId}`),
+
+  transferCall: (callSid: string, targetAgentId: number) =>
+    request<{ success: boolean; message: string }>(`/calls/${callSid}/transfer`, {
+      method: 'POST',
+      body: JSON.stringify({ targetAgentId }),
+    }),
+
+  sendContactEmail: (id: number, payload: { subject: string; body: string }) =>
+    request<{ success: boolean; contact: Contact }>(`/contacts/${id}/send-email`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  markContactReplied: (id: number) =>
+    request<{ success: boolean; contact: Contact }>(`/contacts/${id}/reply-status`, {
+      method: 'POST',
+    }),
+
+  queueRedditTask: (id: number, task_type: 'scrape_profile' | 'send_message') =>
+    request<{ task: any }>(`/contacts/${id}/reddit-task`, {
+      method: 'POST',
+      body: JSON.stringify({ task_type }),
+    }),
+
+  getLinkedinTasks: () =>
+    request<{ tasks: any[] }>('/linkedin/tasks'),
+
+  getRedditTasks: () =>
+    request<{ tasks: any[] }>('/reddit/tasks'),
 };
 
 export default callsApi;

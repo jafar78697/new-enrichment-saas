@@ -73,12 +73,12 @@ async function jobRoutes(fastify) {
             if (!item)
                 continue;
             const payload = { job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain, mode: body.mode, attempt: 1, enqueued_at: new Date().toISOString() };
-            if (body.mode === contracts_1.EnrichmentMode.PREMIUM_JS) {
-                await queue_1.producer.sendToBrowserQueue(payload, isPriority);
-            }
-            else {
-                await queue_1.producer.sendToHttpQueue(payload, isPriority);
-            }
+            // Bypass SQS entirely - Python worker polls DB
+            // if (body.mode === EnrichmentMode.PREMIUM_JS) {
+            //   await producer.sendToBrowserQueue(payload, isPriority);
+            // } else {
+            //   await producer.sendToHttpQueue(payload, isPriority);
+            // }
         }
         await fastify.db.query(`UPDATE usage_counters SET http_enrichments_used = http_enrichments_used + $1
        WHERE tenant_id = $2 AND billing_period_start = date_trunc('month', now())::date`, [uniqueDomains.length, tenantId]);
@@ -116,7 +116,7 @@ async function jobRoutes(fastify) {
             const item = await db.addItem({ job_id: job.id, raw_input: domain, normalized_domain: domain, shard_index: Math.floor(i / SHARD_SIZE) });
             if (!item)
                 continue;
-            await queue_1.producer.sendToHttpQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain, mode: contracts_1.EnrichmentMode.SMART_HYBRID, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
+            // await producer.sendToHttpQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain, mode: EnrichmentMode.SMART_HYBRID, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
         }
         return reply.code(201).send({ job_id: job.id, total_items: uniqueDomains.length, status: contracts_1.JobStatus.QUEUED });
     });
@@ -226,13 +226,34 @@ async function jobRoutes(fastify) {
         if (!item)
             return reply.code(500).send({ error: 'Failed to create job item' });
         const isPriority = plan === 'pro';
-        if (mode === contracts_1.EnrichmentMode.PREMIUM_JS) {
-            await queue_1.producer.sendToBrowserQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain: normalized, mode, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
-        }
-        else {
-            await queue_1.producer.sendToHttpQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain: normalized, mode, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
-        }
+        // if (mode === EnrichmentMode.PREMIUM_JS) {
+        //   await producer.sendToBrowserQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain: normalized, mode, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
+        // } else {
+        //   await producer.sendToHttpQueue({ job_item_id: item.id, job_id: job.id, tenant_id: tenantId, domain: normalized, mode, attempt: 1, enqueued_at: new Date().toISOString() }, isPriority);
+        // }
         return reply.code(201).send({ job_id: job.id, status: contracts_1.JobStatus.QUEUED });
+    });
+    // DELETE /v1/jobs/:id
+    fastify.delete('/v1/jobs/:id', {
+        preHandler: [fastify.authenticate]
+    }, async (request, reply) => {
+        const { tenantId } = request.tenant;
+        const { id } = request.params;
+        const { rowCount } = await fastify.db.query(`DELETE FROM enrichment_jobs WHERE id = $1 AND tenant_id = $2`, [id, tenantId]);
+        if (rowCount === 0)
+            return reply.code(404).send({ error: 'NOT_FOUND' });
+        return { success: true, message: 'Job deleted' };
+    });
+    // DELETE /v1/jobs
+    fastify.delete('/v1/jobs', {
+        preHandler: [fastify.authenticate]
+    }, async (request, reply) => {
+        const { tenantId, role } = request.tenant;
+        if (role !== 'owner' && role !== 'manager') {
+            return reply.code(403).send({ error: 'FORBIDDEN', message: 'Only managers can clear all jobs' });
+        }
+        const { rowCount } = await fastify.db.query(`DELETE FROM enrichment_jobs WHERE tenant_id = $1`, [tenantId]);
+        return { success: true, deletedCount: rowCount, message: 'All jobs cleared' };
     });
 }
 //# sourceMappingURL=jobs.js.map

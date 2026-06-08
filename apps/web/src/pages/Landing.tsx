@@ -2,70 +2,63 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
 const topNav = [
-  { href: '#problem', label: 'Problem' },
+  { href: '#services', label: 'Services' },
   { href: '#workflow', label: 'Workflow' },
-  { href: '#features', label: 'Features' },
-  { href: '#about', label: 'About' },
+  { href: '#why-us', label: 'Why Us' },
 ];
 
 const featureCards = [
   {
-    eyebrow: 'Fast intake',
-    title: 'Paste links, upload CSVs, or start from your target list',
+    eyebrow: 'YouTube Automation',
+    title: 'Cash Cow & Faceless Channels',
     description:
-      'Enrichment Sys cleans incoming data, removes duplicates, and turns messy source lists into a job your team can run confidently.',
+      'We build, manage, and scale profitable YouTube channels for you. From scriptwriting and voiceovers to editing and SEO, we handle the entire process.',
   },
   {
-    eyebrow: 'Smart routing',
-    title: 'Use the right enrichment lane for each website',
+    eyebrow: 'Facebook & Instagram',
+    title: 'Automated Lead Gen & DM Funnels',
     description:
-      'Static sites do not need the same expensive flow as JavaScript-heavy ones. The product balances speed, cost, and data quality by design.',
+      'Turn followers into clients automatically. We build advanced DM funnels and automated chat systems to capture leads while you sleep.',
   },
   {
-    eyebrow: 'Actionable output',
-    title: 'Get structured company data your team can actually use',
+    eyebrow: 'Email Outreach',
+    title: 'Cold Email & B2B Automation',
     description:
-      'See primary email, phone, LinkedIn, company details, industry signals, and a clear summary inside a readable results workspace.',
+      'Consistent lead generation with automated cold email campaigns. We handle domain setup, list building, and personalized AI outreach at scale.',
+  },
+  {
+    eyebrow: 'Recruitment Automation',
+    title: 'Streamline Your Hiring',
+    description:
+      'Find the best talent without the manual work. We automate the sourcing, screening, and interview scheduling process to build your dream team faster.',
+  },
+  {
+    eyebrow: 'GoHighLevel (GHL)',
+    title: 'All-In-One CRM Setup',
+    description:
+      'We are GHL experts. We build customized workflows, pipelines, and automated follow-up sequences to manage your entire client lifecycle.',
   },
 ];
 
 const workflowSteps = [
   {
-    title: '1. Add your input',
-    description: 'Paste domains, upload a CSV, or bring in a source list from the workflow your team already uses.',
+    title: '1. Discovery & Strategy',
+    description: 'We analyze your business, identify bottlenecks, and design a custom automation strategy tailored to your goals.',
   },
   {
-    title: '2. Let the engine route the job',
-    description: 'The system decides when fast HTTP is enough and when a richer browser-based pass is worth the extra cost.',
+    title: '2. System Buildout',
+    description: 'Our team constructs the automation architecture, integrating CRMs, social channels, and AI tools seamlessly.',
   },
   {
-    title: '3. Review and export',
-    description: 'Inspect the results, apply filters, and send usable contact and company data to sales, ops, or research teams.',
+    title: '3. Launch & Scale',
+    description: 'We go live, monitor performance closely, and continuously optimize the systems to maximize your ROI.',
   },
 ];
 
 const statCards = [
-  { value: '3 modes', label: 'Flexible enrichment for different site types' },
-  { value: '1 workspace', label: 'Jobs, usage, and outputs in one place' },
-  { value: 'Clear signals', label: 'Results with confidence and context' },
-];
-
-const faqs = [
-  {
-    question: 'What is this product built for?',
-    answer:
-      'It is designed for teams that need company research, website signals, and verified contact data without juggling too many tools.',
-  },
-  {
-    question: 'Is it only for technical users?',
-    answer:
-      'No. The workflow is intentionally simple enough for founders, sales ops, analysts, and research teams to use without extra setup.',
-  },
-  {
-    question: 'What do I get after signing up?',
-    answer:
-      'You get the dashboard, job creation flow, usage tracking, and a results explorer where you can inspect and export enriched data.',
-  },
+  { value: '24/7', label: 'Automated Lead Generation' },
+  { value: '10x', label: 'Faster Response Times' },
+  { value: '100%', label: 'Done-For-You Services' },
 ];
 
 function SectionTitle({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
@@ -89,10 +82,10 @@ export default function LandingPage() {
       <header className="landing-topbar">
         <div className="landing-topbar-inner">
           <Link to="/" className="landing-brand">
-            <span className="landing-brand-mark">E</span>
+            <img src="/favicon.png" alt="Jento AI" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover' }} />
             <span className="landing-brand-copy">
-              <strong>Enrichment Sys</strong>
-              <small>Turn research into a cleaner workflow</small>
+              <strong>Jento AI</strong>
+              <small>Automation Agency</small>
             </span>
           </Link>
 
@@ -106,11 +99,11 @@ export default function LandingPage() {
 
           <div className="landing-actions">
             <Link to="/login" className="landing-link-button">
-              Log in
+              Client Login
             </Link>
-            <Link to={token ? '/dashboard' : '/signup'} className="landing-primary-button">
-              {token ? 'Open dashboard' : 'Get started'}
-            </Link>
+            <a href="#contact" className="landing-primary-button">
+              Book a Call
+            </a>
           </div>
         </div>
       </header>
@@ -118,23 +111,21 @@ export default function LandingPage() {
       <main className="landing-main">
         <section className="landing-hero">
           <div className="landing-hero-copy">
-            <p className="landing-eyebrow">Built for modern enrichment workflows</p>
+            <p className="landing-eyebrow">Done-For-You Automation Services</p>
             <h1 className="landing-hero-title">
-              Company research and verified contact data, without the manual chase.
+              Automate Your Business. Scale Without Limits.
             </h1>
             <p className="landing-hero-text">
-              Enrichment Sys gives teams a clear place to run enrichment jobs, review signals, and export usable company data.
-              Instead of dropping visitors straight into a signup form, the product now opens with a proper homepage that explains
-              what it does, who it is for, and why it is worth using.
+              From YouTube Cash Cow channels to GoHighLevel CRM workflows, we build advanced automation systems that generate leads, close sales, and save you hundreds of hours.
             </p>
 
             <div className="landing-cta-row">
-              <Link to="/signup" className="landing-primary-button">
-                Create free account
-              </Link>
-              <Link to="/login" className="landing-secondary-button">
-                I already have access
-              </Link>
+              <a href="#contact" className="landing-primary-button">
+                Get a Custom Strategy
+              </a>
+              <a href="#services" className="landing-secondary-button">
+                Explore Services
+              </a>
             </div>
 
             <div className="landing-stat-grid">
@@ -150,95 +141,57 @@ export default function LandingPage() {
           <div className="landing-hero-panel">
             <div className="landing-panel-card landing-panel-card-main">
               <div className="landing-panel-label-row">
-                <span className="landing-panel-label">Live workflow snapshot</span>
-                <span className="landing-panel-pill">Smart Hybrid</span>
+                <span className="landing-panel-label">Automation Impact</span>
+                <span className="landing-panel-pill">Active Systems</span>
               </div>
 
               <div className="landing-score-grid">
                 <div>
-                  <small>Domains queued</small>
-                  <strong>1,280</strong>
+                  <small>Leads Generated</small>
+                  <strong>12,450+</strong>
                 </div>
                 <div>
-                  <small>Signals found</small>
-                  <strong>864</strong>
+                  <small>Hours Saved/Mo</small>
+                  <strong>320+</strong>
                 </div>
                 <div>
-                  <small>Email coverage</small>
-                  <strong>71%</strong>
+                  <small>YouTube Views</small>
+                  <strong>5M+</strong>
                 </div>
                 <div>
-                  <small>Browser credits</small>
-                  <strong>Optimized</strong>
+                  <small>GHL Workflows</small>
+                  <strong>Active</strong>
                 </div>
               </div>
 
               <div className="landing-timeline">
                 <div>
-                  <span>Input cleaned</span>
-                  <strong>CSV uploads and pasted lists merged into one job</strong>
+                  <span>Lead Captured</span>
+                  <strong>Via Automated FB DM Funnel</strong>
                 </div>
                 <div>
-                  <span>Engine selected the lane</span>
-                  <strong>Static sites stayed on HTTP, complex ones moved to JS</strong>
+                  <span>Nurture Sequence</span>
+                  <strong>GoHighLevel Email & SMS triggered</strong>
                 </div>
                 <div>
-                  <span>Results ready</span>
-                  <strong>Workspace prepared for filtering, review, and export</strong>
+                  <span>Meeting Booked</span>
+                  <strong>Automatically synced to your calendar</strong>
                 </div>
               </div>
             </div>
 
             <div className="landing-panel-card landing-panel-card-accent">
-              <p>Best fit</p>
-              <strong>Sales ops, market research, founder-led outreach, and data teams</strong>
+              <p>Best for</p>
+              <strong>Coaches, Agencies, B2B Businesses, and Content Creators</strong>
             </div>
           </div>
         </section>
 
-        <section id="problem" className="landing-section landing-two-column">
+        <section id="services" className="landing-section">
           <SectionTitle
-            eyebrow="Problem"
-            title="Most tools ask for a signup before they explain their value."
-            description="A good SaaS homepage should build trust before it asks for action. This landing page now introduces the product clearly, explains the workflow, and gives visitors a better first impression before they move into auth."
-          />
-
-          <div className="landing-problem-card">
-            <div>
-              <span>Before</span>
-              <strong>The product link opened directly on the signup screen</strong>
-              <p>The value proposition was unclear, the brand story was missing, and the first impression felt abrupt.</p>
-            </div>
-            <div>
-              <span>Now</span>
-              <strong>The homepage explains the product first, then routes visitors into login or signup</strong>
-              <p>Users understand where Enrichment Sys fits in their workflow before they are asked to create an account.</p>
-            </div>
-          </div>
-        </section>
-
-        <section id="workflow" className="landing-section">
-          <SectionTitle
-            eyebrow="Workflow"
-            title="A simple path from raw inputs to structured enrichment results."
-            description="The homepage is not just decorative. It mirrors the actual product journey so visitors can understand how the app works before they ever touch the dashboard."
-          />
-
-          <div className="landing-workflow-grid">
-            {workflowSteps.map((item) => (
-              <article key={item.title} className="landing-workflow-card">
-                <h3>{item.title}</h3>
-                <p>{item.description}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section id="features" className="landing-section">
-          <SectionTitle
-            eyebrow="Features"
-            title="The core highlights are now visible on the first screen instead of hidden behind auth."
-            description="This makes the product feel more serious, more useful, and much easier to understand at a glance."
+            eyebrow="Our Services"
+            title="Comprehensive Automation Solutions."
+            description="We don't just provide software; we build complete systems tailored to scale your operations."
           />
 
           <div className="landing-feature-grid">
@@ -252,61 +205,68 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section id="about" className="landing-section landing-two-column">
+        <section id="workflow" className="landing-section">
           <SectionTitle
-            eyebrow="About"
-            title="Enrichment Sys is positioned for teams that want a focused enrichment product, not a cluttered stack."
-            description="This section gives the homepage a proper company-style story so the product feels intentional, credible, and easier to trust."
+            eyebrow="How We Work"
+            title="A proven process for reliable scaling."
+            description="We handle the complex tech integrations so you can focus on running your business."
           />
 
-          <div className="landing-about-stack">
-            <article className="landing-about-card">
-              <span>Point of view</span>
-              <strong>Fewer tabs, more clarity</strong>
-              <p>The product is designed to bring company research, contact discovery, and website signals into one calmer interface.</p>
-            </article>
-            <article className="landing-about-card">
-              <span>Who it serves</span>
-              <strong>Founders, SDR teams, analysts, and ops leaders</strong>
-              <p>Anyone who runs company research in batches gets a faster, more repeatable, and more team-friendly flow.</p>
-            </article>
-          </div>
-        </section>
-
-        <section className="landing-section">
-          <SectionTitle
-            eyebrow="FAQ"
-            title="The questions visitors usually have before signup are answered up front."
-            description="This lowers hesitation and makes the page feel like a complete product homepage instead of a single CTA wall."
-          />
-
-          <div className="landing-faq-list">
-            {faqs.map((item) => (
-              <article key={item.question} className="landing-faq-card">
-                <h3>{item.question}</h3>
-                <p>{item.answer}</p>
+          <div className="landing-workflow-grid">
+            {workflowSteps.map((item) => (
+              <article key={item.title} className="landing-workflow-card">
+                <h3>{item.title}</h3>
+                <p>{item.description}</p>
               </article>
             ))}
           </div>
         </section>
 
-        <section className="landing-final-cta">
+        <section id="why-us" className="landing-section landing-two-column">
+          <SectionTitle
+            eyebrow="Why Jento AI"
+            title="We bridge the gap between AI tech and real business results."
+            description="Most agencies use off-the-shelf templates. We build custom logic and automated architectures designed specifically for your unique offer."
+          />
+
+          <div className="landing-about-stack">
+            <article className="landing-about-card">
+              <span>Expert Team</span>
+              <strong>Masters of GoHighLevel & AI</strong>
+              <p>Our engineers deeply understand API integrations, webhook logic, and AI-driven workflows.</p>
+            </article>
+            <article className="landing-about-card">
+              <span>True Partnership</span>
+              <strong>We succeed when you scale</strong>
+              <p>We treat your business like our own, ensuring every automation sequence is robust, secure, and profitable.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="contact" className="landing-final-cta">
           <div>
-            <p className="landing-eyebrow">Start here</p>
-            <h2>Now the experience starts with the product story, then moves into signup.</h2>
+            <p className="landing-eyebrow">Take the next step</p>
+            <h2>Ready to automate your growth?</h2>
             <p>
-              Create a new workspace if you are just getting started, or log in to open your dashboard if your team already has access.
+              Book a free discovery call today. We'll map out the exact automation systems your business needs.
             </p>
           </div>
           <div className="landing-cta-row landing-cta-row-tight">
-            <Link to="/signup" className="landing-primary-button">
-              Open signup
-            </Link>
+            <a href="mailto:hello@jentoai.pro" className="landing-primary-button">
+              Contact Us
+            </a>
             <Link to="/login" className="landing-secondary-button">
-              Open login
+              Client Portal
             </Link>
           </div>
         </section>
+
+        <footer className="mt-20 py-8 border-t border-gray-200 text-center text-gray-500 text-sm">
+          <p>© 2026 Jento AI. All rights reserved.</p>
+          <div className="mt-4 flex justify-center space-x-4">
+            <Link to="/privacy" className="hover:text-gray-900 transition-colors">Privacy Policy</Link>
+          </div>
+        </footer>
       </main>
     </div>
   );

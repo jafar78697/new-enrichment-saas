@@ -10,7 +10,7 @@ GOOGLE MAPS SCRAPER (Local Machine)
    Calls ENRICHMENT API
    POST https://api.jentoai.pro/v1/public/enrich
          ↓
-ENRICHMENT API (AWS EC2 Virtual Machine)
+ENRICHMENT API (Google Cloud VM Virtual Machine)
    - Runs on Amazon Virtual Machine
    - Has PostgreSQL database
    - Enriches leads (finds emails, socials, etc.)
@@ -18,7 +18,7 @@ ENRICHMENT API (AWS EC2 Virtual Machine)
    Calls CRM API
    POST https://api.jentoai.pro/api/scraper-bridge/push-leads
          ↓
-CRM DATABASE (PostgreSQL on EC2)
+CRM DATABASE (PostgreSQL on Google Cloud VM)
    - Stores enriched leads
    - Assigns to niches
    - Assigns to employees
@@ -34,7 +34,7 @@ FRONTEND APP (Cloudflare Pages)
 
 ## ❌ **CURRENT PROBLEM:**
 
-### **Issue 1: EC2 VM API Not Running**
+### **Issue 1: Google Cloud VM VM API Not Running**
 
 ```bash
 curl -I https://api.jentoai.pro/
@@ -42,9 +42,9 @@ curl -I https://api.jentoai.pro/
 ```
 
 **Meaning:**
-- ✅ Cloudflare DNS is working (points to EC2)
-- ❌ NO backend API running on EC2
-- ❌ EC2 Virtual Machine is either:
+- ✅ Cloudflare DNS is working (points to Google Cloud VM)
+- ❌ NO backend API running on Google Cloud VM
+- ❌ Google Cloud VM Virtual Machine is either:
   - Stopped/Terminated
   - API process crashed
   - Port not open
@@ -76,14 +76,14 @@ Leads: NOT ENRICHED
 
 ---
 
-## 🔧 **SOLUTION - Check EC2 VM:**
+## 🔧 **SOLUTION - Check Google Cloud VM VM:**
 
-### **Step 1: Login to AWS Console**
+### **Step 1: Login to Google Cloud Console**
 
 ```
 1. Go to: https://aws.amazon.com/console/
-2. Login to your AWS account
-3. Go to EC2 Dashboard
+2. Login to your Google Cloud account
+3. Go to Google Cloud VM Dashboard
 4. Find your enrichment API instance
 ```
 
@@ -96,11 +96,11 @@ Look for:
 - Public IP: xxx.xxx.xxx.xxx
 ```
 
-### **Step 3: SSH into EC2**
+### **Step 3: SSH into Google Cloud VM**
 
 ```bash
 # From your local machine
-ssh -i /path/to/your-key.pem ubuntu@YOUR_EC2_IP
+ssh -i /path/to/your-key.pem ubuntu@YOUR_Google Cloud VM_IP
 
 # OR if using Elastic IP
 ssh -i /path/to/your-key.pem ubuntu@api.jentoai.pro
@@ -109,7 +109,7 @@ ssh -i /path/to/your-key.pem ubuntu@api.jentoai.pro
 ### **Step 4: Check if API is Running**
 
 ```bash
-# On EC2 server:
+# On Google Cloud VM server:
 
 # Check Node.js processes
 ps aux | grep node
@@ -151,7 +151,7 @@ npm run start
 ### **Step 6: Test API**
 
 ```bash
-# On EC2:
+# On Google Cloud VM:
 curl http://localhost:3000/health
 
 # Should return:
@@ -170,7 +170,7 @@ curl https://api.jentoai.pro/health
 
 ---
 
-## 📊 **What Should Be Running on EC2:**
+## 📊 **What Should Be Running on Google Cloud VM:**
 
 ### **Option A: Docker Setup**
 
@@ -229,9 +229,9 @@ pm2 start ecosystem.config.js
 
 ## 🔍 **Debugging Checklist:**
 
-### **On EC2 Server:**
+### **On Google Cloud VM Server:**
 
-- [ ] **Instance is running** (AWS Console → EC2 → Status)
+- [ ] **Instance is running** (Google Cloud Console → Google Cloud VM → Status)
 - [ ] **SSH accessible** (can you login?)
 - [ ] **PostgreSQL running** (`sudo systemctl status postgresql`)
 - [ ] **Redis running** (if needed) (`sudo systemctl status redis`)
@@ -243,7 +243,7 @@ pm2 start ecosystem.config.js
 
 ### **Cloudflare Configuration:**
 
-- [ ] **DNS record exists** (api.jentoai.pro → EC2 IP)
+- [ ] **DNS record exists** (api.jentoai.pro → Google Cloud VM IP)
 - [ ] **SSL enabled** (Full or Full Strict mode)
 - [ ] **Proxy status** (Proxied or DNS Only?)
 - [ ] **Page rules** (no blocking rules?)
@@ -252,10 +252,10 @@ pm2 start ecosystem.config.js
 
 ## 🎯 **Quick Fix Commands:**
 
-### **If EC2 is STOPPED:**
+### **If Google Cloud VM is STOPPED:**
 
 ```
-1. AWS Console → EC2 → Instances
+1. Google Cloud Console → Google Cloud VM → Instances
 2. Select your instance
 3. Actions → Instance State → Start
 4. Wait 2-3 minutes
@@ -265,7 +265,7 @@ pm2 start ecosystem.config.js
 ### **If API Process CRASHED:**
 
 ```bash
-ssh into EC2
+ssh into Google Cloud VM
 
 # Restart API
 pm2 restart all
@@ -300,11 +300,11 @@ sudo -u postgres psql -d enrichment_saas -c "\dt"
 
 ### **IMMEDIATE ACTIONS:**
 
-1. **Check AWS Console**
-   - Is EC2 instance running?
+1. **Check Google Cloud Console**
+   - Is Google Cloud VM instance running?
    - Check status checks
 
-2. **SSH to EC2**
+2. **SSH to Google Cloud VM**
    - Can you login?
    - What processes are running?
 
@@ -330,7 +330,7 @@ sudo -u postgres psql -d enrichment_saas -c "\dt"
 
 ## 💡 **Alternative - Use Local for Now:**
 
-If EC2 is not accessible, you can run enrichment LOCALLY for testing:
+If Google Cloud VM is not accessible, you can run enrichment LOCALLY for testing:
 
 ```bash
 # Install PostgreSQL locally
@@ -357,20 +357,20 @@ export ENRICHMENT_API_URL=http://localhost:3000
 
 ## ✅ **Summary:**
 
-**Root Cause:** EC2 Virtual Machine API is NOT RUNNING
+**Root Cause:** Google Cloud VM Virtual Machine API is NOT RUNNING
 
 **Solution:**
-1. Login to AWS Console
-2. Check EC2 instance status
-3. SSH into EC2
+1. Login to Google Cloud Console
+2. Check Google Cloud VM instance status
+3. SSH into Google Cloud VM
 4. Start/restart API service
 5. Test endpoints
 
-**Until EC2 is fixed:**
+**Until Google Cloud VM is fixed:**
 - Frontend will show "Failed to fetch"
 - Scraper can't enrich leads
 - Employees can't access app
 
 ---
 
-**EC2 VM MUST BE RUNNING for the system to work!** 🚀
+**Google Cloud VM VM MUST BE RUNNING for the system to work!** 🚀

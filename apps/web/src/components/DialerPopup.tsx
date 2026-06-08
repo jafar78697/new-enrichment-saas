@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTwilioDevice, type CallStatus, type DeviceStatus } from '../hooks/useTwilioDevice';
 import { callsApi, type Agent } from '../services/callsApi';
+import { toast } from 'sonner';
 
 export interface DialerPopupProps {
   phone: string;
@@ -106,6 +107,8 @@ export default function DialerPopup({
   const [showWrapUp, setShowWrapUp] = useState(false);
   const [wrapUpNotes, setWrapUpNotes] = useState('');
   const [meetingTime, setMeetingTime] = useState('');
+  const [showTransferMode, setShowTransferMode] = useState(false);
+  const [availableAgents, setAvailableAgents] = useState<Agent[]>([]);
 
   const {
     deviceStatus,
@@ -187,6 +190,34 @@ export default function DialerPopup({
     startCall({ phoneNumber: cleanPhone, contactId, record }).catch(() => {});
   };
 
+  const handleTransferClick = async () => {
+    setShowTransferMode(true);
+    try {
+      const { agents } = await callsApi.listAgents();
+      // Filter out self
+      setAvailableAgents(agents.filter(a => a.id !== agentId));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const executeTransfer = async (targetAgentId: number) => {
+    if (!activeCallSid) return;
+    try {
+      await callsApi.transferCall(activeCallSid, targetAgentId);
+      endCall();
+      if (contactId) {
+        setShowWrapUp(true);
+      } else {
+        onClose();
+      }
+    } catch (err) {
+      console.error('Transfer failed', err);
+      toast.error('Transfer failed');
+    }
+  };
+
+
   const label = useMemo(() => statusLabel(deviceStatus, callStatus), [deviceStatus, callStatus]);
   const displayName = contactName || 'Manual dial';
   const displayMeta = contactCompany || cleanPhone;
@@ -213,7 +244,36 @@ export default function DialerPopup({
   return (
     <div className="fixed inset-0 z-[70] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-[380px] bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
-        {showWrapUp ? (
+        {showTransferMode ? (
+          <div className="flex flex-col h-full p-6">
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Transfer Call</h3>
+            <p className="text-sm text-slate-500 mb-4">Select a closer to transfer to:</p>
+            <div className="flex flex-col gap-2 overflow-y-auto max-h-64">
+              {availableAgents.length === 0 ? (
+                <p className="text-sm text-slate-400">Loading or no agents available...</p>
+              ) : (
+                availableAgents.map(a => (
+                  <button
+                    key={a.id}
+                    onClick={() => executeTransfer(a.id)}
+                    className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 py-3 rounded-xl font-semibold transition flex items-center justify-between px-4 border border-slate-200"
+                  >
+                    <span>{a.name}</span>
+                    <span className={a.is_available ? 'text-emerald-500 text-xs font-bold' : 'text-slate-400 text-xs'}>
+                      {a.is_available ? 'AVAILABLE' : 'OFFLINE'}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+            <button
+              className="mt-6 w-full text-slate-400 hover:text-slate-600 text-sm font-medium transition"
+              onClick={() => setShowTransferMode(false)}
+            >
+              Cancel Transfer
+            </button>
+          </div>
+        ) : showWrapUp ? (
           <div className="flex flex-col h-full p-6">
             <h3 className="text-xl font-bold text-slate-900 mb-2">Call Wrap-up</h3>
             <p className="text-sm text-slate-500 mb-6">Select outcome for {displayName}</p>
@@ -403,11 +463,14 @@ export default function DialerPopup({
           )}
 
           <button
-            disabled
-            className="w-14 h-14 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center cursor-not-allowed"
-            title="Recording is automatic"
+            disabled={callStatus !== 'connected'}
+            onClick={handleTransferClick}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition shadow-sm ${
+              callStatus === 'connected' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+            }`}
+            title="Transfer Call"
           >
-            ⏺
+            ↪️
           </button>
         </div>
 
