@@ -159,12 +159,35 @@ export default function EnrichmentPage() {
         </div>
       </div>
 
-      {/* Progress Bar */}
+      {/* Progress Bar & Animation */}
       {leads.length > 0 && (
         <div style={{ marginBottom: 32, background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #E5E7EB' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 14, fontWeight: 600 }}>
-            <span style={{ color: '#4B5563' }}>Enrichment Progress</span>
-            <span style={{ color: '#0F766E' }}>{calculateProgress()}%</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, fontSize: 14, fontWeight: 600, alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ color: '#4B5563' }}>Enrichment Progress</span>
+              {pendingLeads.length > 0 && (
+                <span style={{ 
+                  fontSize: 12, 
+                  padding: '4px 10px', 
+                  background: '#FEF2F2', 
+                  color: '#B91C1C', 
+                  borderRadius: 12, 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  animation: 'pulse 1.5s infinite' 
+                }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }}></span>
+                  {pendingLeads.length} Remaining
+                </span>
+              )}
+              {enrichedLeads.length > 0 && (
+                <span style={{ fontSize: 12, padding: '4px 10px', background: '#F0FDFA', color: '#047857', borderRadius: 12 }}>
+                  ✅ {enrichedLeads.length} Completed
+                </span>
+              )}
+            </div>
+            <span style={{ color: '#0F766E', fontSize: 16, fontWeight: 800 }}>{calculateProgress()}%</span>
           </div>
           <div style={{ width: '100%', height: 12, background: '#F3F4F6', borderRadius: 6, overflow: 'hidden', position: 'relative' }}>
             <div style={{ 
@@ -198,52 +221,57 @@ export default function EnrichmentPage() {
             </tr>
           </thead>
           <tbody>
-            {leads.length === 0 && (
+            {/* 
+              USER REQUIREMENT IMPLEMENTED: 
+              Only show pending leads in this table.
+              Leads that are enriched will disappear from here and show up in the main 'Leads' page.
+            */}
+            {pendingLeads.length === 0 && leads.length > 0 && (
+              <tr>
+                <td colSpan={3} style={{ padding: 40, textAlign: 'center', color: '#059669', fontWeight: 600 }}>
+                  🎉 All scraped leads have been successfully enriched! Check the Leads section.
+                </td>
+              </tr>
+            )}
+            {pendingLeads.length === 0 && leads.length === 0 && (
               <tr>
                 <td colSpan={3} style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>No leads found. Scrape some leads first!</td>
               </tr>
             )}
-            {leads.map(lead => {
-              const isPending = !lead.score || lead.score <= 0;
-              return (
-                <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: isPending ? '#fff' : '#FAFAFA' }}>
-                  <td style={{ padding: '16px', fontWeight: 600, color: isPending ? '#14202B' : '#6B7280' }}>
-                    {lead.name}
-                  </td>
-                  <td style={{ padding: '16px' }}>
-                    <a href={lead.website} target="_blank" rel="noopener noreferrer" style={{ color: '#0F766E', textDecoration: 'none' }}>
-                      {lead.website}
-                    </a>
-                  </td>
-                  <td style={{ padding: '16px' }}>
-                    <span style={{
-                      background: !isPending ? '#D1FAE5' : '#FEF3C7',
-                      color: !isPending ? '#065F46' : '#92400E',
-                      padding: '6px 12px',
-                      borderRadius: 20,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6
-                    }}>
-                      {!isPending ? '✅ Enriched (Check Leads section)' : (
-                        <>
-                          {/* 
-                            PERFORMANCE OPTIMIZATION: 
-                            Removed the <svg className="animate-spin ..."> here.
-                            Having hundreds of spinning SVGs in a long table causes the browser's 
-                            GPU/CPU to max out and the UI to lag terribly. 
-                            A simple text indicator is much faster to render.
-                          */}
-                          ⏳ Pending Enrichment
-                        </>
-                      )}
-                    </span>
-                  </td>
-                </tr>
-              )
-            })}
+            {pendingLeads.map(lead => (
+              <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: '#fff' }}>
+                <td style={{ padding: '16px', fontWeight: 600, color: '#14202B' }}>
+                  {lead.name}
+                </td>
+                <td style={{ padding: '16px' }}>
+                  <a href={lead.website} target="_blank" rel="noopener noreferrer" style={{ color: '#0F766E', textDecoration: 'none' }}>
+                    {lead.website}
+                  </a>
+                </td>
+                <td style={{ padding: '16px' }}>
+                  <span style={{
+                    background: '#FEF3C7',
+                    color: '#92400E',
+                    padding: '6px 12px',
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}>
+                    {/* 
+                      PERFORMANCE OPTIMIZATION: 
+                      Removed the <svg className="animate-spin ..."> here.
+                      Having hundreds of spinning SVGs in a long table causes the browser's 
+                      GPU/CPU to max out and the UI to lag terribly. 
+                      A simple text indicator is much faster to render.
+                    */}
+                    ⏳ Pending Enrichment
+                  </span>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
