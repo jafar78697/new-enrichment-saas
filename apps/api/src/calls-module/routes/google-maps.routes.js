@@ -12,9 +12,10 @@ router.post(
   requireAuth,
   async (req, res) => {
     try {
-      const { keywords, location, limit = 60, niche_name } = req.body;
+      const { keywords, location, niche_name } = req.body;
+      const limit = 1000; // A high arbitrary limit to let it fetch all available pages (Google max is usually ~60-120 per search anyway)
 
-      console.log('[google-maps] Route called with:', JSON.stringify({ keywords, location, limit, niche_name }));
+      console.log('[google-maps] Route called with:', JSON.stringify({ keywords, location, niche_name }));
 
       if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
         return res.status(400).json({ error: 'At least one keyword is required in keywords array.' });

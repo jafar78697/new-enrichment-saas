@@ -123,11 +123,11 @@ export default function EnrichmentPage() {
           >
             {isStartingEnrichment ? (
               <span className="flex items-center gap-2">
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" style={{ width: 16, height: 16, animation: 'spin 1s linear infinite' }}>
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                Starting...
+                Enriching...
               </span>
             ) : (
               <>Start Enrichment ({pendingLeads.length} Pending)</>
@@ -168,73 +168,6 @@ export default function EnrichmentPage() {
           <span style={{ fontSize: 32, fontWeight: 800, color: '#991B1B' }}>{pendingLeads.length}</span>
         </div>
       </div>
-
-      {/* Progress Bar & Animation */}
-      {leads.length > 0 && (
-        <div style={{ marginBottom: 32, background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #E5E7EB' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, fontSize: 14, fontWeight: 600, alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ color: '#4B5563' }}>Enrichment Progress</span>
-              {pendingLeads.length > 0 && (
-                <span style={{ 
-                  fontSize: 12, 
-                  padding: '4px 10px', 
-                  background: '#FEF2F2', 
-                  color: '#B91C1C', 
-                  borderRadius: 12, 
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  animation: 'pulse 1.5s infinite' 
-                }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }}></span>
-                  {pendingLeads.length} Processing
-                </span>
-              )}
-              {browserLeads.length > 0 && (
-                <span style={{ 
-                  fontSize: 12, 
-                  padding: '4px 10px', 
-                  background: '#EEF2FF', 
-                  color: '#4338CA', 
-                  borderRadius: 12, 
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  animation: 'pulse 1.5s infinite' 
-                }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366F1' }}></span>
-                  {browserLeads.length} Escalated
-                </span>
-              )}
-              {enrichedLeads.length > 0 && (
-                <span style={{ fontSize: 12, padding: '4px 10px', background: '#F0FDFA', color: '#047857', borderRadius: 12 }}>
-                  {enrichedLeads.length} Completed
-                </span>
-              )}
-            </div>
-            <span style={{ color: '#0F766E', fontSize: 16, fontWeight: 800 }}>{calculateProgress()}%</span>
-          </div>
-          <div style={{ width: '100%', height: 12, background: '#F3F4F6', borderRadius: 6, overflow: 'hidden', position: 'relative' }}>
-            <div style={{ 
-              width: `${calculateProgress()}%`, 
-              height: '100%', 
-              background: 'linear-gradient(90deg, #14B8A6 0%, #0F766E 100%)', 
-              transition: 'width 0.5s ease-in-out',
-              position: 'relative'
-            }}>
-              {pendingLeads.length > 0 && calculateProgress() > 0 && (
-                <div style={{ 
-                  position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, 
-                  background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
-                  animation: 'shimmer 1.5s infinite linear',
-                  transform: 'skewX(-20deg)'
-                }} />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Leads Table */}
       <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, overflow: 'hidden' }}>
