@@ -109,7 +109,9 @@ router.post(
             break;
           }
 
-          await delay(2000);
+          // In the new Places API (v1), the next page token is valid almost immediately.
+          // Reduced delay from 2000ms to 200ms to dramatically improve scraping speed.
+          await delay(200);
         }
       }
 
