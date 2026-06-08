@@ -67,7 +67,7 @@ export interface Contact {
   facebook?: string | null;
   instagram?: string | null;
   score?: number | null;
-  stage?: 'new_lead' | 'in_progress' | 'converted_lost' | 'email_sent' | 'fallback_linkedin' | null;
+  stage?: 'new_lead' | 'in_progress' | 'converted_lost' | 'email_sent' | 'fallback_linkedin' | 'needs_browser' | null;
   messages_count?: number | null;
   emails_sent?: number | null;
   emails_received?: number | null;
