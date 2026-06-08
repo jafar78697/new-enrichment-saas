@@ -467,12 +467,12 @@ async def process_task(task: dict):
 
     logger.info(f"Done [{status}]: {normalized_domain} — emails:{len(all_emails)} phones:{len(all_phones)}")
 
-async def worker_loop():
-    logger.info("HTTP Worker Started (Polling DB)...")
+async def worker_loop(worker_id: int):
+    logger.info(f"HTTP Worker {worker_id} Started (Polling DB)...")
     while True:
         try:
             with engine.connect() as conn:
-                # Use SKIP LOCKED if Postgres supports it (it does) to prevent race conditions
+                # Use SKIP LOCKED to safely grab tasks without overlapping
                 result = conn.execute(text("""
                     SELECT id, job_id, tenant_id, normalized_domain
                     FROM enrichment_job_items 
@@ -482,7 +482,6 @@ async def worker_loop():
                 """)).fetchone()
                 
                 if result:
-                    # Update status immediately so other workers don't pick it
                     conn.execute(text("UPDATE enrichment_job_items SET status = 'processing_http', started_at = now() WHERE id = :id"), {"id": result.id})
                     conn.commit()
                     
@@ -500,7 +499,7 @@ async def worker_loop():
                 else:
                     await asyncio.sleep(2)
         except Exception as e:
-            logger.error(f"Worker loop error: {e}")
+            logger.error(f"Worker {worker_id} loop error: {e}")
             await asyncio.sleep(5)
 
 async def linkedin_worker_loop():
@@ -551,7 +550,6 @@ async def linkedin_worker_loop():
                             
                             conn.execute(text("UPDATE contacts SET website_data = :data WHERE id = :id"), {"data": intro, "id": result.contact_id})
                         else:
-                            # Simulate processing for linkedin tasks
                             await asyncio.sleep(2)
                         
                         conn.execute(text("UPDATE linkedin_tasks SET status = 'completed', updated_at = now() WHERE id = :id"), {"id": result.id})
@@ -568,7 +566,10 @@ async def linkedin_worker_loop():
 
 async def main():
     asyncio.create_task(linkedin_worker_loop())
-    await worker_loop()
+    
+    # Spawn 5 parallel workers so we can process 5 domains concurrently
+    workers = [asyncio.create_task(worker_loop(i)) for i in range(1, 6)]
+    await asyncio.gather(*workers)
 
 if __name__ == "__main__":
     asyncio.run(main())
