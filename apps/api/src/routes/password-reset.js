@@ -10,8 +10,8 @@ const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const transporter = nodemailer_1.default.createTransport({
     service: 'gmail',
     auth: {
-        user: 'scale.ai.jento@gmail.com',
-        pass: 'wvledbipemrocjzl', // app password (spaces removed)
+        user: process.env.SMTP_USER || 'scale.ai.jento@gmail.com',
+        pass: process.env.SMTP_PASS || '', 
     },
 });
 async function passwordResetRoutes(app) {

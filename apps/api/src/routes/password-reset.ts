@@ -6,8 +6,8 @@ import bcrypt from 'bcryptjs';
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'scale.ai.jento@gmail.com',
-    pass: 'wvledbipemrocjzl', // app password (spaces removed)
+    user: process.env.SMTP_USER || 'scale.ai.jento@gmail.com',
+    pass: process.env.SMTP_PASS || '', 
   },
 });
 
