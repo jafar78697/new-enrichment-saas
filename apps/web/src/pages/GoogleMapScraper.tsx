@@ -62,20 +62,24 @@ export default function GoogleMapScraper() {
 
     setIsScraping(true);
     try {
-      const response = await scraperApi.scrapeGoogleMaps({ 
-        keywords, 
-        location, 
-        limit,
-        niche_name: nicheName.trim() !== '' ? nicheName.trim() : undefined
-      });
-      if (response.success && response.leads) {
-        setLeads(response.leads);
-        setStats(prev => ({ 
-          ...prev, 
-          totalLeads: prev.totalLeads + response.leads.length, 
-          remaining: prev.remaining + response.leads.length 
-        }));
+      for (const keyword of keywords) {
+        toast(`Scraping: ${keyword}...`);
+        const response = await scraperApi.scrapeGoogleMaps({ 
+          keywords: [keyword], 
+          location, 
+          limit,
+          niche_name: nicheName.trim() !== '' ? nicheName.trim() : undefined
+        });
+        if (response.success && response.leads) {
+          setLeads(prev => [...response.leads, ...prev]);
+          setStats(prev => ({ 
+            ...prev, 
+            totalLeads: prev.totalLeads + response.leads.length, 
+            remaining: prev.remaining + response.leads.length 
+          }));
+        }
       }
+      toast.success('All keywords processed successfully!');
     } catch (error) {
       console.error('Failed to scrape:', error);
       toast.error('Failed to scrape from Google Maps. Ensure your API key is configured on the backend.');
@@ -89,7 +93,7 @@ export default function GoogleMapScraper() {
       {/* Header */}
       <div style={{ marginBottom: 32 }}>
         <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 28, fontWeight: 700, color: '#14202B', margin: '0 0 8px' }}>
-          Google Maps Scraper <span style={{ color: '#0F766E', textShadow: '0 0 10px rgba(15, 118, 110, 0.3)' }}>✨ Premium</span>
+          Google Maps Scraper <span style={{ color: '#0F766E', textShadow: '0 0 10px rgba(15, 118, 110, 0.3)' }}>Premium</span>
         </h1>
         <p style={{ color: '#52606D', fontSize: 15, margin: 0 }}>
           Scrape and enrich local business leads from Google Maps in bulk.
@@ -241,7 +245,7 @@ export default function GoogleMapScraper() {
                   transform: isScraping ? 'none' : 'translateY(-1px)'
                 }}
               >
-                {isScraping ? 'Scraping Data...' : '▶ Start Bulk Scraping'}
+                {isScraping ? 'Scraping Data...' : 'Start Bulk Scraping'}
               </button>
             </div>
           </form>
@@ -281,17 +285,17 @@ export default function GoogleMapScraper() {
                   <tr key={lead.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
                     <td style={{ padding: '16px' }}>
                       <div style={{ fontWeight: 600, color: '#111827' }}>{lead.name}</div>
-                      <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>📍 {lead.address || 'Address hidden'}</div>
+                      <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>{lead.address || 'Address hidden'}</div>
                     </td>
                     <td style={{ padding: '16px' }}>
                       {lead.phone ? (
-                        <div style={{ fontSize: 13, color: '#4B5563', marginBottom: 4 }}>📞 {lead.phone}</div>
+                        <div style={{ fontSize: 13, color: '#4B5563', marginBottom: 4 }}>{lead.phone}</div>
                       ) : (
-                        <div style={{ fontSize: 12, color: '#EF4444', marginBottom: 4 }}>⚠️ No Phone</div>
+                        <div style={{ fontSize: 12, color: '#EF4444', marginBottom: 4 }}>No Phone</div>
                       )}
                       {lead.website && (
                         <div style={{ fontSize: 13 }}>
-                          🌐 <a href={lead.website} target="_blank" rel="noopener noreferrer" style={{ color: '#0F766E', textDecoration: 'none' }}>Website</a>
+                          <a href={lead.website} target="_blank" rel="noopener noreferrer" style={{ color: '#0F766E', textDecoration: 'none' }}>Website</a>
                         </div>
                       )}
                     </td>
