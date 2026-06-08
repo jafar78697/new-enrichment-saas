@@ -6,16 +6,14 @@ import { toast } from 'sonner';
 
 export default function EnrichmentPage() {
   const queryClient = useQueryClient();
-  const [isStartingEnrichment, setIsStartingEnrichment] = useState(false);
+  const [isStartingEnrichment, setIsStartingEnrichment] = useState(() => {
+    return sessionStorage.getItem('isEnriching') === 'true';
+  });
   
   const { data, isLoading } = useQuery({
     queryKey: ['contacts'],
     queryFn: callsApi.listContacts,
     refetchInterval: (query) => {
-      // PERFORMANCE OPTIMIZATION:
-      // Previously, this polled every 3 seconds unconditionally, which caused heavy server load and React re-renders.
-      // Now, it only polls if there is actually a lead that needs enrichment.
-      // This saves API bandwidth and CPU usage.
       const leads = query.state.data?.contacts || [];
       const hasPending = leads.some((l: any) => !l.score || l.score <= 0);
       return hasPending ? 3000 : false;
@@ -33,6 +31,12 @@ export default function EnrichmentPage() {
   const pendingLeads = leads.filter(l => (!l.score || l.score <= 0) && l.stage !== 'needs_browser');
   const browserLeads = leads.filter(l => l.stage === 'needs_browser');
   const enrichedLeads = leads.filter(l => l.score && l.score > 0 && l.stage !== 'needs_browser');
+
+  // Clear enriching state if there are no pending leads left
+  if (pendingLeads.length === 0 && isStartingEnrichment) {
+    setIsStartingEnrichment(false);
+    sessionStorage.removeItem('isEnriching');
+  }
   
   const handleClearAll = () => {
     if (window.confirm('Are you sure you want to clear ALL leads? This cannot be undone.')) {
@@ -51,14 +55,16 @@ export default function EnrichmentPage() {
     }
 
     setIsStartingEnrichment(true);
+    sessionStorage.setItem('isEnriching', 'true');
     try {
       await jobsApi.create({ domains, mode: 'smart_hybrid' });
       toast.success(`Enrichment started for ${domains.length} websites! Progress will update automatically.`);
     } catch (err: any) {
       toast.error('Error starting enrichment: ' + (err.response?.data?.message || err.message));
-    } finally {
       setIsStartingEnrichment(false);
+      sessionStorage.removeItem('isEnriching');
     }
+    // We intentionally don't set it to false in finally() so it stays spinning while the background worker processes the leads
   };
 
   const calculateProgress = () => {
