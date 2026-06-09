@@ -14,6 +14,7 @@ import CallDetailPage from './pages/CallDetail';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 // New pages
+import RealEstateLanding from './pages/RealEstateLanding';
 import EnrichmentPage from './pages/Enrichment';
 import LeadsPage from './pages/Leads';
 import OutreachPage from './pages/Outreach';
@@ -43,6 +44,7 @@ export default function App() {
       <Toaster richColors position="top-right" />
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/real-estate-ai" element={<RealEstateLanding />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/login" element={<Navigate to="/call-login" replace />} />
         <Route path="/signup" element={<Navigate to="/login" replace />} />

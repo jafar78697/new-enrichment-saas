@@ -19,6 +19,8 @@ import linkedinExtRoutes from './routes/linkedin-ext.routes.js';
 import redditExtRoutes from './routes/reddit-ext.routes.js';
 import teamsRoutes from './routes/teams.routes.js';
 import leaderboardRoutes from './routes/leaderboard.routes.js';
+import campaignsRoutes from './routes/campaigns.routes.js';
+import emailAccountsRoutes from './routes/email-accounts.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { softAuth } from './middleware/auth.js';
 
@@ -54,6 +56,10 @@ export function createCallsApp() {
 
   // Google Maps Scraper (after softAuth so req.user is set)
   app.use('/api/google-maps', googleMapsExpressRoutes);
+
+  // Outreach: Campaigns & Email Accounts
+  app.use('/api/campaigns', campaignsRoutes);
+  app.use('/api/email-accounts', emailAccountsRoutes);
 
   // 404 + error tail — only fires for unmatched /api/* paths.
   // Fastify will fall through to its own routes for everything else.
