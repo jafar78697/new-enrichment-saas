@@ -36,9 +36,10 @@ export default function EnrichmentPage() {
   const pendingLeads = leads.filter(l => (!l.score || l.score <= 0) && l.stage !== 'needs_browser');
   const browserLeads = leads.filter(l => l.stage === 'needs_browser');
   const enrichedLeads = leads.filter(l => l.score && l.score > 0 && l.stage !== 'needs_browser');
+  const enrichablePendingLeads = pendingLeads.filter(l => l.website);
 
-  // Clear enriching state if there are no pending leads left
-  if (pendingLeads.length === 0 && isStartingEnrichment) {
+  // Clear enriching state if there are no enrichable pending leads left
+  if (enrichablePendingLeads.length === 0 && isStartingEnrichment) {
     setIsStartingEnrichment(false);
     sessionStorage.removeItem('isEnriching');
   }
@@ -50,9 +51,7 @@ export default function EnrichmentPage() {
   };
 
   const handleStartEnrichment = async () => {
-    const domains = pendingLeads
-      .filter(l => l.website)
-      .map(l => l.website!);
+    const domains = enrichablePendingLeads.map(l => l.website!);
       
     if (domains.length === 0) {
       toast.error('No pending leads with websites found to enrich.');
@@ -123,19 +122,34 @@ export default function EnrichmentPage() {
               {clearAllMutation.isPending ? 'Clearing...' : 'Clear All Leads'}
             </button>
           )}
+          {isStartingEnrichment && (
+            <button
+              onClick={() => {
+                setIsStartingEnrichment(false);
+                sessionStorage.removeItem('isEnriching');
+              }}
+              style={{
+                background: '#F3F4F6', color: '#6B7280', border: '1px solid #D1D5DB',
+                padding: '12px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer'
+              }}
+              title="Force stop the spinner if it's stuck"
+            >
+              Stop Spinner
+            </button>
+          )}
           <button
             onClick={handleStartEnrichment}
-            disabled={pendingLeads.length === 0 || isStartingEnrichment}
+            disabled={enrichablePendingLeads.length === 0 || isStartingEnrichment}
             style={{
-              background: pendingLeads.length > 0 ? 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)' : '#D8E1D7',
-              color: pendingLeads.length > 0 ? '#fff' : '#7B8794',
+              background: enrichablePendingLeads.length > 0 ? 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)' : '#D8E1D7',
+              color: enrichablePendingLeads.length > 0 ? '#fff' : '#7B8794',
               border: 'none',
               padding: '12px 24px',
               borderRadius: 8,
               fontSize: 14,
               fontWeight: 700,
-              cursor: pendingLeads.length > 0 && !isStartingEnrichment ? 'pointer' : 'not-allowed',
-              boxShadow: pendingLeads.length > 0 ? '0 4px 12px rgba(15, 118, 110, 0.3)' : 'none',
+              cursor: enrichablePendingLeads.length > 0 && !isStartingEnrichment ? 'pointer' : 'not-allowed',
+              boxShadow: enrichablePendingLeads.length > 0 ? '0 4px 12px rgba(15, 118, 110, 0.3)' : 'none',
               display: 'flex',
               alignItems: 'center',
               gap: 8,
@@ -151,7 +165,7 @@ export default function EnrichmentPage() {
                 Enriching...
               </span>
             ) : (
-              <>Start Enrichment ({pendingLeads.length} Pending)</>
+              <>Start Enrichment ({enrichablePendingLeads.length} Ready)</>
             )}
           </button>
         </div>
