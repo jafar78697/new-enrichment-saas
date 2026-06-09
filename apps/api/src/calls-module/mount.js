@@ -12,6 +12,7 @@ import contactsRoutes from './routes/contacts.routes.js';
 import callsRoutes from './routes/calls.routes.js';
 import twilioRoutes from './routes/twilio.routes.js';
 import './services/followup.service.js'; // Initialize the daily cron job
+import { initCampaignSender } from './services/campaign-sender.service.js'; // Email campaign sender
 import scraperBridgeRoutes from './routes/scraper-bridge.routes.js';
 import googleMapsExpressRoutes from './routes/google-maps.routes.js';
 import metaRoutes from './routes/meta.routes.js';
@@ -33,6 +34,9 @@ export function createCallsApp() {
   // Body parsers — scoped to /api so Fastify can parse bodies for /v1
   app.use('/api', express.json());
   app.use('/api', express.urlencoded({ extended: true }));
+
+  // Start the campaign email sender background service
+  initCampaignSender();
 
   // Health probe under the calls namespace.
   app.get('/api/calls-health', (_req, res) => res.json({ ok: true, module: 'calls' }));
