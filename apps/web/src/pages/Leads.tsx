@@ -5,6 +5,7 @@ import { getCallUser } from '../services/employeesApi';
 import DialerPopup from '../components/DialerPopup';
 import EmailPopup from '../components/EmailPopup';
 import { toast } from 'sonner';
+import { useSearchParams } from 'react-router-dom';
 
 const SvgIcons = {
   email: <svg fill="currentColor" viewBox="0 0 20 20"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" /><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" /></svg>,
@@ -87,6 +88,10 @@ function SocialIcon({ platform, url, count, onClick, disabled, badgeText }: { pl
 }
 
 export default function LeadsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentPage = parseInt(searchParams.get('page') || '1', 10);
+  const pageSize = 50;
+
   const [search, setSearch] = useState('');
   const [activeCall, setActiveCall] = useState<Contact | null>(null);
   const [activeEmailLead, setActiveEmailLead] = useState<Contact | null>(null);
@@ -408,6 +413,16 @@ export default function LeadsPage() {
     return <div style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>Loading leads...</div>;
   }
 
+  const tabLeads = otherLeads.filter(l => l.stage === activeTab || (!l.stage && activeTab === 'new_lead'));
+  const totalPages = Math.ceil(tabLeads.length / pageSize);
+  const paginatedLeads = tabLeads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const goToPage = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setSearchParams({ page: page.toString() });
+    }
+  };
+
   return (
     <div style={{ maxWidth: 1400 }}>
       {/* Header */}
@@ -470,7 +485,7 @@ export default function LeadsPage() {
       {/* Stage Tabs */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #E5E7EB', paddingBottom: 8 }}>
         <button 
-          onClick={() => setActiveTab('new_lead')}
+          onClick={() => { setActiveTab('new_lead'); setSearchParams({ page: '1' }); }}
           style={{ 
             background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
             color: activeTab === 'new_lead' ? '#0F766E' : '#6B7280',
@@ -481,7 +496,7 @@ export default function LeadsPage() {
           New Leads ({otherLeads.filter(l => !l.stage || l.stage === 'new_lead').length})
         </button>
         <button 
-          onClick={() => setActiveTab('in_progress')}
+          onClick={() => { setActiveTab('in_progress'); setSearchParams({ page: '1' }); }}
           style={{ 
             background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
             color: activeTab === 'in_progress' ? '#0F766E' : '#6B7280',
@@ -492,7 +507,7 @@ export default function LeadsPage() {
           In-Progress ({otherLeads.filter(l => l.stage === 'in_progress').length})
         </button>
         <button 
-          onClick={() => setActiveTab('converted_lost')}
+          onClick={() => { setActiveTab('converted_lost'); setSearchParams({ page: '1' }); }}
           style={{ 
             background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
             color: activeTab === 'converted_lost' ? '#0F766E' : '#6B7280',
@@ -506,14 +521,41 @@ export default function LeadsPage() {
 
       {/* Leads Grid */}
       <div style={{ display: 'grid', gap: 16 }}>
-        {otherLeads.filter(l => l.stage === activeTab || (!l.stage && activeTab === 'new_lead')).map(lead => renderLead(lead, false))}
+        {paginatedLeads.map(lead => renderLead(lead, false))}
 
-        {otherLeads.filter(l => l.stage === activeTab || (!l.stage && activeTab === 'new_lead')).length === 0 && (
+        {tabLeads.length === 0 && (
           <div style={{ padding: 60, textAlign: 'center', color: '#7B8794', background: '#fff', borderRadius: 12, border: '1px solid #D8E1D7' }}>
             No leads in this stage.
           </div>
         )}
       </div>
+
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB', borderRadius: 12, marginTop: 16 }}>
+          <span style={{ fontSize: 14, color: '#4B5563', fontWeight: 500 }}>
+            Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, tabLeads.length)} of {tabLeads.length} leads
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button 
+              onClick={() => goToPage(currentPage - 1)} 
+              disabled={currentPage === 1}
+              style={{ padding: '8px 16px', background: currentPage === 1 ? '#F3F4F6' : '#fff', color: currentPage === 1 ? '#9CA3AF' : '#374151', border: '1px solid #D1D5DB', borderRadius: 6, fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+            >
+              Previous
+            </button>
+            <span style={{ padding: '8px 16px', background: '#F3F4F6', color: '#374151', border: '1px solid #E5E7EB', borderRadius: 6, fontWeight: 700 }}>
+              Page {currentPage} of {totalPages}
+            </span>
+            <button 
+              onClick={() => goToPage(currentPage + 1)} 
+              disabled={currentPage === totalPages}
+              style={{ padding: '8px 16px', background: currentPage === totalPages ? '#F3F4F6' : '#fff', color: currentPage === totalPages ? '#9CA3AF' : '#374151', border: '1px solid #D1D5DB', borderRadius: 6, fontWeight: 600, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       {activeCall && activeCall.phone_number && (
         <DialerPopup
