@@ -72,6 +72,7 @@ pm2 delete enrichment-worker 2>/dev/null || true
 pm2 start main.py \
   --interpreter .venv/bin/python \
   --name enrichment-worker \
+  -i 3 \
   --env production \
   --restart-delay 3000 \
   --max-restarts 10
