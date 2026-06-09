@@ -261,11 +261,17 @@ def sync_to_contacts_pg(domain: str, emails: list, phones: list, socials: dict, 
                 updates = []
                 params = {"contact_id": contact_id}
                 if email:
-                    updates.append("email = :email")
-                    params["email"] = email
+                    # Check if email is already taken to avoid UniqueViolation
+                    exist = conn.execute(text("SELECT id FROM contacts WHERE email = :email AND id != :id"), {"email": email, "id": contact_id}).fetchone()
+                    if not exist:
+                        updates.append("email = :email")
+                        params["email"] = email
                 if phone:
-                    updates.append("phone_number = :phone")
-                    params["phone"] = phone
+                    # Check if phone is already taken to avoid UniqueViolation
+                    exist = conn.execute(text("SELECT id FROM contacts WHERE phone_number = :phone AND id != :id"), {"phone": phone, "id": contact_id}).fetchone()
+                    if not exist:
+                        updates.append("phone_number = :phone")
+                        params["phone"] = phone
                 if socials.get('linkedin_url'):
                     updates.append("linkedin = :linkedin")
                     params["linkedin"] = socials.get('linkedin_url')
