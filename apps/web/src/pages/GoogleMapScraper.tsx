@@ -3,6 +3,7 @@ import { getCallUser } from '../services/employeesApi';
 import { scraperApi } from '../services/api';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { toast } from 'sonner';
+import { useSearchParams } from 'react-router-dom';
 
 interface ScrapedLead {
   id: string;
@@ -18,6 +19,19 @@ interface ScrapedLead {
 type GroupedLeads = Record<string, ScrapedLead[]>;
 
 export default function GoogleMapScraper() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pageSize = 50;
+  
+  const getPageForKeyword = (keyword: string) => {
+    return parseInt(searchParams.get(`page_${keyword}`) || '1', 10);
+  };
+
+  const setPageForKeyword = (keyword: string, page: number) => {
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set(`page_${keyword}`, page.toString());
+    setSearchParams(newParams);
+  };
+
   const [isAdmin, setIsAdmin] = useState(false);
   const [bulkKeywords, setBulkKeywords] = useState('');
   const [location, setLocation] = useState('');
@@ -334,25 +348,6 @@ export default function GoogleMapScraper() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
-// ... existing imports ...
-import { useSearchParams } from 'react-router-dom';
-
-// ... inside the component
-  const [searchParams, setSearchParams] = useSearchParams();
-  const pageSize = 50;
-  
-  const getPageForKeyword = (keyword: string) => {
-    return parseInt(searchParams.get(`page_${keyword}`) || '1', 10);
-  };
-
-  const setPageForKeyword = (keyword: string, page: number) => {
-    const newParams = new URLSearchParams(searchParams);
-    newParams.set(`page_${keyword}`, page.toString());
-    setSearchParams(newParams);
-  };
-
-// ... replace the groupedLeads mapping
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
             {Object.entries(groupedLeads).map(([keyword, leadsForKw]) => {
               const currentPage = getPageForKeyword(keyword);
               const totalPages = Math.ceil(leadsForKw.length / pageSize);
@@ -456,12 +451,12 @@ import { useSearchParams } from 'react-router-dom';
       </div>
 
       <style>
-        {\`
+        {`
           @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
           }
-        \`}
+        `}
       </style>
     </div>
   );

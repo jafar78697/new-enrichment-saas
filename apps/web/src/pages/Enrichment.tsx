@@ -3,8 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import callsApi, { Contact } from '../services/callsApi';
 import { jobsApi } from '../services/api';
 import { toast } from 'sonner';
+import { useSearchParams } from 'react-router-dom';
 
 export default function EnrichmentPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentPage = parseInt(searchParams.get('page') || '1', 10);
+  const pageSize = 50;
+
   const queryClient = useQueryClient();
   const [isStartingEnrichment, setIsStartingEnrichment] = useState(() => {
     return sessionStorage.getItem('isEnriching') === 'true';
@@ -75,6 +80,16 @@ export default function EnrichmentPage() {
   if (isLoading) {
     return <div style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>Loading scraped leads...</div>;
   }
+
+  const displayLeads = [...browserLeads, ...pendingLeads];
+  const totalPages = Math.ceil(displayLeads.length / pageSize);
+  const paginatedLeads = displayLeads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const goToPage = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setSearchParams({ page: page.toString() });
+    }
+  };
 
   return (
     <div style={{ maxWidth: 1200 }}>
@@ -198,27 +213,6 @@ export default function EnrichmentPage() {
                 <td colSpan={3} style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>No leads found. Scrape some leads first!</td>
               </tr>
             )}
-            
-// ... existing imports ...
-import { useSearchParams } from 'react-router-dom';
-
-// ... inside the component
-  const [searchParams, setSearchParams] = useSearchParams();
-  const currentPage = parseInt(searchParams.get('page') || '1', 10);
-  const pageSize = 50;
-
-// ... calculate display leads
-  const displayLeads = [...browserLeads, ...pendingLeads];
-  const totalPages = Math.ceil(displayLeads.length / pageSize);
-  const paginatedLeads = displayLeads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
-  const goToPage = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setSearchParams({ page: page.toString() });
-    }
-  };
-
-// ... replace the table rendering
             {paginatedLeads.map(lead => (
               <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: lead.stage === 'needs_browser' ? '#F8FAFC' : '#fff' }}>
                 <td style={{ padding: '16px', fontWeight: 600, color: lead.stage === 'needs_browser' ? '#1E293B' : '#14202B' }}>
@@ -279,12 +273,12 @@ import { useSearchParams } from 'react-router-dom';
       </div>
 
       <style>
-        {\`
+        {`
           @keyframes shimmer {
             0% { transform: translateX(-100%) skewX(-20deg); }
             100% { transform: translateX(200%) skewX(-20deg); }
           }
-        \`}
+        `}
       </style>
     </div>
   );
