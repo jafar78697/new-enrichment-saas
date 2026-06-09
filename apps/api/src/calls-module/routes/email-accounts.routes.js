@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { query } from '../db.js';
+import { query } from './db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import nodemailer from 'nodemailer';
 
