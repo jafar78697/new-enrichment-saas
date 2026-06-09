@@ -345,17 +345,20 @@ async def process_task(task: dict):
     normalized_domain = normalize(domain)
     if not normalized_domain:
         update_job_item_status(job_item_id, 'failed', 'Invalid domain')
+        sync_to_contacts_pg(domain, [], [], {}, 0, None, needs_browser=True)
         return
 
     # Circuit breaker check
     if is_circuit_broken(normalized_domain):
         logger.warning(f"Circuit broken for {normalized_domain}, skipping")
         update_job_item_status(job_item_id, 'failed', 'Circuit breaker: too many failures')
+        sync_to_contacts_pg(normalized_domain, [], [], {}, 0, None, needs_browser=True)
         return
 
     # Rate limit check
     if redis_client and redis_client.exists(f"rate_limit:{normalized_domain}"):
         update_job_item_status(job_item_id, 'failed', 'Rate limited by target')
+        sync_to_contacts_pg(normalized_domain, [], [], {}, 0, None, needs_browser=True)
         return
 
     # Update status to processing
