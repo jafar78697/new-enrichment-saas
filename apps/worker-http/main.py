@@ -387,6 +387,8 @@ async def process_task(task: dict):
         if html is None:
             record_failure(normalized_domain)
             update_job_item_status(job_item_id, 'failed', 'Website unreachable after retries')
+            # Escalate to browser so it doesn't stay stuck in the HTTP queue
+            sync_to_contacts_pg(normalized_domain, [], [], {}, 0, None, needs_browser=True)
             return
 
         reset_failures(normalized_domain)

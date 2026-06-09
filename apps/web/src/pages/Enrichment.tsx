@@ -33,13 +33,12 @@ export default function EnrichmentPage() {
   const leads = data?.contacts || [];
   
   // Categorize leads
-  const pendingLeads = leads.filter(l => (!l.score || l.score <= 0) && l.stage !== 'needs_browser');
+  const pendingLeads = leads.filter(l => l.website && (!l.score || l.score <= 0) && l.stage !== 'needs_browser');
   const browserLeads = leads.filter(l => l.stage === 'needs_browser');
   const enrichedLeads = leads.filter(l => l.score && l.score > 0 && l.stage !== 'needs_browser');
-  const enrichablePendingLeads = pendingLeads.filter(l => l.website);
 
-  // Clear enriching state if there are no enrichable pending leads left
-  if (enrichablePendingLeads.length === 0 && isStartingEnrichment) {
+  // Clear enriching state if there are no pending leads left
+  if (pendingLeads.length === 0 && isStartingEnrichment) {
     setIsStartingEnrichment(false);
     sessionStorage.removeItem('isEnriching');
   }
@@ -51,7 +50,7 @@ export default function EnrichmentPage() {
   };
 
   const handleStartEnrichment = async () => {
-    const domains = enrichablePendingLeads.map(l => l.website!);
+    const domains = pendingLeads.map(l => l.website!);
       
     if (domains.length === 0) {
       toast.error('No pending leads with websites found to enrich.');
@@ -139,17 +138,17 @@ export default function EnrichmentPage() {
           )}
           <button
             onClick={handleStartEnrichment}
-            disabled={enrichablePendingLeads.length === 0 || isStartingEnrichment}
+            disabled={pendingLeads.length === 0 || isStartingEnrichment}
             style={{
-              background: enrichablePendingLeads.length > 0 ? 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)' : '#D8E1D7',
-              color: enrichablePendingLeads.length > 0 ? '#fff' : '#7B8794',
+              background: pendingLeads.length > 0 ? 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)' : '#D8E1D7',
+              color: pendingLeads.length > 0 ? '#fff' : '#7B8794',
               border: 'none',
               padding: '12px 24px',
               borderRadius: 8,
               fontSize: 14,
               fontWeight: 700,
-              cursor: enrichablePendingLeads.length > 0 && !isStartingEnrichment ? 'pointer' : 'not-allowed',
-              boxShadow: enrichablePendingLeads.length > 0 ? '0 4px 12px rgba(15, 118, 110, 0.3)' : 'none',
+              cursor: pendingLeads.length > 0 && !isStartingEnrichment ? 'pointer' : 'not-allowed',
+              boxShadow: pendingLeads.length > 0 ? '0 4px 12px rgba(15, 118, 110, 0.3)' : 'none',
               display: 'flex',
               alignItems: 'center',
               gap: 8,
@@ -165,7 +164,7 @@ export default function EnrichmentPage() {
                 Enriching...
               </span>
             ) : (
-              <>Start Enrichment ({enrichablePendingLeads.length} Ready)</>
+              <>Start Enrichment ({pendingLeads.length} Pending)</>
             )}
           </button>
         </div>
