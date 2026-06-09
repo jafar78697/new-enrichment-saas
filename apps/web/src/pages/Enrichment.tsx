@@ -199,40 +199,29 @@ export default function EnrichmentPage() {
               </tr>
             )}
             
-            {/* Show Browser Leads First (so user sees them escalated) */}
-            {browserLeads.map(lead => (
-              <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: '#F8FAFC' }}>
-                <td style={{ padding: '16px', fontWeight: 600, color: '#1E293B' }}>
-                  {lead.name}
-                </td>
-                <td style={{ padding: '16px' }}>
-                  <a href={lead.website} target="_blank" rel="noopener noreferrer" style={{ color: '#0F766E', textDecoration: 'none' }}>
-                    {lead.website}
-                  </a>
-                </td>
-                <td style={{ padding: '16px' }}>
-                  <span style={{
-                    background: '#EEF2FF',
-                    color: '#4338CA',
-                    padding: '6px 12px',
-                    borderRadius: 20,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    border: '1px solid #C7D2FE'
-                  }}>
-                    Headless Browser Escalated
-                  </span>
-                </td>
-              </tr>
-            ))}
+// ... existing imports ...
+import { useSearchParams } from 'react-router-dom';
 
-            {/* Show Pending HTTP Leads Below */}
-            {pendingLeads.map(lead => (
-              <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: '#fff' }}>
-                <td style={{ padding: '16px', fontWeight: 600, color: '#14202B' }}>
+// ... inside the component
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentPage = parseInt(searchParams.get('page') || '1', 10);
+  const pageSize = 50;
+
+// ... calculate display leads
+  const displayLeads = [...browserLeads, ...pendingLeads];
+  const totalPages = Math.ceil(displayLeads.length / pageSize);
+  const paginatedLeads = displayLeads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const goToPage = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setSearchParams({ page: page.toString() });
+    }
+  };
+
+// ... replace the table rendering
+            {paginatedLeads.map(lead => (
+              <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: lead.stage === 'needs_browser' ? '#F8FAFC' : '#fff' }}>
+                <td style={{ padding: '16px', fontWeight: 600, color: lead.stage === 'needs_browser' ? '#1E293B' : '#14202B' }}>
                   {lead.name}
                 </td>
                 <td style={{ padding: '16px' }}>
@@ -241,33 +230,61 @@ export default function EnrichmentPage() {
                   </a>
                 </td>
                 <td style={{ padding: '16px' }}>
-                  <span style={{
-                    background: '#FEF3C7',
-                    color: '#92400E',
-                    padding: '6px 12px',
-                    borderRadius: 20,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6
-                  }}>
-                    Pending HTTP
-                  </span>
+                  {lead.stage === 'needs_browser' ? (
+                    <span style={{
+                      background: '#EEF2FF', color: '#4338CA', padding: '6px 12px',
+                      borderRadius: 20, fontSize: 12, fontWeight: 700, display: 'inline-flex',
+                      alignItems: 'center', gap: 6, border: '1px solid #C7D2FE'
+                    }}>Headless Browser Escalated</span>
+                  ) : (
+                    <span style={{
+                      background: '#FEF3C7', color: '#92400E', padding: '6px 12px',
+                      borderRadius: 20, fontSize: 12, fontWeight: 700, display: 'inline-flex',
+                      alignItems: 'center', gap: 6
+                    }}>Pending HTTP</span>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
+            <span style={{ fontSize: 14, color: '#4B5563', fontWeight: 500 }}>
+              Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, displayLeads.length)} of {displayLeads.length} leads
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button 
+                onClick={() => goToPage(currentPage - 1)} 
+                disabled={currentPage === 1}
+                style={{ padding: '8px 16px', background: currentPage === 1 ? '#F3F4F6' : '#fff', color: currentPage === 1 ? '#9CA3AF' : '#374151', border: '1px solid #D1D5DB', borderRadius: 6, fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+              >
+                Previous
+              </button>
+              <span style={{ padding: '8px 16px', background: '#F3F4F6', color: '#374151', border: '1px solid #E5E7EB', borderRadius: 6, fontWeight: 700 }}>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button 
+                onClick={() => goToPage(currentPage + 1)} 
+                disabled={currentPage === totalPages}
+                style={{ padding: '8px 16px', background: currentPage === totalPages ? '#F3F4F6' : '#fff', color: currentPage === totalPages ? '#9CA3AF' : '#374151', border: '1px solid #D1D5DB', borderRadius: 6, fontWeight: 600, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <style>
-        {`
+        {\`
           @keyframes shimmer {
             0% { transform: translateX(-100%) skewX(-20deg); }
             100% { transform: translateX(200%) skewX(-20deg); }
           }
-        `}
+        \`}
       </style>
     </div>
   );

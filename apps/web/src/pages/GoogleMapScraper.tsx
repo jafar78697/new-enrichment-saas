@@ -334,81 +334,134 @@ export default function GoogleMapScraper() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
-            {Object.entries(groupedLeads).map(([keyword, leadsForKw]) => (
-              <div key={keyword} style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                {/* Keyword Header */}
-                <div style={{ background: '#F8FAFC', padding: '16px 20px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>Keyword:</span>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>{keyword}</span>
+// ... existing imports ...
+import { useSearchParams } from 'react-router-dom';
+
+// ... inside the component
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pageSize = 50;
+  
+  const getPageForKeyword = (keyword: string) => {
+    return parseInt(searchParams.get(`page_${keyword}`) || '1', 10);
+  };
+
+  const setPageForKeyword = (keyword: string, page: number) => {
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set(`page_${keyword}`, page.toString());
+    setSearchParams(newParams);
+  };
+
+// ... replace the groupedLeads mapping
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
+            {Object.entries(groupedLeads).map(([keyword, leadsForKw]) => {
+              const currentPage = getPageForKeyword(keyword);
+              const totalPages = Math.ceil(leadsForKw.length / pageSize);
+              const paginatedLeads = leadsForKw.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+              
+              return (
+                <div key={keyword} style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                  {/* Keyword Header */}
+                  <div style={{ background: '#F8FAFC', padding: '16px 20px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>Keyword:</span>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>{keyword}</span>
+                    </div>
+                    <div style={{ background: '#DBEAFE', color: '#1E40AF', padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>
+                      {leadsForKw.length} Leads
+                    </div>
                   </div>
-                  <div style={{ background: '#DBEAFE', color: '#1E40AF', padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>
-                    {leadsForKw.length} Leads
-                  </div>
-                </div>
-                
-                {/* Leads Table for this Keyword */}
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid #E5E7EB', background: '#fff' }}>
-                        <th style={{ textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#6B7280', width: '35%' }}>Business Info</th>
-                        <th style={{ textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#6B7280', width: '35%' }}>Contact Info</th>
-                        <th style={{ textAlign: 'center', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#6B7280', width: '15%' }}>Rating</th>
-                        <th style={{ textAlign: 'center', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#6B7280', width: '15%' }}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {leadsForKw.map((lead) => (
-                        <tr key={lead.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
-                          <td style={{ padding: '16px 20px' }}>
-                            <div style={{ fontWeight: 600, color: '#111827' }}>{lead.name}</div>
-                            <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>{lead.address || 'Address hidden'}</div>
-                          </td>
-                          <td style={{ padding: '16px 20px' }}>
-                            {lead.phone ? (
-                              <div style={{ fontSize: 13, color: '#4B5563', marginBottom: 4 }}>{lead.phone}</div>
-                            ) : (
-                              <div style={{ fontSize: 12, color: '#EF4444', marginBottom: 4 }}>No Phone</div>
-                            )}
-                            {lead.website && (
-                              <div style={{ fontSize: 13 }}>
-                                <a href={lead.website} target="_blank" rel="noopener noreferrer" style={{ color: '#0F766E', textDecoration: 'none' }}>Website</a>
-                              </div>
-                            )}
-                          </td>
-                          <td style={{ textAlign: 'center', padding: '16px 20px', fontFamily: 'Space Grotesk, sans-serif', fontSize: 15, fontWeight: 700, color: '#F59E0B' }}>
-                            {lead.rating} <span style={{ fontSize: 12, color: '#9CA3AF', fontWeight: 500 }}>({lead.reviews})</span>
-                          </td>
-                          <td style={{ textAlign: 'center', padding: '16px 20px' }}>
-                            {lead.status === 'enriched' ? (
-                              <span style={{ background: '#D1FAE5', color: '#065F46', padding: '4px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, border: '1px solid #A7F3D0' }}>
-                                Saved
-                              </span>
-                            ) : (
-                              <span style={{ background: '#F3F4F6', color: '#4B5563', padding: '4px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>
-                                Scraped
-                              </span>
-                            )}
-                          </td>
+                  
+                  {/* Leads Table for this Keyword */}
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid #E5E7EB', background: '#fff' }}>
+                          <th style={{ textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#6B7280', width: '35%' }}>Business Info</th>
+                          <th style={{ textAlign: 'left', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#6B7280', width: '35%' }}>Contact Info</th>
+                          <th style={{ textAlign: 'center', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#6B7280', width: '15%' }}>Rating</th>
+                          <th style={{ textAlign: 'center', padding: '12px 20px', fontSize: 12, fontWeight: 600, color: '#6B7280', width: '15%' }}>Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {paginatedLeads.map((lead) => (
+                          <tr key={lead.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                            <td style={{ padding: '16px 20px' }}>
+                              <div style={{ fontWeight: 600, color: '#111827' }}>{lead.name}</div>
+                              <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>{lead.address || 'Address hidden'}</div>
+                            </td>
+                            <td style={{ padding: '16px 20px' }}>
+                              {lead.phone ? (
+                                <div style={{ fontSize: 13, color: '#4B5563', marginBottom: 4 }}>{lead.phone}</div>
+                              ) : (
+                                <div style={{ fontSize: 12, color: '#EF4444', marginBottom: 4 }}>No Phone</div>
+                              )}
+                              {lead.website && (
+                                <div style={{ fontSize: 13 }}>
+                                  <a href={lead.website} target="_blank" rel="noopener noreferrer" style={{ color: '#0F766E', textDecoration: 'none' }}>Website</a>
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ textAlign: 'center', padding: '16px 20px', fontFamily: 'Space Grotesk, sans-serif', fontSize: 15, fontWeight: 700, color: '#F59E0B' }}>
+                              {lead.rating} <span style={{ fontSize: 12, color: '#9CA3AF', fontWeight: 500 }}>({lead.reviews})</span>
+                            </td>
+                            <td style={{ textAlign: 'center', padding: '16px 20px' }}>
+                              {lead.status === 'enriched' ? (
+                                <span style={{ background: '#D1FAE5', color: '#065F46', padding: '4px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600, border: '1px solid #A7F3D0' }}>
+                                  Saved
+                                </span>
+                              ) : (
+                                <span style={{ background: '#F3F4F6', color: '#4B5563', padding: '4px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>
+                                  Scraped
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
+                      <span style={{ fontSize: 14, color: '#4B5563', fontWeight: 500 }}>
+                        Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, leadsForKw.length)} of {leadsForKw.length} leads
+                      </span>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button 
+                          onClick={() => setPageForKeyword(keyword, currentPage - 1)} 
+                          disabled={currentPage === 1}
+                          style={{ padding: '6px 12px', background: currentPage === 1 ? '#F3F4F6' : '#fff', color: currentPage === 1 ? '#9CA3AF' : '#374151', border: '1px solid #D1D5DB', borderRadius: 6, fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer', fontSize: 13 }}
+                        >
+                          Previous
+                        </button>
+                        <span style={{ padding: '6px 12px', background: '#F3F4F6', color: '#374151', border: '1px solid #E5E7EB', borderRadius: 6, fontWeight: 700, fontSize: 13 }}>
+                          Page {currentPage} of {totalPages}
+                        </span>
+                        <button 
+                          onClick={() => setPageForKeyword(keyword, currentPage + 1)} 
+                          disabled={currentPage === totalPages}
+                          style={{ padding: '6px 12px', background: currentPage === totalPages ? '#F3F4F6' : '#fff', color: currentPage === totalPages ? '#9CA3AF' : '#374151', border: '1px solid #D1D5DB', borderRadius: 6, fontWeight: 600, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', fontSize: 13 }}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
       <style>
-        {`
+        {\`
           @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
           }
-        `}
+        \`}
       </style>
     </div>
   );
