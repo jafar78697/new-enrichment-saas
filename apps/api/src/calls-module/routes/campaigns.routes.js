@@ -6,6 +6,37 @@ import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
+// GET /api/campaigns/track/:id  — 1x1 Tracking Pixel (Public)
+router.get(
+  '/track/:id',
+  asyncHandler(async (req, res) => {
+    const contact_id = parseInt(req.params.id);
+    if (!isNaN(contact_id)) {
+      // Mark as opened if not already
+      await query(
+        `UPDATE contacts 
+         SET email_opened = COALESCE(email_opened, 0) + 1,
+             stage = CASE WHEN stage = 'email_sent' THEN 'email_opened' ELSE stage END,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [contact_id]
+      );
+    }
+    // Return 1x1 transparent GIF
+    const pixel = Buffer.from(
+      'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      'base64'
+    );
+    res.set({
+      'Content-Type': 'image/gif',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+    res.send(pixel);
+  })
+);
+
 // GET /api/campaigns/unsubscribe (Public)
 router.get(
   '/unsubscribe',
@@ -15,8 +46,8 @@ router.get(
       return res.status(400).send('Invalid unsubscribe link.');
     }
 
-    const result = await query(
-      'UPDATE contacts SET unsubscribed = TRUE, updated_at = NOW() WHERE id = $1',
+    await query(
+      'UPDATE contacts SET unsubscribed = TRUE, stage = \'unsubscribed\', updated_at = NOW() WHERE id = $1',
       [contact_id]
     );
 
@@ -44,6 +75,7 @@ router.get(
     `);
   })
 );
+
 
 // GET /api/campaigns
 router.get(

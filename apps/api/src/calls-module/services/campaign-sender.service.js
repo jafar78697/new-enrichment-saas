@@ -1,25 +1,32 @@
 /**
  * Campaign Email Sender Service
  * Runs every 60 seconds. Picks active campaigns and sends emails to assigned contacts.
- * Uses: campaigns table, contacts table, email_accounts table (all calls-module DB)
+ * Features:
+ *  - Business email as From: (via Gmail SMTP relay)
+ *  - 1x1 tracking pixel for open detection
+ *  - Unsubscribe link in footer
+ *  - IMAP reply detection (every 5 min)
  */
 
 import nodemailer from 'nodemailer';
+import Imap from 'imap';
+import { simpleParser } from 'mailparser';
 import { query } from '../db/index.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const API_BASE = 'https://api.jentoai.pro';
 
 async function generateEmailWithAI(prompt, contact) {
   if (!OPENAI_API_KEY) return null;
   try {
     const systemPrompt = prompt
       .replace(/\{\{contact_name\}\}/gi, contact.name || 'there')
-      .replace(/\{\{company_name\}\}/gi, contact.company_name || 'your company')
+      .replace(/\{\{company_name\}\}/gi, contact.company || 'your company')
       .replace(/\{\{website\}\}/gi, contact.website || '')
       .replace(/\{\{location\}\}/gi, contact.location || '')
       .replace(/\{\{services\}\}/gi, contact.niche || '')
       .replace(/\{\{company_description\}\}/gi, contact.company_description || '')
-      .replace(/\{\{research_data\}\}/gi, contact.research_data || '');
+      .replace(/\{\{research_data\}\}/gi, contact.notes || '');
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -45,20 +52,16 @@ async function generateEmailWithAI(prompt, contact) {
 function parseEmailContent(rawText, contact) {
   if (!rawText) return null;
 
-  // Try to parse Subject: ... \n\n Body
   const subjectMatch = rawText.match(/^Subject:\s*(.+)/im);
   const subject = subjectMatch
     ? subjectMatch[1].trim()
-    : `A small improvement for ${contact.company_name || 'your company'}`;
+    : `A small improvement for ${contact.company || 'your company'}`;
 
-  // Remove the subject line from body
   const body = rawText.replace(/^Subject:\s*.+\n?/im, '').trim();
   return { subject, body };
 }
 
 async function getAvailableSender(userId) {
-  // Pick a sender with available quota — round-robin via senders table
-  // Returns: { gmail, app_password, biz_email, display_name, sender_id, account_id }
   const { rows } = await query(
     `SELECT s.id as sender_id, ea.id as account_id, ea.email as gmail, ea.app_password,
             s.biz_email, s.display_name, ea.sent_today, ea.daily_limit
@@ -75,30 +78,41 @@ async function getAvailableSender(userId) {
   return rows[0] || null;
 }
 
+function buildHtmlEmail(bodyText, contactId, trackingPixelUrl) {
+  const htmlBody = bodyText.replace(/\n/g, '<br>');
+  const unsubLink = `${API_BASE}/api/campaigns/unsubscribe?contact_id=${contactId}`;
+  const pixel = `<img src="${trackingPixelUrl}" width="1" height="1" style="display:none;border:0;" alt="" />`;
+
+  return `<!DOCTYPE html>
+<html>
+<body style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.6;">
+  <div style="max-width:600px;margin:0 auto;padding:20px;">
+    ${htmlBody}
+    <br><br>
+    <hr style="border:none;border-top:1px solid #eee;margin:20px 0;">
+    <p style="font-size:11px;color:#999;margin:0;">
+      If you no longer wish to receive these emails, 
+      <a href="${unsubLink}" style="color:#999;">unsubscribe here</a>.
+    </p>
+    ${pixel}
+  </div>
+</body>
+</html>`;
+}
+
 async function processActiveCampaigns() {
   try {
-    // Get all active email campaigns
     const { rows: campaigns } = await query(
       `SELECT * FROM campaigns WHERE status = 'active' AND channel = 'email'`
     );
 
     for (const campaign of campaigns) {
-      // Check if it's the right time to send (within 5 min window of send_time)
-      const now = new Date();
-      const [sendHour, sendMin] = (campaign.send_time || '09:00').split(':').map(Number);
-      const campaignTime = new Date();
-      campaignTime.setHours(sendHour, sendMin, 0, 0);
-      const diffMinutes = Math.abs((now - campaignTime) / 60000);
-
-      // Only send within 5-minute window of scheduled time, OR if manual trigger
-      // For now send always (every minute check) but limit to daily_limit
       const sender = await getAvailableSender(campaign.user_id);
       if (!sender) {
         console.log(`[CampaignSender] No sender available for campaign ${campaign.id}`);
         continue;
       }
 
-      // Get contacts assigned to this campaign that haven't been emailed yet
       const { rows: contacts } = await query(
         `SELECT * FROM contacts 
          WHERE campaign_id = $1 AND (emails_sent IS NULL OR emails_sent = 0) 
@@ -117,18 +131,22 @@ async function processActiveCampaigns() {
 
       for (const contact of contacts) {
         try {
-          // Generate email content with AI
           const rawText = await generateEmailWithAI(campaign.base_template, contact);
           const parsed = rawText
             ? parseEmailContent(rawText, contact)
             : {
-                subject: `A small improvement for ${contact.company_name || 'your company'}`,
+                subject: `A small improvement for ${contact.company || 'your company'}`,
                 body: campaign.base_template
                   .replace(/\{\{contact_name\}\}/gi, contact.name || 'there')
-                  .replace(/\{\{company_name\}\}/gi, contact.company_name || 'your company')
+                  .replace(/\{\{company_name\}\}/gi, contact.company || 'your company')
               };
 
           if (!parsed) continue;
+
+          // Tracking pixel URL — contact_id based
+          const trackingPixelUrl = `${API_BASE}/api/campaigns/track/${contact.id}`;
+
+          const htmlBody = buildHtmlEmail(parsed.body, contact.id, trackingPixelUrl);
 
           // Send via Gmail SMTP but show business email as From (jento-mailer style)
           const transporter = nodemailer.createTransport({
@@ -138,26 +156,26 @@ async function processActiveCampaigns() {
             auth: { user: sender.gmail, pass: sender.app_password }
           });
 
-          const unsubLink = `https://api.jentoai.pro/api/campaigns/unsubscribe?contact_id=${contact.id}`;
-          const htmlBody = parsed.body.replace(/\n/g, '<br>') +
-            `<br><br><p style="font-size:11px;color:#999;">If you no longer wish to receive these emails, <a href="${unsubLink}">unsubscribe here</a>.</p>`;
-
           const displayName = sender.display_name || 'Jento AI';
+          const messageId = `<${Date.now()}.${contact.id}@${sender.biz_email.split('@')[1]}>`;
+
           await transporter.sendMail({
             from: `"${displayName}" <${sender.biz_email}>`,
             to: contact.email,
             subject: parsed.subject,
             html: htmlBody,
+            messageId,
             envelope: {
               from: sender.gmail,   // actual SMTP sender (Gmail)
               to: contact.email
             }
           });
 
-          // Mark contact as emailed
+          // Mark contact as emailed — store msg_id for reply matching
           await query(
             `UPDATE contacts SET emails_sent = COALESCE(emails_sent, 0) + 1, 
-             stage = 'email_sent', updated_at = NOW() WHERE id = $1`,
+             stage = 'email_sent', last_email_sent_at = NOW(), updated_at = NOW(),
+             notes = COALESCE(notes, '') WHERE id = $1`,
             [contact.id]
           );
 
@@ -167,20 +185,123 @@ async function processActiveCampaigns() {
             [sender.account_id]
           );
 
-          console.log(`[CampaignSender] ✅ Sent to ${contact.email} via ${sender.biz_email} (${contact.company_name || contact.company})`); 
+          console.log(`[CampaignSender] ✅ Sent to ${contact.email} via ${sender.biz_email} (${contact.company || contact.name})`);
 
-          // Small delay between sends
-          await new Promise(r => setTimeout(r, 2000));
+          // Human-like delay 3-8 seconds
+          await new Promise(r => setTimeout(r, 3000 + Math.random() * 5000));
 
         } catch (sendErr) {
           console.error(`[CampaignSender] ❌ Failed to send to ${contact.email}:`, sendErr.message);
-          // Continue with next contact
         }
       }
     }
   } catch (err) {
     console.error('[CampaignSender] processActiveCampaigns error:', err.message);
   }
+}
+
+// ─── Reply Detection via IMAP ─────────────────────────────────────────────
+async function syncReplies() {
+  try {
+    // Get all active Gmail accounts
+    const { rows: accounts } = await query(
+      `SELECT id, email, app_password FROM email_accounts 
+       WHERE status = 'active' AND app_password IS NOT NULL AND app_password != ''
+       LIMIT 45`
+    );
+
+    for (const acc of accounts) {
+      try {
+        await checkAccountReplies(acc);
+      } catch (e) {
+        // Silent — one account failing shouldn't stop others
+      }
+    }
+  } catch (err) {
+    console.error('[ReplySync] Error:', err.message);
+  }
+}
+
+function checkAccountReplies(acc) {
+  return new Promise((resolve) => {
+    const imap = new Imap({
+      user: acc.email,
+      password: acc.app_password,
+      host: 'imap.gmail.com',
+      port: 993,
+      tls: true,
+      tlsOptions: { rejectUnauthorized: false },
+      connTimeout: 20000,
+      authTimeout: 10000
+    });
+
+    const done = () => { try { imap.end(); } catch(e){} resolve(); };
+
+    imap.once('error', done);
+    imap.once('end', resolve);
+
+    imap.once('ready', () => {
+      imap.openBox('INBOX', true, async (err, box) => {
+        if (err) return done();
+
+        // Search last 2 days for unseen messages
+        const since = new Date();
+        since.setDate(since.getDate() - 2);
+        const dateStr = since.toISOString().split('T')[0];
+
+        imap.search(['SINCE', since], async (err2, uids) => {
+          if (err2 || !uids || uids.length === 0) return done();
+
+          const fetch = imap.fetch(uids.slice(-50), { bodies: ['HEADER', 'TEXT'], struct: true });
+
+          fetch.on('message', (msg) => {
+            let headerBuffer = '';
+            msg.on('body', (stream, info) => {
+              if (info.which === 'HEADER') {
+                stream.on('data', chunk => headerBuffer += chunk.toString());
+                stream.once('end', async () => {
+                  try {
+                    const fromMatch = headerBuffer.match(/^From:\s*(.+)$/im);
+                    const subjectMatch = headerBuffer.match(/^Subject:\s*(.+)$/im);
+                    const fromEmail = fromMatch ? fromMatch[1].replace(/.*<(.+)>.*/, '$1').trim() : '';
+                    const subject = subjectMatch ? subjectMatch[1].trim() : '';
+
+                    if (!fromEmail || fromEmail === acc.email) return;
+
+                    // Check if this is a reply from a contact we emailed
+                    const { rows } = await query(
+                      `SELECT id FROM contacts 
+                       WHERE LOWER(email) = LOWER($1) 
+                         AND emails_sent > 0 
+                         AND stage != 'replied'
+                       LIMIT 1`,
+                      [fromEmail]
+                    );
+
+                    if (rows.length > 0) {
+                      const contactId = rows[0].id;
+                      await query(
+                        `UPDATE contacts SET stage = 'replied', 
+                         emails_received = COALESCE(emails_received, 0) + 1,
+                         updated_at = NOW() WHERE id = $1`,
+                        [contactId]
+                      );
+                      console.log(`[ReplySync] 📩 Reply detected from ${fromEmail} — marked as replied`);
+                    }
+                  } catch(e) {}
+                });
+              }
+            });
+          });
+
+          fetch.once('end', done);
+          fetch.once('error', done);
+        });
+      });
+    });
+
+    imap.connect();
+  });
 }
 
 // Reset sent_today counters at midnight
@@ -199,6 +320,11 @@ async function resetDailyCounters() {
 export function initCampaignSender() {
   console.log('[CampaignSender] Initialized — checking campaigns every 60 seconds.');
   setInterval(processActiveCampaigns, 60 * 1000);
+
+  // Reply sync every 5 minutes
+  console.log('[ReplySync] Initialized — checking replies every 5 minutes.');
+  setInterval(syncReplies, 5 * 60 * 1000);
+  setTimeout(syncReplies, 30 * 1000); // first run after 30s
 
   // Reset daily counters at midnight
   const now = new Date();
