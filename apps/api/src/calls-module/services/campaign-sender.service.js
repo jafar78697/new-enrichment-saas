@@ -56,11 +56,20 @@ function parseEmailContent(rawText, contact) {
   return { subject, body };
 }
 
-async function getAvailableEmailAccount(userId) {
+async function getAvailableSender(userId) {
+  // Pick a sender with available quota — round-robin via senders table
+  // Returns: { gmail, app_password, biz_email, display_name, sender_id, account_id }
   const { rows } = await query(
-    `SELECT id, email, app_password FROM email_accounts 
-     WHERE user_id = $1 AND status = 'active' AND sent_today < daily_limit
-     ORDER BY sent_today ASC LIMIT 1`,
+    `SELECT s.id as sender_id, ea.id as account_id, ea.email as gmail, ea.app_password,
+            s.biz_email, s.display_name, ea.sent_today, ea.daily_limit
+     FROM senders s
+     JOIN email_accounts ea ON ea.id = s.gmail_id
+     WHERE ea.user_id = $1 
+       AND ea.status = 'active' 
+       AND ea.sent_today < ea.daily_limit
+       AND s.active = TRUE
+     ORDER BY ea.sent_today ASC, s.id ASC
+     LIMIT 1`,
     [userId]
   );
   return rows[0] || null;
@@ -83,9 +92,9 @@ async function processActiveCampaigns() {
 
       // Only send within 5-minute window of scheduled time, OR if manual trigger
       // For now send always (every minute check) but limit to daily_limit
-      const account = await getAvailableEmailAccount(campaign.user_id);
-      if (!account) {
-        console.log(`[CampaignSender] No email account available for campaign ${campaign.id}`);
+      const sender = await getAvailableSender(campaign.user_id);
+      if (!sender) {
+        console.log(`[CampaignSender] No sender available for campaign ${campaign.id}`);
         continue;
       }
 
@@ -121,23 +130,28 @@ async function processActiveCampaigns() {
 
           if (!parsed) continue;
 
-          // Send via Gmail SMTP
+          // Send via Gmail SMTP but show business email as From (jento-mailer style)
           const transporter = nodemailer.createTransport({
             host: 'smtp.gmail.com',
             port: 465,
             secure: true,
-            auth: { user: account.email, pass: account.app_password }
+            auth: { user: sender.gmail, pass: sender.app_password }
           });
 
           const unsubLink = `https://api.jentoai.pro/api/campaigns/unsubscribe?contact_id=${contact.id}`;
           const htmlBody = parsed.body.replace(/\n/g, '<br>') +
             `<br><br><p style="font-size:11px;color:#999;">If you no longer wish to receive these emails, <a href="${unsubLink}">unsubscribe here</a>.</p>`;
 
+          const displayName = sender.display_name || 'Jento AI';
           await transporter.sendMail({
-            from: `"Jento AI" <${account.email}>`,
+            from: `"${displayName}" <${sender.biz_email}>`,
             to: contact.email,
             subject: parsed.subject,
-            html: htmlBody
+            html: htmlBody,
+            envelope: {
+              from: sender.gmail,   // actual SMTP sender (Gmail)
+              to: contact.email
+            }
           });
 
           // Mark contact as emailed
@@ -150,10 +164,10 @@ async function processActiveCampaigns() {
           // Increment account sent_today
           await query(
             `UPDATE email_accounts SET sent_today = sent_today + 1, updated_at = NOW() WHERE id = $1`,
-            [account.id]
+            [sender.account_id]
           );
 
-          console.log(`[CampaignSender] ✅ Sent to ${contact.email} (${contact.company_name})`);
+          console.log(`[CampaignSender] ✅ Sent to ${contact.email} via ${sender.biz_email} (${contact.company_name || contact.company})`); 
 
           // Small delay between sends
           await new Promise(r => setTimeout(r, 2000));
