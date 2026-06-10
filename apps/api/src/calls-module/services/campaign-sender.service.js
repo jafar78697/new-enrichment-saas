@@ -132,16 +132,12 @@ async function processActiveCampaigns() {
       for (const contact of contacts) {
         try {
           const rawText = await generateEmailWithAI(campaign.base_template, contact);
-          const parsed = rawText
-            ? parseEmailContent(rawText, contact)
-            : {
-                subject: `A small improvement for ${contact.company || 'your company'}`,
-                body: campaign.base_template
-                  .replace(/\{\{contact_name\}\}/gi, contact.name || 'there')
-                  .replace(/\{\{company_name\}\}/gi, contact.company || 'your company')
-              };
+          const parsed = parseEmailContent(rawText, contact);
 
-          if (!parsed) continue;
+          if (!parsed || !parsed.body || parsed.body.includes('You are an expert B2B sales copywriter')) {
+            console.error(`[CampaignSender] Skipping contact ${contact.email} because AI email generation failed or returned prompt.`);
+            continue;
+          }
 
           // Tracking pixel URL — contact_id based
           const trackingPixelUrl = `${API_BASE}/api/campaigns/track/${contact.id}`;
