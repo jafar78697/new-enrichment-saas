@@ -247,9 +247,10 @@ function checkAccountReplies(acc) {
         // Search last 2 days for unseen messages
         const since = new Date();
         since.setDate(since.getDate() - 2);
-        const dateStr = since.toISOString().split('T')[0];
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const dateStr = `${since.getDate()}-${months[since.getMonth()]}-${since.getFullYear()}`;
 
-        imap.search(['SINCE', since], async (err2, uids) => {
+        imap.search(['SINCE', dateStr], async (err2, uids) => {
           if (err2 || !uids || uids.length === 0) return done();
 
           const fetch = imap.fetch(uids.slice(-50), { bodies: ['HEADER', 'TEXT'], struct: true });
