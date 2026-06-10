@@ -13,11 +13,11 @@ import Imap from 'imap';
 import { simpleParser } from 'mailparser';
 import { query } from '../db/index.js';
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const API_BASE = 'https://api.jentoai.pro';
 
 async function generateEmailWithAI(prompt, contact) {
-  if (!OPENAI_API_KEY) return null;
+  if (!GEMINI_API_KEY) return null;
   try {
     const systemPrompt = prompt
       .replace(/\{\{contact_name\}\}/gi, contact.name || 'there')
@@ -28,21 +28,23 @@ async function generateEmailWithAI(prompt, contact) {
       .replace(/\{\{company_description\}\}/gi, contact.company_description || '')
       .replace(/\{\{research_data\}\}/gi, contact.notes || '');
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: systemPrompt }],
-        temperature: 0.75,
-        max_tokens: 500
+        contents: [{
+          parts: [{ text: systemPrompt }]
+        }],
+        generationConfig: {
+          temperature: 0.75,
+          maxOutputTokens: 500
+        }
       })
     });
     const data = await res.json();
-    return data.choices?.[0]?.message?.content?.trim() || null;
+    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
   } catch (err) {
     console.error('[CampaignSender] AI generation failed:', err.message);
     return null;
