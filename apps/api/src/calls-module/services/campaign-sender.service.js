@@ -189,6 +189,24 @@ async function processActiveCampaigns() {
             }
           });
 
+          // Ensure table exists (just in case)
+          await query(`
+            CREATE TABLE IF NOT EXISTS contact_emails_history (
+              id SERIAL PRIMARY KEY,
+              contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+              subject TEXT,
+              body TEXT,
+              from_email TEXT,
+              sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+          `);
+
+          // Log the email in history
+          await query(
+            'INSERT INTO contact_emails_history (contact_id, subject, body, from_email) VALUES ($1, $2, $3, $4)',
+            [contact.id, parsed.subject, htmlBody, sender.biz_email]
+          );
+
           // Mark contact as emailed — store msg_id for reply matching
           await query(
             `UPDATE contacts SET emails_sent = COALESCE(emails_sent, 0) + 1, 
