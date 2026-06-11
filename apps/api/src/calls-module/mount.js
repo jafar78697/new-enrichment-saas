@@ -17,6 +17,7 @@ import scraperBridgeRoutes from './routes/scraper-bridge.routes.js';
 import googleMapsExpressRoutes from './routes/google-maps.routes.js';
 import metaRoutes from './routes/meta.routes.js';
 import linkedinExtRoutes from './routes/linkedin-ext.routes.js';
+import facebookExtRoutes from './routes/facebook-ext.routes.js';
 import redditExtRoutes from './routes/reddit-ext.routes.js';
 import teamsRoutes from './routes/teams.routes.js';
 import leaderboardRoutes from './routes/leaderboard.routes.js';
@@ -55,6 +56,7 @@ export function createCallsApp() {
   app.use('/api/calls', callsRoutes);
   app.use('/api/twilio', twilioRoutes);
   app.use('/api/meta', metaRoutes);
+  app.use('/api/facebook', facebookExtRoutes);
   app.use('/api/linkedin', linkedinExtRoutes);
   app.use('/api/reddit', redditExtRoutes);
 

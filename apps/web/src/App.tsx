@@ -14,10 +14,15 @@ import CallDetailPage from './pages/CallDetail';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 // New pages
+import CallSystem from './pages/CallSystem';
 import RealEstateLanding from './pages/RealEstateLanding';
 import EnrichmentPage from './pages/Enrichment';
 import LeadsPage from './pages/Leads';
 import OutreachPage from './pages/Outreach';
+import EmailOutreach from './pages/EmailOutreach';
+import FacebookOutreach from './pages/FacebookOutreach';
+import LinkedInOutreach from './pages/LinkedInOutreach';
+import RedditOutreach from './pages/RedditOutreach';
 import AccessSystemPage from './pages/AccessSystem';
 import EmployeesPage from './pages/Employees';
 import TwilioNumbersPage from './pages/TwilioNumbers';
@@ -53,6 +58,11 @@ export default function App() {
           <Route path="enrichment" element={<EnrichmentPage />} />
           <Route path="leads" element={<LeadsPage />} />
           <Route path="outreach" element={<OutreachPage />} />
+          <Route path="outreach/email" element={<EmailOutreach />} />
+          <Route path="outreach/facebook" element={<FacebookOutreach />} />
+          <Route path="outreach/linkedin" element={<LinkedInOutreach />} />
+          <Route path="outreach/reddit" element={<RedditOutreach />} />
+          <Route path="call-system" element={<CallSystem />} />
           <Route path="access-system" element={<AccessSystemPage />} />
           <Route path="employees" element={<EmployeesPage />} />
           <Route path="teams" element={<TeamsPage />} />

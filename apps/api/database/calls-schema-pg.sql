@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS email_accounts (
   status TEXT DEFAULT 'active',
   user_id UUID NOT NULL,
   day_reset DATE DEFAULT CURRENT_DATE,
+  last_used_at TIMESTAMP,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -150,6 +151,8 @@ CREATE TABLE IF NOT EXISTS contacts (
   last_email_sent_at TIMESTAMP,
   followup_status TEXT DEFAULT 'pending',
   stage TEXT DEFAULT 'new_lead',
+  omnichannel_stage TEXT DEFAULT 'calling',
+  active_social_profile TEXT,
   unsubscribed BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

@@ -8,6 +8,8 @@ import agentsRoutes from './routes/agents.routes.js';
 import contactsRoutes from './routes/contacts.routes.js';
 import callsRoutes from './routes/calls.routes.js';
 import twilioRoutes from './routes/twilio.routes.js';
+import metaRoutes from './routes/meta.routes.js';
+import facebookExtRoutes from './routes/facebook-ext.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import employeesRoutes from './routes/employees.routes.js';
 import nichesRoutes from './routes/niches.routes.js';
@@ -60,6 +62,9 @@ export function createApp() {
   app.use('/api/contacts', contactsRoutes);
   app.use('/api/calls', callsRoutes);
   app.use('/api/niches', nichesRoutes);
+  app.use('/api/twilio', twilioRoutes);
+  app.use('/api/meta', metaRoutes);
+  app.use('/api/facebook', facebookExtRoutes);
   app.use('/api/scraper', scraperBridgeRoutes);
   app.use('/api/campaigns', campaignsRoutes);
   app.use('/api/email-accounts', emailAccountsRoutes);

@@ -9,15 +9,15 @@
  */
 
 import nodemailer from 'nodemailer';
-import Imap from 'imap';
-import { simpleParser } from 'mailparser';
+import { VertexAI } from '@google-cloud/vertexai';
 import { query } from '../db/index.js';
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const API_BASE = 'https://api.jentoai.pro';
+const project = 'maximal-kingdom-499107-f8';
+const location = 'us-central1';
+const vertexAI = new VertexAI({ project, location });
+const generativeModel = vertexAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
 async function generateEmailWithAI(prompt, contact) {
-  if (!GEMINI_API_KEY) return null;
   try {
     const systemPrompt = prompt
       .replace(/\{\{contact_name\}\}/gi, contact.name || 'there')
@@ -28,25 +28,23 @@ async function generateEmailWithAI(prompt, contact) {
       .replace(/\{\{company_description\}\}/gi, contact.company_description || '')
       .replace(/\{\{research_data\}\}/gi, contact.notes || '');
 
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{ text: systemPrompt }]
-        }],
-        generationConfig: {
-          temperature: 0.75,
-          maxOutputTokens: 500
-        }
-      })
-    });
-    const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-  } catch (err) {
-    console.error('[CampaignSender] AI generation failed:', err.message);
+    const request = {
+      contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        temperature: 0.7,
+      }
+    };
+
+    const result = await generativeModel.generateContent(request);
+    
+    if (result.response && result.response.candidates && result.response.candidates.length > 0) {
+      const generatedText = result.response.candidates[0].content.parts[0].text;
+      return generatedText ? generatedText.trim() : null;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('AI Generation Error:', error);
     return null;
   }
 }
@@ -73,7 +71,7 @@ async function getAvailableSender(userId) {
        AND ea.status = 'active' 
        AND ea.sent_today < ea.daily_limit
        AND s.active = TRUE
-     ORDER BY ea.sent_today ASC, s.id ASC
+     ORDER BY ea.last_used_at ASC NULLS FIRST, s.last_used_at ASC NULLS FIRST
      LIMIT 1`,
     [userId]
   );
@@ -104,6 +102,27 @@ function buildHtmlEmail(bodyText, contactId, trackingPixelUrl) {
 
 async function processActiveCampaigns() {
   try {
+    // Check Pakistani Time Constraint (6:00 PM to 2:00 AM PKT)
+    const pktDate = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Karachi"}));
+    const pktHour = pktDate.getHours();
+    if (pktHour >= 2 && pktHour < 18) {
+      console.log('[CampaignSender] Outside of active sending window (6:00 PM to 2:00 AM PKT). Skipping.');
+      return;
+    }
+
+    // Auto-assign unassigned leads to the user's active email campaign (Automated First Email)
+    await query(`
+      UPDATE contacts
+      SET campaign_id = (
+        SELECT id FROM campaigns 
+        WHERE campaigns.user_id = contacts.assigned_agent_id 
+          AND campaigns.status = 'active' 
+          AND campaigns.channel = 'email' 
+        LIMIT 1
+      ), omnichannel_stage = 'emailing'
+      WHERE campaign_id IS NULL AND email IS NOT NULL AND email != '' AND (emails_sent IS NULL OR emails_sent = 0)
+    `);
+
     const { rows: campaigns } = await query(
       `SELECT * FROM campaigns WHERE status = 'active' AND channel = 'email'`
     );
@@ -177,10 +196,16 @@ async function processActiveCampaigns() {
             [contact.id]
           );
 
-          // Increment account sent_today
+          // Increment account sent_today and update last_used_at
           await query(
-            `UPDATE email_accounts SET sent_today = sent_today + 1, updated_at = NOW() WHERE id = $1`,
+            `UPDATE email_accounts SET sent_today = sent_today + 1, last_used_at = NOW(), updated_at = NOW() WHERE id = $1`,
             [sender.account_id]
+          );
+
+          // Update sender last_used_at for rotation
+          await query(
+            `UPDATE senders SET last_used_at = NOW() WHERE id = $1`,
+            [sender.sender_id]
           );
 
           console.log(`[CampaignSender] ✅ Sent to ${contact.email} via ${sender.biz_email} (${contact.company || contact.name})`);
@@ -190,6 +215,16 @@ async function processActiveCampaigns() {
 
         } catch (sendErr) {
           console.error(`[CampaignSender] ❌ Failed to send to ${contact.email}:`, sendErr.message);
+          
+          // Instant Bounce Detection -> Fallback to Cold Calling Pipeline
+          const errStr = sendErr.message.toLowerCase();
+          if (sendErr.responseCode >= 500 || errStr.includes('not found') || errStr.includes('rejected') || errStr.includes('does not exist')) {
+            console.log(`[CampaignSender] Email bounced/rejected for ${contact.email}. Moving to Cold Calling Pipeline.`);
+            await query(
+              `UPDATE contacts SET omnichannel_stage = 'cold_calling', stage = 'cold_calling', notes = concat(COALESCE(notes, ''), '\n[Auto] Email bounced: ', $1::text) WHERE id = $2`,
+              [sendErr.message, contact.id]
+            );
+          }
         }
       }
     }
@@ -245,10 +280,8 @@ function checkAccountReplies(acc) {
         // Search last 2 days for unseen messages
         const since = new Date();
         since.setDate(since.getDate() - 2);
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const dateStr = `${since.getDate()}-${months[since.getMonth()]}-${since.getFullYear()}`;
 
-        imap.search(['SINCE', dateStr], async (err2, uids) => {
+        imap.search(['SINCE', since], async (err2, uids) => {
           if (err2 || !uids || uids.length === 0) return done();
 
           const fetch = imap.fetch(uids.slice(-50), { bodies: ['HEADER', 'TEXT'], struct: true });
@@ -315,6 +348,27 @@ async function resetDailyCounters() {
   }
 }
 
+// Move unresponsive email leads to cold_calling pipeline
+async function processOmnichannelFallback() {
+  try {
+    const result = await query(
+      `UPDATE contacts 
+       SET omnichannel_stage = 'cold_calling', stage = 'cold_calling', updated_at = NOW()
+       WHERE omnichannel_stage = 'emailing'
+         AND emails_sent > 0
+         AND (emails_received IS NULL OR emails_received = 0)
+         AND (email_opened IS NULL OR email_opened = 0)
+         AND last_email_sent_at < NOW() - INTERVAL '24 hours'
+       RETURNING id, email`
+    );
+    if (result.rowCount > 0) {
+      console.log(`[Omnichannel] Moved ${result.rowCount} unresponsive email leads to the Cold Calling pipeline.`);
+    }
+  } catch (err) {
+    console.error('[Omnichannel] Auto-Mover error:', err.message);
+  }
+}
+
 // Initialize: run every 60 seconds
 export function initCampaignSender() {
   console.log('[CampaignSender] Initialized — checking campaigns every 60 seconds.');
@@ -324,6 +378,11 @@ export function initCampaignSender() {
   console.log('[ReplySync] Initialized — checking replies every 5 minutes.');
   setInterval(syncReplies, 5 * 60 * 1000);
   setTimeout(syncReplies, 30 * 1000); // first run after 30s
+
+  // Omnichannel Auto-Mover (Email -> Social) every hour
+  console.log('[Omnichannel] Initialized — checking for unresponsive email leads every hour.');
+  setInterval(processOmnichannelFallback, 60 * 60 * 1000);
+  setTimeout(processOmnichannelFallback, 60 * 1000); // first run after 60s
 
   // Reset daily counters at midnight
   const now = new Date();

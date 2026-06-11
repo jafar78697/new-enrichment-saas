@@ -32,7 +32,7 @@ async function request<T = any>(path: string, init?: RequestInit): Promise<T> {
 
 // ─── Types ────────────────────────────────────────────────────────────
 export type EmployeeStatus = 'pending' | 'active' | 'suspended';
-export type UserRole = 'manager' | 'employee';
+export type UserRole = 'manager' | 'employee' | 'caller' | 'marketer';
 
 export interface Employee {
   id: number;

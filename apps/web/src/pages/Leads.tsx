@@ -119,7 +119,7 @@ export default function LeadsPage() {
   };
 
   const updateStageMutation = useMutation({
-    mutationFn: ({ id, stage }: { id: number; stage: string }) => callsApi.updateContact(id, { stage }),
+    mutationFn: ({ id, stage, omnichannel_stage }: { id: number; stage?: string; omnichannel_stage?: string }) => callsApi.updateContact(id, { stage, omnichannel_stage }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['contacts'] })
   });
 
@@ -177,8 +177,9 @@ export default function LeadsPage() {
   };
 
   const enrichedOrManualLeads = data?.contacts.filter(lead => 
-    // Keep manually added leads, but hide Google Maps leads until they are enriched (score > 0)
-    lead.source !== 'google-maps-scraper' || (lead.score && lead.score > 0)
+    // Keep manually added leads, hide Google Maps un-enriched, and hide social pipeline leads
+    (lead.source !== 'google-maps-scraper' || (lead.score && lead.score > 0)) &&
+    lead.omnichannel_stage !== 'social'
   ) || [];
 
   const filteredLeads = enrichedOrManualLeads.filter(lead => 
@@ -388,6 +389,7 @@ export default function LeadsPage() {
               </svg>
               Scrape
             </button>
+
             {getCallUser()?.role === 'manager' && (
               <button
                 onClick={() => handleDelete(lead.id, lead.name)}
@@ -413,7 +415,12 @@ export default function LeadsPage() {
     return <div style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>Loading leads...</div>;
   }
 
-  const tabLeads = otherLeads.filter(l => l.stage === activeTab || (!l.stage && activeTab === 'new_lead'));
+  const tabLeads = otherLeads.filter(l => {
+    if (activeTab === 'new_lead') return !l.stage || l.stage === 'new_lead';
+    if (activeTab === 'in_progress') return l.stage === 'in_progress' || l.stage === 'email_sent' || l.stage === 'replied';
+    if (activeTab === 'converted_lost') return l.stage === 'converted_lost';
+    return false;
+  });
   const totalPages = Math.ceil(tabLeads.length / pageSize);
   const paginatedLeads = tabLeads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
@@ -504,7 +511,7 @@ export default function LeadsPage() {
             paddingBottom: 8
           }}
         >
-          In-Progress ({otherLeads.filter(l => l.stage === 'in_progress').length})
+          In-Progress ({otherLeads.filter(l => l.stage === 'in_progress' || l.stage === 'email_sent' || l.stage === 'replied').length})
         </button>
         <button 
           onClick={() => { setActiveTab('converted_lost'); setSearchParams({ page: '1' }); }}

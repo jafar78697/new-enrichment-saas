@@ -128,6 +128,15 @@ router.patch(
     }
 
     const call = result.rows[0];
+
+    // Omnichannel Fallback Logic: if outcome is no_answer, move to social
+    if (call.outcome === 'no_answer' && call.contact_id) {
+      await query(
+        `UPDATE contacts SET omnichannel_stage = 'social', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND omnichannel_stage = 'calling'`,
+        [call.contact_id]
+      );
+    }
+
     emitToAgent(call.agent_id, 'call.updated', { call, source: 'manual-disposition' });
     res.json({ call });
   })

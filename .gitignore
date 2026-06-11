@@ -6,3 +6,6 @@ node_modules/
 .env.*
 *.pem
 .DS_Store
+ageless-wall-482522-u4-dbca4732bd4f.json
+maximal-kingdom-499107-f8-0dd67b720ec9.json
+apps/api/google-credentials.json

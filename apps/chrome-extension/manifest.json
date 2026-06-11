@@ -7,7 +7,8 @@
     "storage",
     "activeTab",
     "scripting",
-    "cookies"
+    "cookies",
+    "alarms"
   ],
   "host_permissions": [
     "https://*.facebook.com/*",
@@ -45,10 +46,5 @@
   "action": {
     "default_popup": "popup.html",
     "default_title": "JentoAI Outreach"
-  },
-  "icons": {
-    "16": "icon.png",
-    "48": "icon.png",
-    "128": "icon.png"
   }
 }

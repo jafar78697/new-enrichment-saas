@@ -36,12 +36,18 @@ router.get(
     const params = [];
     const where = [];
     if (req.user.role !== 'manager' && req.user.role !== 'owner' && req.user.role !== 'admin') {
-      // Employees only see leads strictly assigned to them
+      // For Caller role or general employee, only show contacts assigned to them.
+      // If role is marketer, maybe they can see all social leads, but let's stick to assignment for now.
       params.push(req.user.id);
       where.push(`c.assigned_agent_id = $${params.length}`);
     } else if (req.query.niche_id) {
       params.push(req.query.niche_id);
       where.push(`c.niche_id = $${params.length}`);
+    }
+
+    if (req.query.omnichannel_stage) {
+      params.push(req.query.omnichannel_stage);
+      where.push(`c.omnichannel_stage = $${params.length}`);
     }
     const result = await query(
       `
@@ -121,8 +127,8 @@ router.post(
     try {
       const result = await query(
         `
-          INSERT INTO contacts (name, phone_number, company, email, notes, assigned_agent_id, source, niche_id)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          INSERT INTO contacts (name, phone_number, company, email, notes, assigned_agent_id, source, niche_id, omnichannel_stage)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'emailing')
           RETURNING *
         `,
         [
@@ -199,8 +205,8 @@ router.post(
         try {
           const res = await client.query(
             `
-              INSERT INTO contacts (name, phone_number, company, email, notes, assigned_agent_id, source, niche_id)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              INSERT INTO contacts (name, phone_number, company, email, notes, assigned_agent_id, source, niche_id, omnichannel_stage)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'emailing')
               RETURNING *
             `,
             [
@@ -263,6 +269,11 @@ router.patch(
     if (stage !== undefined) {
       values.push(stage);
       updates.push(`stage = $${values.length}`);
+    }
+    
+    if (req.body.omnichannel_stage !== undefined) {
+      values.push(req.body.omnichannel_stage);
+      updates.push(`omnichannel_stage = $${values.length}`);
     }
     
     if (updates.length === 0) {
@@ -411,6 +422,31 @@ router.post(
     const result = await query(
       `
         INSERT INTO reddit_tasks (agent_id, contact_id, task_type, status)
+        VALUES ($1, $2, $3, 'pending')
+        RETURNING *
+      `,
+      [req.user.id, params.id, body.task_type]
+    );
+
+    res.json({ task: result.rows[0] });
+  })
+);
+
+router.post(
+  '/:id/facebook-task',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const params = z.object({
+      id: z.coerce.number().int().positive()
+    }).parse(req.params);
+
+    const body = z.object({
+      task_type: z.enum(['scrape_profile', 'send_message'])
+    }).parse(req.body);
+
+    const result = await query(
+      `
+        INSERT INTO facebook_tasks (agent_id, contact_id, task_type, status)
         VALUES ($1, $2, $3, 'pending')
         RETURNING *
       `,

@@ -67,7 +67,8 @@ export interface Contact {
   facebook?: string | null;
   instagram?: string | null;
   score?: number | null;
-  stage?: 'new_lead' | 'in_progress' | 'converted_lost' | 'email_sent' | 'fallback_linkedin' | 'needs_browser' | null;
+  stage?: 'new_lead' | 'in_progress' | 'converted_lost' | 'email_sent' | 'replied' | 'fallback_linkedin' | 'needs_browser' | 'cold_calling' | null;
+  omnichannel_stage?: string | null;
   messages_count?: number | null;
   emails_sent?: number | null;
   emails_received?: number | null;
@@ -160,7 +161,7 @@ export const callsApi = {
 
   updateContact: (
     id: number,
-    payload: { notes?: string | null; meeting_time?: string | null; stage?: string | null },
+    payload: { notes?: string | null; meeting_time?: string | null; stage?: string | null; omnichannel_stage?: string | null },
   ) =>
     request<{ contact: Contact }>(`/contacts/${id}`, {
       method: 'PATCH',
@@ -177,6 +178,21 @@ export const callsApi = {
       method: 'POST',
       body: JSON.stringify({ task_type }),
     }),
+
+  queueFacebookTask: (id: number, task_type: 'scrape_profile' | 'send_message') =>
+    request<{ task: any }>(`/contacts/${id}/facebook-task`, {
+      method: 'POST',
+      body: JSON.stringify({ task_type }),
+    }),
+
+  getLinkedinTasks: () =>
+    request<{ tasks: any[] }>('/linkedin/tasks'),
+
+  getFacebookTasks: () =>
+    request<{ tasks: any[] }>('/facebook/tasks'),
+
+  getRedditTasks: () =>
+    request<{ tasks: any[] }>('/reddit/tasks'),
 
   startOutreach: (id: number, template: string) =>
     request<{ success: boolean; message: string; fallbackTask?: any }>(`/contacts/${id}/outreach`, {
@@ -273,12 +289,6 @@ export const callsApi = {
       method: 'POST',
       body: JSON.stringify({ task_type }),
     }),
-
-  getLinkedinTasks: () =>
-    request<{ tasks: any[] }>('/linkedin/tasks'),
-
-  getRedditTasks: () =>
-    request<{ tasks: any[] }>('/reddit/tasks'),
 };
 
 export default callsApi;
