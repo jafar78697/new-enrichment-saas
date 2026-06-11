@@ -26,11 +26,20 @@ export default function SentEmailsPopup({ contactId, contactName, contactEmail, 
     <div style={{
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999,
       backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+      display: 'flex', justifyContent: 'flex-start'
     }}>
+      <style>
+        {`
+          @keyframes slideInLeft {
+            from { transform: translateX(-100%); }
+            to { transform: translateX(0); }
+          }
+        `}
+      </style>
       <div style={{
-        background: '#fff', borderRadius: 16, padding: 32, width: '100%', maxWidth: 600, maxHeight: '80vh',
-        boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', gap: 20, overflow: 'hidden'
+        background: '#fff', padding: 32, width: '100%', maxWidth: 500, height: '100vh',
+        boxShadow: '25px 0 50px -12px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', gap: 20, overflow: 'hidden',
+        animation: 'slideInLeft 0.3s ease-out'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>

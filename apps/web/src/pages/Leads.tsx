@@ -306,9 +306,8 @@ export default function LeadsPage() {
               url={lead.email} 
               count={lead.emails_sent} 
               badgeText={lead.emails_sent ? "A" : undefined}
-              disabled={!!lead.emails_sent}
               onClick={() => {
-                if (!lead.emails_sent && lead.email) {
+                if (lead.email) {
                   setActiveEmailLead(lead);
                 }
               }}
