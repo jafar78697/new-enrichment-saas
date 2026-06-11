@@ -75,11 +75,13 @@ export default function EnrichmentPage() {
     return Math.round((enrichedLeads.length / leads.length) * 100);
   };
 
+  const [activeTab, setActiveTab] = useState<'queue' | 'enriched'>('queue');
+
   if (isLoading) {
     return <div style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>Loading scraped leads...</div>;
   }
 
-  const displayLeads = [...browserLeads, ...pendingLeads];
+  const displayLeads = activeTab === 'queue' ? [...browserLeads, ...pendingLeads] : enrichedLeads;
   const totalPages = Math.ceil(displayLeads.length / pageSize);
   const paginatedLeads = displayLeads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
@@ -203,6 +205,32 @@ export default function EnrichmentPage() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #E5E7EB', paddingBottom: 8 }}>
+        <button 
+          onClick={() => { setActiveTab('queue'); setSearchParams({ page: '1' }); }}
+          style={{
+            background: 'transparent', border: 'none', padding: '8px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            color: activeTab === 'queue' ? '#0F766E' : '#6B7280',
+            borderBottom: activeTab === 'queue' ? '2px solid #0F766E' : '2px solid transparent',
+            marginBottom: -9
+          }}
+        >
+          Enrichment Queue ({browserLeads.length + pendingLeads.length})
+        </button>
+        <button 
+          onClick={() => { setActiveTab('enriched'); setSearchParams({ page: '1' }); }}
+          style={{
+            background: 'transparent', border: 'none', padding: '8px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            color: activeTab === 'enriched' ? '#0F766E' : '#6B7280',
+            borderBottom: activeTab === 'enriched' ? '2px solid #0F766E' : '2px solid transparent',
+            marginBottom: -9
+          }}
+        >
+          Enriched Data ({enrichedLeads.length})
+        </button>
+      </div>
+
       {/* Leads Table */}
       <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -210,7 +238,11 @@ export default function EnrichmentPage() {
             <tr style={{ background: '#F6F7F2', borderBottom: '2px solid #D8E1D7' }}>
               <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Lead Name</th>
               <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Website</th>
-              <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Status / Queue</th>
+              {activeTab === 'queue' ? (
+                <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Status / Queue</th>
+              ) : (
+                <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Enrichment Score</th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -237,18 +269,26 @@ export default function EnrichmentPage() {
                   </a>
                 </td>
                 <td style={{ padding: '16px' }}>
-                  {lead.stage === 'needs_browser' ? (
-                    <span style={{
-                      background: '#EEF2FF', color: '#4338CA', padding: '6px 12px',
-                      borderRadius: 20, fontSize: 12, fontWeight: 700, display: 'inline-flex',
-                      alignItems: 'center', gap: 6, border: '1px solid #C7D2FE'
-                    }}>Headless Browser Escalated</span>
+                  {activeTab === 'queue' ? (
+                    lead.stage === 'needs_browser' ? (
+                      <span style={{
+                        background: '#EEF2FF', color: '#4338CA', padding: '6px 12px',
+                        borderRadius: 20, fontSize: 12, fontWeight: 700, display: 'inline-flex',
+                        alignItems: 'center', gap: 6, border: '1px solid #C7D2FE'
+                      }}>Headless Browser Escalated</span>
+                    ) : (
+                      <span style={{
+                        background: '#FEF3C7', color: '#92400E', padding: '6px 12px',
+                        borderRadius: 20, fontSize: 12, fontWeight: 700, display: 'inline-flex',
+                        alignItems: 'center', gap: 6
+                      }}>Pending HTTP</span>
+                    )
                   ) : (
                     <span style={{
-                      background: '#FEF3C7', color: '#92400E', padding: '6px 12px',
+                      background: '#D1FAE5', color: '#065F46', padding: '6px 12px',
                       borderRadius: 20, fontSize: 12, fontWeight: 700, display: 'inline-flex',
-                      alignItems: 'center', gap: 6
-                    }}>Pending HTTP</span>
+                      alignItems: 'center', gap: 6, border: '1px solid #A7F3D0'
+                    }}>Score: {lead.score} - Ready</span>
                   )}
                 </td>
               </tr>

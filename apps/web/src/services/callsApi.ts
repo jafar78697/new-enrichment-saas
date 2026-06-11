@@ -73,6 +73,7 @@ export interface Contact {
   emails_sent?: number | null;
   emails_received?: number | null;
   email_opened?: number | null;
+  last_email_sent_at?: string | null;
   last_call_status?: string | null;
   last_call_outcome?: string | null;
   last_called_at?: string | null;

@@ -97,7 +97,7 @@ export default function LeadsPage() {
   const [activeEmailLead, setActiveEmailLead] = useState<Contact | null>(null);
   const [editingNoteLead, setEditingNoteLead] = useState<Contact | null>(null);
   const [editingNoteText, setEditingNoteText] = useState('');
-  const [activeTab, setActiveTab] = useState<'new_lead' | 'in_progress' | 'converted_lost'>('new_lead');
+  const [activeTab, setActiveTab] = useState<'new_lead' | 'in_progress' | 'converted_lost' | 'lead_tracking'>('new_lead');
   const queryClient = useQueryClient();
 
   const updateNoteMutation = useMutation({
@@ -420,6 +420,7 @@ export default function LeadsPage() {
     if (activeTab === 'new_lead') return !l.stage || l.stage === 'new_lead';
     if (activeTab === 'in_progress') return l.stage === 'in_progress' || l.stage === 'email_sent' || l.stage === 'replied';
     if (activeTab === 'converted_lost') return l.stage === 'converted_lost';
+    if (activeTab === 'lead_tracking') return (l.emails_sent && l.emails_sent > 0) || (l.email_opened && l.email_opened > 0) || (l.emails_received && l.emails_received > 0) || l.stage === 'email_sent' || l.stage === 'replied';
     return false;
   });
   const totalPages = Math.ceil(tabLeads.length / pageSize);
@@ -525,18 +526,80 @@ export default function LeadsPage() {
         >
           Converted / Lost ({otherLeads.filter(l => l.stage === 'converted_lost').length})
         </button>
+        <button 
+          onClick={() => { setActiveTab('lead_tracking'); setSearchParams({ page: '1' }); }}
+          style={{ 
+            background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
+            color: activeTab === 'lead_tracking' ? '#0F766E' : '#6B7280',
+            borderBottom: activeTab === 'lead_tracking' ? '2px solid #0F766E' : 'none',
+            paddingBottom: 8
+          }}
+        >
+          Lead Tracking 👁️
+        </button>
       </div>
 
-      {/* Leads Grid */}
-      <div style={{ display: 'grid', gap: 16 }}>
-        {paginatedLeads.map(lead => renderLead(lead, false))}
+      {/* Leads Grid or Table */}
+      {activeTab === 'lead_tracking' ? (
+        <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#F6F7F2', borderBottom: '2px solid #D8E1D7' }}>
+                <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Lead Name / Contact</th>
+                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Emails Sent</th>
+                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Opened (Seen)</th>
+                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Replied</th>
+                <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Last Contacted</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedLeads.map(lead => (
+                <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: '#fff' }}>
+                  <td style={{ padding: '16px' }}>
+                    <div style={{ fontWeight: 700, color: '#14202B' }}>{lead.name}</div>
+                    <div style={{ fontSize: 13, color: '#6B7280' }}>{lead.email || lead.phone_number || 'No contact info'}</div>
+                  </td>
+                  <td style={{ padding: '16px', textAlign: 'center', fontWeight: 600, color: '#4B5563' }}>
+                    {lead.emails_sent || 0}
+                  </td>
+                  <td style={{ padding: '16px', textAlign: 'center' }}>
+                    {lead.email_opened ? (
+                      <span style={{ background: '#D1FAE5', color: '#065F46', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
+                        👁️ {lead.email_opened} Times
+                      </span>
+                    ) : <span style={{ color: '#D1D5DB' }}>-</span>}
+                  </td>
+                  <td style={{ padding: '16px', textAlign: 'center' }}>
+                    {lead.emails_received ? (
+                      <span style={{ background: '#E0E7FF', color: '#4338CA', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
+                        ↩️ Replied
+                      </span>
+                    ) : <span style={{ color: '#D1D5DB' }}>-</span>}
+                  </td>
+                  <td style={{ padding: '16px', fontSize: 13, color: '#4B5563' }}>
+                    {lead.last_email_sent_at ? new Date(lead.last_email_sent_at).toLocaleDateString() : 'Never'}
+                  </td>
+                </tr>
+              ))}
+              {tabLeads.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>No leads have been contacted yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 16 }}>
+          {paginatedLeads.map(lead => renderLead(lead, false))}
 
-        {tabLeads.length === 0 && (
-          <div style={{ padding: 60, textAlign: 'center', color: '#7B8794', background: '#fff', borderRadius: 12, border: '1px solid #D8E1D7' }}>
-            No leads in this stage.
-          </div>
-        )}
-      </div>
+          {tabLeads.length === 0 && (
+            <div style={{ padding: 60, textAlign: 'center', color: '#7B8794', background: '#fff', borderRadius: 12, border: '1px solid #D8E1D7' }}>
+              No leads in this stage.
+            </div>
+          )}
+        </div>
+      )}
 
       {totalPages > 1 && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB', borderRadius: 12, marginTop: 16 }}>
