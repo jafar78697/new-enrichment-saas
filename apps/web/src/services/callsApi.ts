@@ -79,6 +79,11 @@ export interface Contact {
   last_called_at?: string | null;
   created_at: string;
   updated_at: string;
+  deal_value?: number | null;
+  lost_reason?: string | null;
+  current_crm?: string | null;
+  pain_points?: string | null;
+  automation_opportunities?: string | null;
 }
 
 export type CallOutcome = 'connected' | 'voicemail' | 'no_answer' | 'busy';

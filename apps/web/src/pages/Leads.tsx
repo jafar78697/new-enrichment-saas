@@ -94,24 +94,29 @@ export default function LeadsPage() {
 
   const calculateAiScore = (lead: Contact) => {
     let score = 0;
-    if (lead.email_opened && lead.email_opened > 0) score += 10;
-    if (lead.emails_received && lead.emails_received > 0) score += 40;
-    if (lead.messages_count && lead.messages_count > 0) score += 20;
+    if (lead.email_opened && lead.email_opened > 0) score += 5;
+    if (lead.emails_received && lead.emails_received > 0) score += 20;
+    if (lead.messages_count && lead.messages_count > 0) score += 10;
     if (lead.last_call_outcome === 'connected') score += 25;
     if (lead.meeting_time) score += 50;
+    if (lead.stage === 'proposal_sent' || lead.stage === 'negotiation') score += 100;
+    if (lead.stage === 'won') score += 200;
     return score;
   };
 
   const [search, setSearch] = useState('');
   const [activeCall, setActiveCall] = useState<Contact | null>(null);
   const [activeEmailLead, setActiveEmailLead] = useState<Contact | null>(null);
-  const [editingNoteLead, setEditingNoteLead] = useState<Contact | null>(null);
   const [editingNoteText, setEditingNoteText] = useState('');
-  const [activeTab, setActiveTab] = useState<'new_lead' | 'outreach' | 'engaged' | 'hot' | 'meetings' | 'closed'>('new_lead');
+  const [editingCrm, setEditingCrm] = useState('');
+  const [editingPainPoints, setEditingPainPoints] = useState('');
+  const [editingAutomation, setEditingAutomation] = useState('');
+  const [activeTab, setActiveTab] = useState<'new_lead' | 'outreach' | 'engaged' | 'discovery' | 'proposal_sent' | 'negotiation' | 'won' | 'lost'>('new_lead');
   const queryClient = useQueryClient();
 
   const updateNoteMutation = useMutation({
-    mutationFn: ({ id, notes }: { id: number; notes: string | null }) => callsApi.updateContact(id, { notes }),
+    mutationFn: ({ id, notes, current_crm, pain_points, automation_opportunities }: { id: number; notes: string | null; current_crm: string | null; pain_points: string | null; automation_opportunities: string | null; }) => 
+      callsApi.updateContact(id, { notes, current_crm, pain_points, automation_opportunities }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contacts'] });
       setEditingNoteLead(null);
@@ -126,6 +131,9 @@ export default function LeadsPage() {
   const handleOpenNoteModal = (lead: Contact) => {
     setEditingNoteLead(lead);
     setEditingNoteText(lead.notes || '');
+    setEditingCrm(lead.current_crm || '');
+    setEditingPainPoints(lead.pain_points || '');
+    setEditingAutomation(lead.automation_opportunities || '');
   };
 
   const updateStageMutation = useMutation({
@@ -151,7 +159,21 @@ export default function LeadsPage() {
     e.preventDefault();
     const leadId = parseInt(e.dataTransfer.getData('leadId'), 10);
     if (!isNaN(leadId)) {
-      updateStageMutation.mutate({ id: leadId, stage: newStage });
+      if (newStage === 'proposal_sent' || newStage === 'negotiation' || newStage === 'won') {
+        const value = window.prompt('Enter Deal Value (USD):', '0');
+        if (value !== null) {
+          callsApi.updateContact(leadId, { stage: newStage, deal_value: parseInt(value, 10) || 0 })
+            .then(() => queryClient.invalidateQueries({ queryKey: ['contacts'] }));
+        }
+      } else if (newStage === 'lost' || newStage === 'converted_lost') {
+        const reason = window.prompt('Enter Lost Reason:', 'Too Expensive');
+        if (reason !== null) {
+          callsApi.updateContact(leadId, { stage: newStage, lost_reason: reason })
+            .then(() => queryClient.invalidateQueries({ queryKey: ['contacts'] }));
+        }
+      } else {
+        updateStageMutation.mutate({ id: leadId, stage: newStage });
+      }
     }
   };
 
@@ -427,19 +449,20 @@ export default function LeadsPage() {
   }
 
   const tabLeads = otherLeads.filter(l => {
-    const aiScore = calculateAiScore(l);
     const isEngaged = (l.email_opened && l.email_opened > 0) || 
                       (l.emails_received && l.emails_received > 0) || 
                       (l.messages_count && l.messages_count > 0) || 
                       l.last_call_outcome === 'connected' ||
                       l.stage === 'replied';
 
-    if (activeTab === 'new_lead') return (!l.stage || l.stage === 'new_lead') && !isEngaged && !l.meeting_time && aiScore <= 50;
-    if (activeTab === 'outreach') return ((l.emails_sent && l.emails_sent > 0) || l.stage === 'in_progress' || l.stage === 'email_sent') && !isEngaged && !l.meeting_time && aiScore <= 50;
-    if (activeTab === 'engaged') return isEngaged && !l.meeting_time && aiScore <= 50;
-    if (activeTab === 'hot') return aiScore > 50 && !l.meeting_time;
-    if (activeTab === 'meetings') return !!l.meeting_time;
-    if (activeTab === 'closed') return l.stage === 'converted_lost';
+    if (activeTab === 'new_lead') return (!l.stage || l.stage === 'new_lead') && !isEngaged && !l.meeting_time;
+    if (activeTab === 'outreach') return ((l.emails_sent && l.emails_sent > 0) || l.stage === 'in_progress' || l.stage === 'email_sent') && !isEngaged && !l.meeting_time;
+    if (activeTab === 'engaged') return isEngaged && !l.meeting_time && !['proposal_sent', 'negotiation', 'won', 'converted_lost', 'lost'].includes(l.stage || '');
+    if (activeTab === 'discovery') return !!l.meeting_time && !['proposal_sent', 'negotiation', 'won', 'converted_lost', 'lost'].includes(l.stage || '');
+    if (activeTab === 'proposal_sent') return l.stage === 'proposal_sent';
+    if (activeTab === 'negotiation') return l.stage === 'negotiation';
+    if (activeTab === 'won') return l.stage === 'won';
+    if (activeTab === 'lost') return l.stage === 'converted_lost' || l.stage === 'lost';
     return false;
   });
   const totalPages = Math.ceil(tabLeads.length / pageSize);
@@ -453,19 +476,36 @@ export default function LeadsPage() {
 
   return (
     <div style={{ maxWidth: 1400 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 28, fontWeight: 700, color: '#14202B', margin: '0 0 8px' }}>
-            👥 Leads
-          </h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <p style={{ color: '#52606D', fontSize: 15, margin: 0 }}>
-              {filteredLeads.length} leads enriched with detailed information
-            </p>
-            {getCallUser()?.role === 'manager' && filteredLeads.length > 0 && (
-              <button
-                onClick={handleClearAll}
+      {/* Header & Revenue Dashboard */}
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 28, fontWeight: 700, color: '#14202B', margin: '0 0 16px' }}>
+          💼 Agency Pipeline
+        </h1>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+          <div style={{ background: '#fff', border: '1px solid #D8E1D7', padding: 20, borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: 8 }}>Total Leads</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#14202B' }}>{filteredLeads.length}</div>
+          </div>
+          <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', padding: 20, borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1D4ED8', textTransform: 'uppercase', marginBottom: 8 }}>🗓️ Discovery Calls</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#1E3A8A' }}>{leads.filter(l => l.meeting_time).length}</div>
+          </div>
+          <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', padding: 20, borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#B45309', textTransform: 'uppercase', marginBottom: 8 }}>📄 Proposals Sent</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#78350F' }}>{leads.filter(l => ['proposal_sent', 'negotiation', 'won'].includes(l.stage || '')).length}</div>
+          </div>
+          <div style={{ background: '#ECFCCB', border: '1px solid #D9F99D', padding: 20, borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#4D7C0F', textTransform: 'uppercase', marginBottom: 8 }}>💰 Closed Revenue</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#3F6212' }}>${leads.filter(l => l.stage === 'won').reduce((acc, l) => acc + (l.deal_value || 0), 0).toLocaleString()}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {getCallUser()?.role === 'manager' && filteredLeads.length > 0 && (
+            <button
+              onClick={handleClearAll}
                 disabled={clearAllMutation.isPending}
                 style={{
                   background: '#FEE2E2',
@@ -514,11 +554,13 @@ export default function LeadsPage() {
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #E5E7EB', paddingBottom: 8, overflowX: 'auto', whiteSpace: 'nowrap' }}>
         {[
           { id: 'new_lead', label: 'New Leads' },
-          { id: 'outreach', label: 'Outreach (Email/Call/Social)' },
-          { id: 'engaged', label: 'Engaged (Opened/Replied/Connected)' },
-          { id: 'hot', label: '🔥 Hot Leads (Score > 50)' },
-          { id: 'meetings', label: '🗓️ Meetings' },
-          { id: 'closed', label: 'Closed Deals' }
+          { id: 'outreach', label: 'Outreach' },
+          { id: 'engaged', label: 'Engaged' },
+          { id: 'discovery', label: 'Discovery Call' },
+          { id: 'proposal_sent', label: 'Proposal Sent' },
+          { id: 'negotiation', label: 'Negotiation' },
+          { id: 'won', label: 'Won 🏆' },
+          { id: 'lost', label: 'Lost' }
         ].map(tab => (
           <button 
             key={tab.id}
@@ -537,7 +579,7 @@ export default function LeadsPage() {
       </div>
 
       {/* Leads Grid or Table */}
-      {['engaged', 'hot', 'meetings'].includes(activeTab) ? (
+      {['engaged', 'discovery', 'proposal_sent', 'negotiation', 'won', 'lost'].includes(activeTab) ? (
         <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -692,22 +734,41 @@ export default function LeadsPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
         }}>
           <div style={{
-            background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 400,
-            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
+            background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 500,
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', maxHeight: '90vh', overflowY: 'auto'
           }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 18, color: '#111827', fontWeight: 700 }}>
-              Notes for {editingNoteLead.name}
+              Research & Notes for {editingNoteLead.name}
             </h3>
-            <textarea
-              value={editingNoteText}
-              onChange={(e) => setEditingNoteText(e.target.value)}
-              placeholder="Enter note details..."
-              style={{
-                width: '100%', padding: '12px', border: '1px solid #E5E7EB', borderRadius: 8, minHeight: 100,
-                fontSize: 14, fontFamily: 'inherit', resize: 'vertical', marginBottom: 16, boxSizing: 'border-box'
-              }}
-              autoFocus
-            />
+            
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#4B5563', marginBottom: 4, textTransform: 'uppercase' }}>Current CRM</label>
+              <input value={editingCrm} onChange={(e) => setEditingCrm(e.target.value)} placeholder="e.g. HubSpot, Salesforce" style={{ width: '100%', padding: '10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }} />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#4B5563', marginBottom: 4, textTransform: 'uppercase' }}>Pain Points</label>
+              <textarea value={editingPainPoints} onChange={(e) => setEditingPainPoints(e.target.value)} placeholder="e.g. No automated follow-ups" style={{ width: '100%', padding: '10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, minHeight: 60, resize: 'vertical', boxSizing: 'border-box' }} />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#4B5563', marginBottom: 4, textTransform: 'uppercase' }}>Automation Opportunities</label>
+              <textarea value={editingAutomation} onChange={(e) => setEditingAutomation(e.target.value)} placeholder="e.g. AI Appointment Setter" style={{ width: '100%', padding: '10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, minHeight: 60, resize: 'vertical', boxSizing: 'border-box' }} />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#4B5563', marginBottom: 4, textTransform: 'uppercase' }}>General Notes</label>
+              <textarea
+                value={editingNoteText}
+                onChange={(e) => setEditingNoteText(e.target.value)}
+                placeholder="Enter general note details..."
+                style={{
+                  width: '100%', padding: '12px', border: '1px solid #E5E7EB', borderRadius: 8, minHeight: 80,
+                  fontSize: 14, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box'
+                }}
+              />
+            </div>
+            
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setEditingNoteLead(null)}
@@ -719,14 +780,20 @@ export default function LeadsPage() {
                 Cancel
               </button>
               <button
-                onClick={() => updateNoteMutation.mutate({ id: editingNoteLead.id, notes: editingNoteText || null })}
+                onClick={() => updateNoteMutation.mutate({ 
+                  id: editingNoteLead.id, 
+                  notes: editingNoteText || null,
+                  current_crm: editingCrm || null,
+                  pain_points: editingPainPoints || null,
+                  automation_opportunities: editingAutomation || null
+                })}
                 disabled={updateNoteMutation.isPending}
                 style={{
                   padding: '8px 16px', borderRadius: 8, border: 'none', background: '#0F766E',
                   color: '#fff', fontWeight: 600, cursor: updateNoteMutation.isPending ? 'wait' : 'pointer'
                 }}
               >
-                {updateNoteMutation.isPending ? 'Saving...' : 'Save Note'}
+                {updateNoteMutation.isPending ? 'Saving...' : 'Save Research'}
               </button>
             </div>
           </div>
