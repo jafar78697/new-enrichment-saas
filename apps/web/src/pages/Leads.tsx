@@ -420,7 +420,16 @@ export default function LeadsPage() {
     if (activeTab === 'new_lead') return !l.stage || l.stage === 'new_lead';
     if (activeTab === 'in_progress') return l.stage === 'in_progress' || l.stage === 'email_sent' || l.stage === 'replied';
     if (activeTab === 'converted_lost') return l.stage === 'converted_lost';
-    if (activeTab === 'lead_tracking') return (l.emails_sent && l.emails_sent > 0) || (l.email_opened && l.email_opened > 0) || (l.emails_received && l.emails_received > 0) || l.stage === 'email_sent' || l.stage === 'replied';
+    if (activeTab === 'lead_tracking') {
+      return (
+        (l.email_opened && l.email_opened > 0) || 
+        (l.emails_received && l.emails_received > 0) || 
+        (l.messages_count && l.messages_count > 0) || 
+        l.meeting_time || 
+        l.last_call_outcome ||
+        l.stage === 'replied'
+      );
+    }
     return false;
   });
   const totalPages = Math.ceil(tabLeads.length / pageSize);
@@ -546,10 +555,9 @@ export default function LeadsPage() {
             <thead>
               <tr style={{ background: '#F6F7F2', borderBottom: '2px solid #D8E1D7' }}>
                 <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Lead Name / Contact</th>
-                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Emails Sent</th>
-                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Opened (Seen)</th>
-                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Replied</th>
-                <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Last Contacted</th>
+                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Email Activity</th>
+                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Social / SMS</th>
+                <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Call / Meeting</th>
               </tr>
             </thead>
             <tbody>
@@ -559,31 +567,56 @@ export default function LeadsPage() {
                     <div style={{ fontWeight: 700, color: '#14202B' }}>{lead.name}</div>
                     <div style={{ fontSize: 13, color: '#6B7280' }}>{lead.email || lead.phone_number || 'No contact info'}</div>
                   </td>
-                  <td style={{ padding: '16px', textAlign: 'center', fontWeight: 600, color: '#4B5563' }}>
-                    {lead.emails_sent || 0}
+                  <td style={{ padding: '16px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+                      {lead.email_opened ? (
+                        <span style={{ background: '#D1FAE5', color: '#065F46', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
+                          👁️ Seen ({lead.email_opened})
+                        </span>
+                      ) : null}
+                      {lead.emails_received || lead.stage === 'replied' ? (
+                        <span style={{ background: '#E0E7FF', color: '#4338CA', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
+                          ↩️ Replied
+                        </span>
+                      ) : null}
+                      {!lead.email_opened && !lead.emails_received && lead.stage !== 'replied' && (
+                        <span style={{ color: '#D1D5DB', fontSize: 12 }}>-</span>
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: '16px', textAlign: 'center' }}>
-                    {lead.email_opened ? (
-                      <span style={{ background: '#D1FAE5', color: '#065F46', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
-                        👁️ {lead.email_opened} Times
-                      </span>
+                    {lead.messages_count ? (
+                       <span style={{ background: '#DBEAFE', color: '#1D4ED8', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
+                         💬 {lead.messages_count} Messages
+                       </span>
                     ) : <span style={{ color: '#D1D5DB' }}>-</span>}
                   </td>
-                  <td style={{ padding: '16px', textAlign: 'center' }}>
-                    {lead.emails_received ? (
-                      <span style={{ background: '#E0E7FF', color: '#4338CA', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
-                        ↩️ Replied
-                      </span>
-                    ) : <span style={{ color: '#D1D5DB' }}>-</span>}
-                  </td>
-                  <td style={{ padding: '16px', fontSize: 13, color: '#4B5563' }}>
-                    {lead.last_email_sent_at ? new Date(lead.last_email_sent_at).toLocaleDateString() : 'Never'}
+                  <td style={{ padding: '16px' }}>
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                       {lead.meeting_time ? (
+                         <span style={{ background: '#FEF3C7', color: '#B45309', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700, display: 'inline-block', width: 'fit-content' }}>
+                           🗓️ Meeting: {new Date(lead.meeting_time).toLocaleDateString()}
+                         </span>
+                       ) : null}
+                       {lead.last_call_outcome ? (
+                         <span style={{ background: '#F3F4F6', color: '#4B5563', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600, display: 'inline-block', width: 'fit-content' }}>
+                           📞 Call: {lead.last_call_outcome.replace('_', ' ')}
+                         </span>
+                       ) : null}
+                       {!lead.meeting_time && !lead.last_call_outcome && (
+                         <span style={{ color: '#D1D5DB', fontSize: 12 }}>-</span>
+                       )}
+                     </div>
                   </td>
                 </tr>
               ))}
               {tabLeads.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>No leads have been contacted yet.</td>
+                  <td colSpan={4} style={{ padding: 40, textAlign: 'center', color: '#7B8794', fontSize: 15, fontWeight: 500 }}>
+                    <div style={{ fontSize: 32, marginBottom: 16 }}>📭</div>
+                    No leads have engaged yet.<br/>
+                    <span style={{ fontSize: 13, fontWeight: 400 }}>Only leads that have opened emails, replied, had calls, or scheduled meetings will appear here.</span>
+                  </td>
                 </tr>
               )}
             </tbody>
