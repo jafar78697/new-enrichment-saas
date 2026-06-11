@@ -102,15 +102,8 @@ function buildHtmlEmail(bodyText, contactId, trackingPixelUrl) {
 
 async function processActiveCampaigns() {
   try {
-    // Check Pakistani Time Constraint (6:00 PM to 2:00 AM PKT)
-    const pktDate = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Karachi"}));
-    const pktHour = pktDate.getHours();
-    if (pktHour >= 2 && pktHour < 18) {
-      console.log('[CampaignSender] Outside of active sending window (6:00 PM to 2:00 AM PKT). Skipping.');
-      return;
-    }
-
     // Auto-assign unassigned leads to the user's active email campaign (Automated First Email)
+    // We do this BEFORE the time check so leads immediately enter the queue visually for the user.
     await query(`
       UPDATE contacts
       SET campaign_id = (
@@ -119,9 +112,17 @@ async function processActiveCampaigns() {
           AND campaigns.status = 'active' 
           AND campaigns.channel = 'email' 
         LIMIT 1
-      ), omnichannel_stage = 'emailing'
+      ), omnichannel_stage = 'emailing', stage = 'in_progress'
       WHERE campaign_id IS NULL AND email IS NOT NULL AND email != '' AND (emails_sent IS NULL OR emails_sent = 0)
     `);
+
+    // Check Pakistani Time Constraint (6:00 PM to 2:00 AM PKT)
+    const pktDate = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Karachi"}));
+    const pktHour = pktDate.getHours();
+    if (pktHour >= 2 && pktHour < 18) {
+      console.log('[CampaignSender] Outside of active sending window (6:00 PM to 2:00 AM PKT). Skipping.');
+      return;
+    }
 
     const { rows: campaigns } = await query(
       `SELECT * FROM campaigns WHERE status = 'active' AND channel = 'email'`

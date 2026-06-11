@@ -304,6 +304,7 @@ export default function LeadsPage() {
               }}
             >
               <option value="new_lead">New Lead</option>
+              <option value="cold_calling">To Call</option>
               <option value="in_progress">In Progress</option>
               <option value="converted_lost">Converted / Lost</option>
             </select>
