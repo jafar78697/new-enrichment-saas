@@ -107,6 +107,7 @@ export default function LeadsPage() {
   const [search, setSearch] = useState('');
   const [activeCall, setActiveCall] = useState<Contact | null>(null);
   const [activeEmailLead, setActiveEmailLead] = useState<Contact | null>(null);
+  const [editingNoteLead, setEditingNoteLead] = useState<Contact | null>(null);
   const [editingNoteText, setEditingNoteText] = useState('');
   const [editingCrm, setEditingCrm] = useState('');
   const [editingPainPoints, setEditingPainPoints] = useState('');
@@ -488,15 +489,15 @@ export default function LeadsPage() {
           </div>
           <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', padding: 20, borderRadius: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#1D4ED8', textTransform: 'uppercase', marginBottom: 8 }}>🗓️ Discovery Calls</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#1E3A8A' }}>{leads.filter(l => l.meeting_time).length}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#1E3A8A' }}>{filteredLeads.filter(l => l.meeting_time).length}</div>
           </div>
           <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', padding: 20, borderRadius: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#B45309', textTransform: 'uppercase', marginBottom: 8 }}>📄 Proposals Sent</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#78350F' }}>{leads.filter(l => ['proposal_sent', 'negotiation', 'won'].includes(l.stage || '')).length}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#78350F' }}>{filteredLeads.filter(l => ['proposal_sent', 'negotiation', 'won'].includes(l.stage || '')).length}</div>
           </div>
           <div style={{ background: '#ECFCCB', border: '1px solid #D9F99D', padding: 20, borderRadius: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#4D7C0F', textTransform: 'uppercase', marginBottom: 8 }}>💰 Closed Revenue</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#3F6212' }}>${leads.filter(l => l.stage === 'won').reduce((acc, l) => acc + (l.deal_value || 0), 0).toLocaleString()}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#3F6212' }}>${filteredLeads.filter(l => l.stage === 'won').reduce((acc, l) => acc + (l.deal_value || 0), 0).toLocaleString()}</div>
           </div>
         </div>
       </div>
