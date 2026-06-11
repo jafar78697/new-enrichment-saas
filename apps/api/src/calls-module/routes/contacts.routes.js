@@ -325,6 +325,31 @@ router.delete(
   })
 );
 
+router.get(
+  '/:id/emails',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    // Ensure table exists
+    await query(`
+      CREATE TABLE IF NOT EXISTS contact_emails_history (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        subject TEXT,
+        body TEXT,
+        from_email TEXT,
+        sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      )
+    `);
+    
+    const result = await query(
+      'SELECT * FROM contact_emails_history WHERE contact_id = $1 ORDER BY sent_at DESC',
+      [id]
+    );
+    res.json({ emails: result.rows });
+  })
+);
+
 router.post(
   '/:id/send-email',
   requireAuth,
@@ -345,6 +370,22 @@ router.post(
       subject: subject || 'Follow up',
       html: `${body.replace(/\n/g, '<br>')}${trackingPixel}`,
     });
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS contact_emails_history (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        subject TEXT,
+        body TEXT,
+        from_email TEXT,
+        sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      )
+    `);
+
+    await query(
+      'INSERT INTO contact_emails_history (contact_id, subject, body, from_email) VALUES ($1, $2, $3, $4)',
+      [id, subject || 'Follow up', `${body.replace(/\n/g, '<br>')}`, 'scale.ai.jento@gmail.com']
+    );
 
     const result = await query(
       'UPDATE contacts SET emails_sent = emails_sent + 1, last_email_sent_at = NOW() WHERE id = $1 RETURNING *',
@@ -547,7 +588,22 @@ router.post(
       <img src="https://api.jentoai.pro/api/contacts/${contact.id}/track-email" width="1" height="1" style="display:none;" />
     `;
     
-    // TODO: Await actual nodemailer.sendMail({ to: contact.email, html: emailHtmlTemplate }) here when SMTP is fully connected.
+    // Ensure table exists
+    await query(`
+      CREATE TABLE IF NOT EXISTS contact_emails_history (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        subject TEXT,
+        body TEXT,
+        from_email TEXT,
+        sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      )
+    `);
+
+    await query(
+      'INSERT INTO contact_emails_history (contact_id, subject, body, from_email) VALUES ($1, $2, $3, $4)',
+      [contact.id, 'Introductory Email', emailHtmlTemplate, 'scale.ai.jento@gmail.com']
+    );
 
     await query(
       'UPDATE contacts SET emails_sent = COALESCE(emails_sent, 0) + 1, stage = $1 WHERE id = $2 RETURNING *',

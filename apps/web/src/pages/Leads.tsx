@@ -4,6 +4,7 @@ import callsApi, { Contact } from '../services/callsApi';
 import { getCallUser } from '../services/employeesApi';
 import DialerPopup from '../components/DialerPopup';
 import EmailPopup from '../components/EmailPopup';
+import SentEmailsPopup from '../components/SentEmailsPopup';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 
@@ -719,7 +720,7 @@ export default function LeadsPage() {
       )}
 
       {activeEmailLead && activeEmailLead.email && (
-        <EmailPopup
+        <SentEmailsPopup
           contactId={activeEmailLead.id}
           contactName={activeEmailLead.name}
           contactEmail={activeEmailLead.email}

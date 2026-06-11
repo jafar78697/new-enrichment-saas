@@ -276,6 +276,8 @@ export const callsApi = {
       body: JSON.stringify({ targetAgentId }),
     }),
 
+  getContactEmails: (id: number) => request<{ emails: any[] }>(`/contacts/${id}/emails`),
+
   sendContactEmail: (id: number, payload: { subject: string; body: string }) =>
     request<{ success: boolean; contact: Contact }>(`/contacts/${id}/send-email`, {
       method: 'POST',
