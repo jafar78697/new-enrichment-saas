@@ -165,7 +165,7 @@ export const callsApi = {
       method: 'DELETE',
     }),
 
-  updateContact: (id: number, data: { notes?: string | null; stage?: string; omnichannel_stage?: string; deal_value?: number; lost_reason?: string; current_crm?: string | null; pain_points?: string | null; automation_opportunities?: string | null }) =>
+  updateContact: (id: number, data: { notes?: string | null; meeting_time?: string | null; stage?: string; omnichannel_stage?: string; deal_value?: number; lost_reason?: string; current_crm?: string | null; pain_points?: string | null; automation_opportunities?: string | null }) =>
     request<{ contact: Contact }>(`/contacts/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
