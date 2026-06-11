@@ -506,22 +506,21 @@ export default function LeadsPage() {
           {getCallUser()?.role === 'manager' && filteredLeads.length > 0 && (
             <button
               onClick={handleClearAll}
-                disabled={clearAllMutation.isPending}
-                style={{
-                  background: '#FEE2E2',
-                  color: '#B91C1C',
-                  border: '1px solid #FCA5A5',
-                  padding: '4px 12px',
-                  borderRadius: 6,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: clearAllMutation.isPending ? 'wait' : 'pointer',
-                }}
-              >
-                {clearAllMutation.isPending ? 'Clearing...' : 'Clear All'}
-              </button>
-            )}
-          </div>
+              disabled={clearAllMutation.isPending}
+              style={{
+                background: '#FEE2E2',
+                color: '#B91C1C',
+                border: '1px solid #FCA5A5',
+                padding: '4px 12px',
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: clearAllMutation.isPending ? 'wait' : 'pointer',
+              }}
+            >
+              {clearAllMutation.isPending ? 'Clearing...' : 'Clear All'}
+            </button>
+          )}
         </div>
         
         <input
@@ -535,6 +534,7 @@ export default function LeadsPage() {
             borderRadius: 8,
             fontSize: 14,
             width: 300,
+            marginLeft: 16
           }}
         />
       </div>
