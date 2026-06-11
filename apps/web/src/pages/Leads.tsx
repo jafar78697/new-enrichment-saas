@@ -535,7 +535,7 @@ export default function LeadsPage() {
             paddingBottom: 8
           }}
         >
-          Lead Tracking 👁️
+          Lead Tracking
         </button>
       </div>
 
