@@ -92,12 +92,22 @@ export default function LeadsPage() {
   const currentPage = parseInt(searchParams.get('page') || '1', 10);
   const pageSize = 50;
 
+  const calculateAiScore = (lead: Contact) => {
+    let score = 0;
+    if (lead.email_opened && lead.email_opened > 0) score += 10;
+    if (lead.emails_received && lead.emails_received > 0) score += 40;
+    if (lead.messages_count && lead.messages_count > 0) score += 20;
+    if (lead.last_call_outcome === 'connected') score += 25;
+    if (lead.meeting_time) score += 50;
+    return score;
+  };
+
   const [search, setSearch] = useState('');
   const [activeCall, setActiveCall] = useState<Contact | null>(null);
   const [activeEmailLead, setActiveEmailLead] = useState<Contact | null>(null);
   const [editingNoteLead, setEditingNoteLead] = useState<Contact | null>(null);
   const [editingNoteText, setEditingNoteText] = useState('');
-  const [activeTab, setActiveTab] = useState<'new_lead' | 'in_progress' | 'converted_lost' | 'lead_tracking'>('new_lead');
+  const [activeTab, setActiveTab] = useState<'new_lead' | 'outreach' | 'engaged' | 'hot' | 'meetings' | 'closed'>('new_lead');
   const queryClient = useQueryClient();
 
   const updateNoteMutation = useMutation({
@@ -417,19 +427,19 @@ export default function LeadsPage() {
   }
 
   const tabLeads = otherLeads.filter(l => {
-    if (activeTab === 'new_lead') return !l.stage || l.stage === 'new_lead';
-    if (activeTab === 'in_progress') return l.stage === 'in_progress' || l.stage === 'email_sent' || l.stage === 'replied';
-    if (activeTab === 'converted_lost') return l.stage === 'converted_lost';
-    if (activeTab === 'lead_tracking') {
-      return (
-        (l.email_opened && l.email_opened > 0) || 
-        (l.emails_received && l.emails_received > 0) || 
-        (l.messages_count && l.messages_count > 0) || 
-        l.meeting_time || 
-        l.last_call_outcome ||
-        l.stage === 'replied'
-      );
-    }
+    const aiScore = calculateAiScore(l);
+    const isEngaged = (l.email_opened && l.email_opened > 0) || 
+                      (l.emails_received && l.emails_received > 0) || 
+                      (l.messages_count && l.messages_count > 0) || 
+                      l.last_call_outcome === 'connected' ||
+                      l.stage === 'replied';
+
+    if (activeTab === 'new_lead') return (!l.stage || l.stage === 'new_lead') && !isEngaged && !l.meeting_time && aiScore <= 50;
+    if (activeTab === 'outreach') return ((l.emails_sent && l.emails_sent > 0) || l.stage === 'in_progress' || l.stage === 'email_sent') && !isEngaged && !l.meeting_time && aiScore <= 50;
+    if (activeTab === 'engaged') return isEngaged && !l.meeting_time && aiScore <= 50;
+    if (activeTab === 'hot') return aiScore > 50 && !l.meeting_time;
+    if (activeTab === 'meetings') return !!l.meeting_time;
+    if (activeTab === 'closed') return l.stage === 'converted_lost';
     return false;
   });
   const totalPages = Math.ceil(tabLeads.length / pageSize);
@@ -501,60 +511,39 @@ export default function LeadsPage() {
       )}
 
       {/* Stage Tabs */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #E5E7EB', paddingBottom: 8 }}>
-        <button 
-          onClick={() => { setActiveTab('new_lead'); setSearchParams({ page: '1' }); }}
-          style={{ 
-            background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
-            color: activeTab === 'new_lead' ? '#0F766E' : '#6B7280',
-            borderBottom: activeTab === 'new_lead' ? '2px solid #0F766E' : 'none',
-            paddingBottom: 8
-          }}
-        >
-          New Leads ({otherLeads.filter(l => !l.stage || l.stage === 'new_lead').length})
-        </button>
-        <button 
-          onClick={() => { setActiveTab('in_progress'); setSearchParams({ page: '1' }); }}
-          style={{ 
-            background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
-            color: activeTab === 'in_progress' ? '#0F766E' : '#6B7280',
-            borderBottom: activeTab === 'in_progress' ? '2px solid #0F766E' : 'none',
-            paddingBottom: 8
-          }}
-        >
-          In-Progress ({otherLeads.filter(l => l.stage === 'in_progress' || l.stage === 'email_sent' || l.stage === 'replied').length})
-        </button>
-        <button 
-          onClick={() => { setActiveTab('converted_lost'); setSearchParams({ page: '1' }); }}
-          style={{ 
-            background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
-            color: activeTab === 'converted_lost' ? '#0F766E' : '#6B7280',
-            borderBottom: activeTab === 'converted_lost' ? '2px solid #0F766E' : 'none',
-            paddingBottom: 8
-          }}
-        >
-          Converted / Lost ({otherLeads.filter(l => l.stage === 'converted_lost').length})
-        </button>
-        <button 
-          onClick={() => { setActiveTab('lead_tracking'); setSearchParams({ page: '1' }); }}
-          style={{ 
-            background: 'none', border: 'none', fontSize: 16, fontWeight: 700, cursor: 'pointer',
-            color: activeTab === 'lead_tracking' ? '#0F766E' : '#6B7280',
-            borderBottom: activeTab === 'lead_tracking' ? '2px solid #0F766E' : 'none',
-            paddingBottom: 8
-          }}
-        >
-          Lead Tracking
-        </button>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #E5E7EB', paddingBottom: 8, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+        {[
+          { id: 'new_lead', label: 'New Leads' },
+          { id: 'outreach', label: 'Outreach (Email/Call/Social)' },
+          { id: 'engaged', label: 'Engaged (Opened/Replied/Connected)' },
+          { id: 'hot', label: '🔥 Hot Leads (Score > 50)' },
+          { id: 'meetings', label: '🗓️ Meetings' },
+          { id: 'closed', label: 'Closed Deals' }
+        ].map(tab => (
+          <button 
+            key={tab.id}
+            onClick={() => { setActiveTab(tab.id as any); setSearchParams({ page: '1' }); }}
+            style={{ 
+              background: 'none', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+              color: activeTab === tab.id ? '#0F766E' : '#6B7280',
+              borderBottom: activeTab === tab.id ? '2px solid #0F766E' : 'none',
+              paddingBottom: 8,
+              transition: 'all 0.2s'
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Leads Grid or Table */}
-      {activeTab === 'lead_tracking' ? (
+      {['engaged', 'hot', 'meetings'].includes(activeTab) ? (
         <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#F6F7F2', borderBottom: '2px solid #D8E1D7' }}>
                 <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Lead Name / Contact</th>
+                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>AI Score</th>
                 <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Email Activity</th>
                 <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Social / SMS</th>
                 <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Call / Meeting</th>
@@ -566,6 +555,15 @@ export default function LeadsPage() {
                   <td style={{ padding: '16px' }}>
                     <div style={{ fontWeight: 700, color: '#14202B' }}>{lead.name}</div>
                     <div style={{ fontSize: 13, color: '#6B7280' }}>{lead.email || lead.phone_number || 'No contact info'}</div>
+                  </td>
+                  <td style={{ padding: '16px', textAlign: 'center' }}>
+                    <span style={{ 
+                      background: calculateAiScore(lead) > 50 ? '#FEF2F2' : '#F3F4F6',
+                      color: calculateAiScore(lead) > 50 ? '#DC2626' : '#4B5563',
+                      padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 800 
+                    }}>
+                      {calculateAiScore(lead)}
+                    </span>
                   </td>
                   <td style={{ padding: '16px', textAlign: 'center' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>

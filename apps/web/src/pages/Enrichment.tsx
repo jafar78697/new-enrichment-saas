@@ -241,7 +241,7 @@ export default function EnrichmentPage() {
               {activeTab === 'queue' ? (
                 <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Status / Queue</th>
               ) : (
-                <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Enrichment Score</th>
+                <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Status</th>
               )}
             </tr>
           </thead>
@@ -288,7 +288,7 @@ export default function EnrichmentPage() {
                       background: '#D1FAE5', color: '#065F46', padding: '6px 12px',
                       borderRadius: 20, fontSize: 12, fontWeight: 700, display: 'inline-flex',
                       alignItems: 'center', gap: 6, border: '1px solid #A7F3D0'
-                    }}>Score: {lead.score} - Ready</span>
+                    }}>Ready for Outreach</span>
                   )}
                 </td>
               </tr>
