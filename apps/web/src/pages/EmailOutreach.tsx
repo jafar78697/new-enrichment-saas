@@ -200,8 +200,49 @@ export default function EmailOutreach() {
       {/* Tab Content */}
       <div className="mt-6">
         {activeTab === 'email' && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            {/* Email Sub-Tabs */}
+          <div className="space-y-6">
+            {/* Email Main Dashboard Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Mail className="w-5 h-5"/></div>
+                  <h3 className="text-gray-500 font-medium text-sm">Emails Sent Today</h3>
+                </div>
+                <p className="text-3xl font-bold text-gray-900">
+                  {contactsData?.contacts?.filter((lead: Contact) => lead.stage === 'email_sent').length || 0}
+                </p>
+              </div>
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><Eye className="w-5 h-5"/></div>
+                  <h3 className="text-gray-500 font-medium text-sm">Total Opened</h3>
+                </div>
+                <p className="text-3xl font-bold text-gray-900">
+                  {contactsData?.contacts?.filter((lead: Contact) => (lead.email_opened || 0) > 0).length || 0}
+                </p>
+              </div>
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-green-50 text-green-600 rounded-lg"><Reply className="w-5 h-5"/></div>
+                  <h3 className="text-gray-500 font-medium text-sm">Total Replied</h3>
+                </div>
+                <p className="text-3xl font-bold text-gray-900">
+                  {contactsData?.contacts?.filter((lead: Contact) => (lead.emails_received || 0) > 0).length || 0}
+                </p>
+              </div>
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-orange-50 text-orange-600 rounded-lg"><Settings className="w-5 h-5"/></div>
+                  <h3 className="text-gray-500 font-medium text-sm">Active Senders</h3>
+                </div>
+                <p className="text-3xl font-bold text-gray-900">
+                  {accountsData?.accounts?.length || 0}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              {/* Email Sub-Tabs */}
             <div className="bg-gray-50/80 border-b border-gray-200 px-6 py-4 flex gap-4">
               <button 
                 onClick={() => setActiveEmailTab('campaigns')}
@@ -243,27 +284,6 @@ export default function EmailOutreach() {
                   <p className="text-gray-500 mb-6">
                     Manually review leads and click to send emails individually. Does not use auto-rotation.
                   </p>
-
-            <div className="grid grid-cols-3 gap-4 mb-8">
-              <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
-                <p className="text-sm font-medium text-blue-600 mb-1">Emails Sent Today</p>
-                <p className="text-2xl font-bold text-blue-900">
-                  {contactsData?.contacts?.filter((lead: Contact) => lead.stage === 'email_sent').length || 0}
-                </p>
-              </div>
-              <div className="bg-purple-50 border border-purple-100 rounded-lg p-4">
-                <p className="text-sm font-medium text-purple-600 mb-1">Total Opened</p>
-                <p className="text-2xl font-bold text-purple-900">
-                  {contactsData?.contacts?.filter((lead: Contact) => (lead.email_opened || 0) > 0).length || 0}
-                </p>
-              </div>
-              <div className="bg-green-50 border border-green-100 rounded-lg p-4">
-                <p className="text-sm font-medium text-green-600 mb-1">Total Replied</p>
-                <p className="text-2xl font-bold text-green-900">
-                  {contactsData?.contacts?.filter((lead: Contact) => (lead.emails_received || 0) > 0).length || 0}
-                </p>
-              </div>
-            </div>
 
             <div className="flex justify-between items-center mb-6">
               <div className="flex gap-2">
@@ -551,6 +571,7 @@ export default function EmailOutreach() {
               )}
             </div>
           </div>
+        </div>
         )}
 
         {activeTab === 'facebook' && (

@@ -12,6 +12,17 @@ async function processCampaigns() {
   const client = await getPool().connect();
 
   try {
+    // --- EST Timezone Check (USA Daytime Only) ---
+    const estHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: '2-digit', hour12: false });
+    const currentHour = parseInt(estHour, 10);
+    // Only send between 9 AM and 5 PM EST (17:00)
+    if (currentHour < 9 || currentHour >= 17) {
+      isRunning = false;
+      client.release();
+      return;
+    }
+    // ---------------------------------------------
+
     // 1. Transaction to safely lock a pending lead
     await client.query('BEGIN');
     
@@ -46,7 +57,7 @@ async function processCampaigns() {
 
     const senderRes = await client.query(`
       SELECT * FROM email_accounts
-      WHERE status = 'active' AND sent_today < daily_limit
+      WHERE status = 'active' AND sent_today < 25 AND sent_today < daily_limit
       ORDER BY sent_today ASC
       LIMIT 1
     `);
