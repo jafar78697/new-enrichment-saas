@@ -146,6 +146,22 @@ export default function DashboardPage() {
             {pool.length - totalAssignedNumbers} unassigned
           </div>
         </div>
+
+        {/* GCP Billing Card */}
+        <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 8, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5H5a2 2 0 0 0 0 4h16"/></svg>
+              GCP Billing (This Month)
+            </div>
+            <div style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 36, fontWeight: 700, color: '#2563EB' }}>
+              $0.00
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: '#F59E0B', marginTop: 4, background: '#FEF3C7', padding: '4px 8px', borderRadius: '4px', display: 'inline-block' }}>
+            Setup Required
+          </div>
+        </div>
       </div>
 
       {/* 🔴 Unified Inbox (Replies) - As requested, the most prominent section */}
