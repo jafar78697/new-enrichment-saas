@@ -159,7 +159,7 @@ Subject line should be included at the very beginning in the format: "Subject: <
 
         if (!parsed || !parsed.body || parsed.body.includes('You are an expert B2B sales copywriter')) {
           console.error(`[AutomatedSender] Skipping contact ${contact.email} because AI email generation failed or returned prompt.`);
-          await new Promise(r => setTimeout(r, 6000)); // Sleep 6s to allow rate limits to recover
+          await new Promise(r => setTimeout(r, 10000)); // Sleep 10s to allow rate limits to recover
           continue;
         }
 
@@ -231,8 +231,8 @@ Subject line should be included at the very beginning in the format: "Subject: <
 
         console.log(`[AutomatedSender] ✅ Sent to ${contact.email} via ${sender.biz_email} (${contact.company || contact.name})`);
 
-        // Human-like delay 3-8 seconds
-        await new Promise(r => setTimeout(r, 3000 + Math.random() * 5000));
+        // Human-like delay 10-15 seconds
+        await new Promise(r => setTimeout(r, 10000 + Math.random() * 5000));
 
       } catch (sendErr) {
         console.error(`[AutomatedSender] ❌ Failed to send to ${contact.email}:`, sendErr.message);
