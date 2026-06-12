@@ -92,9 +92,9 @@ export default function EmailOutreach() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('email');
-  const [activeEmailTab, setActiveEmailTab] = useState<'campaigns' | 'accounts' | 'manual' | 'replies' | 'followups'>('campaigns');
+  const [activeEmailTab, setActiveEmailTab] = useState<'history' | 'accounts' | 'campaigns' | 'replies' | 'followups'>('history');
   const [activeSocialSubTab, setActiveSocialSubTab] = useState<'campaigns' | 'leads' | 'queue'>('campaigns');
-  const [emailSubTab, setEmailSubTab] = useState<'pending' | 'sent' | 'replied'>('pending');
+  const [emailSubTab, setEmailSubTab] = useState<'pending' | 'sent' | 'replied'>('sent');
   const [newCampName, setNewCampName] = useState('');
   const [newCampTemplate, setNewCampTemplate] = useState('I noticed your real estate listings and wanted to reach out regarding a potential collaboration. Would you have time for a quick chat next week?');
   const [newCampDailyLimit, setNewCampDailyLimit] = useState<number>(50);
@@ -327,16 +327,16 @@ export default function EmailOutreach() {
               {/* Email Sub-Tabs */}
             <div className="bg-gray-50/80 border-b border-gray-200 px-6 py-4 flex gap-4">
               <button 
-                onClick={() => setActiveEmailTab('campaigns')}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeEmailTab === 'campaigns' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200/50'}`}
+                onClick={() => setActiveEmailTab('history')}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeEmailTab === 'history' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200/50'}`}
               >
-                Auto Campaigns
+                Live Sending Logs
               </button>
               <button 
                 onClick={() => setActiveEmailTab('accounts')}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeEmailTab === 'accounts' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200/50'}`}
               >
-                Connected Senders
+                Sender Accounts
               </button>
               <button 
                 onClick={() => setActiveEmailTab('replies')}
@@ -350,21 +350,15 @@ export default function EmailOutreach() {
               >
                 Follow-ups
               </button>
-              <button 
-                onClick={() => setActiveEmailTab('manual')}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeEmailTab === 'manual' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200/50'}`}
-              >
-                Manual Sandbox
-              </button>
             </div>
 
             {/* Email Sub-Tab Content */}
             <div className="p-6">
-              {activeEmailTab === 'manual' && (
+              {activeEmailTab === 'history' && (
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Manual Sandbox Outreach</h2>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">Live Sending Logs</h2>
                   <p className="text-gray-500 mb-6">
-                    Manually review leads and click to send emails individually. Does not use auto-rotation.
+                    Watch the automated sender dispatch emails in real-time. Emails are sent 1-by-1 automatically.
                   </p>
 
             <div className="flex justify-between items-center mb-6">
