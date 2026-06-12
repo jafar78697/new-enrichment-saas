@@ -23,6 +23,7 @@ import EmailOutreach from './pages/EmailOutreach';
 import FacebookOutreach from './pages/FacebookOutreach';
 import LinkedInOutreach from './pages/LinkedInOutreach';
 import RedditOutreach from './pages/RedditOutreach';
+import ReelGeneration from './pages/ReelGeneration';
 import AccessSystemPage from './pages/AccessSystem';
 import EmployeesPage from './pages/Employees';
 import TwilioNumbersPage from './pages/TwilioNumbers';
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="outreach/facebook" element={<FacebookOutreach />} />
           <Route path="outreach/linkedin" element={<LinkedInOutreach />} />
           <Route path="outreach/reddit" element={<RedditOutreach />} />
+          <Route path="outreach/reels" element={<ReelGeneration />} />
           <Route path="call-system" element={<CallSystem />} />
           <Route path="access-system" element={<AccessSystemPage />} />
           <Route path="employees" element={<EmployeesPage />} />
