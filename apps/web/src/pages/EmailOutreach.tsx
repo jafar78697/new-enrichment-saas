@@ -5,6 +5,88 @@ import { useAuth } from '../hooks/useAuth';
 import { Mail, MessageCircle, Settings, CheckCircle, Eye, Reply, Send } from 'lucide-react';
 import callsApi, { Contact } from '../services/callsApi';
 
+const BusinessEmailManager = ({ accountId, token }: { accountId: number, token: string }) => {
+  const [emails, setEmails] = useState<any[]>([]);
+  const [newEmail, setNewEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetchEmails();
+  }, [accountId]);
+
+  const fetchEmails = async () => {
+    try {
+      const res = await fetch(`/v1/outreach/accounts/${accountId}/business-emails`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.business_emails) setEmails(data.business_emails);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!newEmail) return;
+    setLoading(true);
+    try {
+      await fetch(`/v1/outreach/accounts/${accountId}/business-emails`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: newEmail })
+      });
+      setNewEmail('');
+      fetchEmails();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await fetch(`/v1/outreach/accounts/${accountId}/business-emails/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchEmails();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  return (
+    <div className="mt-4 pt-4 border-t border-gray-100">
+      <h5 className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wider">Business Aliases ({emails.length})</h5>
+      <div className="space-y-2 mb-3 max-h-32 overflow-y-auto">
+        {emails.map(be => (
+          <div key={be.id} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
+            <span className="truncate text-gray-700">{be.email}</span>
+            <button onClick={() => handleDelete(be.id)} className="text-red-500 hover:text-red-700 text-xs ml-2 font-medium px-2 py-1">Remove</button>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input 
+          type="email" 
+          placeholder="alias@domain.com" 
+          value={newEmail}
+          onChange={e => setNewEmail(e.target.value)}
+          className="w-full text-sm p-2 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 outline-none"
+        />
+        <button 
+          onClick={handleAdd}
+          disabled={loading || !newEmail}
+          className="px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded text-sm font-medium disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function EmailOutreach() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -531,6 +613,7 @@ export default function EmailOutreach() {
                               </div>
                               <div className="w-full bg-gray-200 rounded-full h-1.5">
                                 <div className="bg-indigo-600 h-1.5 rounded-full" style={{ width: `${Math.min(100, (acc.sent_today / acc.daily_limit) * 100)}%` }}></div>
+                              </div>
                             </div>
                           </div>
                           
