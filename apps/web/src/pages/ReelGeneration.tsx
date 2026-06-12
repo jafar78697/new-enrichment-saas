@@ -16,6 +16,17 @@ export default function ReelGeneration() {
     linkedin: false
   });
 
+  const handleConnectYouTube = () => {
+    // Exact same client ID and scopes as the old youtube automaion project
+    const clientId = '1071909841111-sfa36eroerh8ggr58cu6v7upcvop380g.apps.googleusercontent.com';
+    const redirectUri = `${window.location.origin}/auth/youtube/callback`;
+    const scope = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly';
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
+    
+    // Redirect to Google Consent screen
+    window.location.href = url;
+  };
+
   const handleGenerate = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!prompt.trim()) return;
@@ -231,18 +242,46 @@ export default function ReelGeneration() {
                 <p className="text-sm text-gray-500 mt-1">Choose where to distribute this video.</p>
               </div>
               <div className="space-y-3">
-                {Object.entries(platforms).map(([platform, active]) => (
-                  <label key={platform} className={`flex items-center justify-between p-4 border rounded-xl cursor-pointer transition-colors ${active ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                <div className={`flex items-center justify-between p-4 border rounded-xl transition-colors ${platforms.youtube ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="checkbox" 
+                      className="w-5 h-5 text-red-600 rounded border-gray-300 focus:ring-red-500"
+                      checked={platforms.youtube}
+                      onChange={() => {
+                        if (!platforms.youtube) {
+                          handleConnectYouTube();
+                        } else {
+                          setPlatforms({...platforms, youtube: false});
+                        }
+                      }}
+                    />
+                    <span className="capitalize font-medium text-gray-900">YouTube</span>
+                  </div>
+                  {platforms.youtube ? (
+                    <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-1 rounded-full">Connected</span>
+                  ) : (
+                    <button 
+                      onClick={handleConnectYouTube}
+                      className="text-xs font-semibold text-white bg-red-600 px-3 py-1.5 rounded hover:bg-red-700 transition-colors"
+                    >
+                      Connect Account
+                    </button>
+                  )}
+                </div>
+
+                {['instagram', 'facebook', 'linkedin'].map((platform) => (
+                  <label key={platform} className={`flex items-center justify-between p-4 border rounded-xl cursor-pointer transition-colors ${platforms[platform as keyof typeof platforms] ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
                     <div className="flex items-center gap-3">
                       <input 
                         type="checkbox" 
                         className="w-5 h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
-                        checked={active}
-                        onChange={() => setPlatforms({...platforms, [platform]: !active})}
+                        checked={platforms[platform as keyof typeof platforms]}
+                        onChange={() => setPlatforms({...platforms, [platform]: !platforms[platform as keyof typeof platforms]})}
                       />
                       <span className="capitalize font-medium text-gray-900">{platform}</span>
                     </div>
-                    {active && <span className="text-xs font-semibold text-indigo-600 bg-indigo-100 px-2 py-1 rounded-full">Connected</span>}
+                    {platforms[platform as keyof typeof platforms] && <span className="text-xs font-semibold text-indigo-600 bg-indigo-100 px-2 py-1 rounded-full">Connected</span>}
                   </label>
                 ))}
               </div>

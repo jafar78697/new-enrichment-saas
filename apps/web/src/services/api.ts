@@ -137,6 +137,13 @@ export const webhooksApi = {
   delete: (id: string) => api.delete(`/webhooks/${id}`),
 };
 
+export const socialApi = {
+  connectYouTube: async (code: string) => {
+    if (MOCK) { await delay(); return { data: { success: true } }; }
+    return api.post('/auth/youtube/callback', { code, redirectUri: `${window.location.origin}/auth/youtube/callback` });
+  }
+};
+
 export const scraperApi = {
   scrapeGoogleMaps: async (payload: { keywords: string[]; location?: string; limit?: number; niche_name?: string }) => {
     // Use the calls-module API (Express, /api/*) instead of enrichment API (/v1/*)

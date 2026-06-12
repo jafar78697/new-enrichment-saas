@@ -45,6 +45,68 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // POST /v1/auth/youtube/callback
+  fastify.post('/v1/auth/youtube/callback', {
+    preHandler: [fastify.authenticate as any]
+  }, async (request: any, reply) => {
+    const { code, redirectUri } = request.body as any;
+    const { tenantId, userId } = request.tenant;
+
+    if (!code) return reply.code(400).send({ error: 'Missing code' });
+
+    try {
+      // Exchange code for tokens
+      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: '1071909841111-sfa36eroerh8ggr58cu6v7upcvop380g.apps.googleusercontent.com',
+          client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        }).toString(),
+      });
+
+      const tokens = await tokenResponse.json() as any;
+
+      if (tokens.error) {
+        fastify.log.error('YouTube Token Error:', tokens);
+        return reply.code(400).send({ error: tokens.error_description || tokens.error });
+      }
+
+      const refreshToken = tokens.refresh_token || null;
+      const accessToken = tokens.access_token;
+      const expiry = new Date(Date.now() + tokens.expires_in * 1000);
+
+      // Fetch channel info using the access token
+      const channelRes = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const channelData = await channelRes.json() as any;
+      let channelId = null;
+      let channelTitle = null;
+
+      if (channelData.items && channelData.items.length > 0) {
+        channelId = channelData.items[0].id;
+        channelTitle = channelData.items[0].snippet.title;
+      }
+
+      // Save to Postgres Database
+      await fastify.db.query(
+        `INSERT INTO youtube_accounts (tenant_id, user_id, channel_id, channel_title, access_token, refresh_token, token_expiry)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [tenantId, userId, channelId, channelTitle, accessToken, refreshToken, expiry]
+      );
+
+      return { success: true, channelId, channelTitle };
+
+    } catch (err: any) {
+      fastify.log.error('Error in YouTube auth callback:', err);
+      return reply.code(500).send({ error: 'Internal Server Error' });
+    }
+  });
+
   // DELETE /v1/account (GDPR)
   fastify.delete('/v1/account', {
     preHandler: [fastify.authenticate as any]

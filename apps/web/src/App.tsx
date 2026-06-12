@@ -24,6 +24,7 @@ import FacebookOutreach from './pages/FacebookOutreach';
 import LinkedInOutreach from './pages/LinkedInOutreach';
 import RedditOutreach from './pages/RedditOutreach';
 import ReelGeneration from './pages/ReelGeneration';
+import YouTubeCallback from './pages/YouTubeCallback';
 import AccessSystemPage from './pages/AccessSystem';
 import EmployeesPage from './pages/Employees';
 import TwilioNumbersPage from './pages/TwilioNumbers';
@@ -77,6 +78,7 @@ export default function App() {
         </Route>
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/auth/youtube/callback" element={<PrivateRoute><YouTubeCallback /></PrivateRoute>} />
         <Route path="/call-login" element={<CallLoginPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
