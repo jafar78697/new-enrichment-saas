@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { Mail, MessageCircle, Settings, CheckCircle, Eye, Reply, Send } from 'lucide-react';
 import callsApi, { Contact } from '../services/callsApi';
+import SentEmailsPopup from '../components/SentEmailsPopup';
 
 const BusinessEmailManager = ({ accountId, token }: { accountId: number, token: string }) => {
   const [emails, setEmails] = useState<any[]>([]);
@@ -105,6 +106,7 @@ export default function EmailOutreach() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const { token } = useAuth();
   const [statusMsg, setStatusMsg] = useState<{type: 'success'|'error', text: string} | null>(null);
+  const [viewingHistoryContact, setViewingHistoryContact] = useState<{id: number, name: string, email: string} | null>(null);
 
   const { data: contactsData, isLoading: contactsLoading } = useQuery({
     queryKey: ['contacts'],
@@ -410,14 +412,24 @@ export default function EmailOutreach() {
                       </div>
                     </div>
                     {lead.campaign_id && emailSubTab === 'pending' && <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded">Scheduled in Auto-Campaign</span>}
-                    <button
-                      onClick={() => outreachMutation.mutate({ id: lead.id, template: baseTemplate })}
-                      disabled={outreachMutation.isPending || lead.stage === 'email_sent'}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold flex items-center gap-2"
-                    >
-                      <Send className="w-4 h-4" />
-                      {lead.stage === 'email_sent' ? 'Sent' : 'Send Email'}
-                    </button>
+                    {emailSubTab === 'sent' ? (
+                      <button
+                        onClick={() => setViewingHistoryContact(lead)}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold flex items-center gap-2"
+                      >
+                        <Eye className="w-4 h-4" />
+                        View Sent Email
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => outreachMutation.mutate({ id: lead.id, template: baseTemplate })}
+                        disabled={outreachMutation.isPending || lead.stage === 'email_sent'}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold flex items-center gap-2"
+                      >
+                        <Send className="w-4 h-4" />
+                        {lead.stage === 'email_sent' ? 'Sent' : 'Send Email'}
+                      </button>
+                    )}>
                   </div>
                 ))}
               </div>
@@ -1258,6 +1270,14 @@ export default function EmailOutreach() {
               )}
             </div>
           </div>
+        )}
+        {viewingHistoryContact && (
+          <SentEmailsPopup
+            contactId={viewingHistoryContact.id}
+            contactName={viewingHistoryContact.name || 'Unknown'}
+            contactEmail={viewingHistoryContact.email || 'No Email'}
+            onClose={() => setViewingHistoryContact(null)}
+          />
         )}
       </div>
     </div>
