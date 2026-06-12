@@ -5,6 +5,9 @@ export default function ReelGeneration() {
   const [activeTab, setActiveTab] = useState<'studio' | 'scenes' | 'crm'>('studio');
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [messages, setMessages] = useState([
+    { role: 'ai', content: 'Hello! I am your Veo 3 Reel Generation Assistant. Describe the video you want to create, and I will generate the script, voiceover, and visual scenes for you.' }
+  ]);
 
   const [platforms, setPlatforms] = useState({
     youtube: true,
@@ -13,10 +16,25 @@ export default function ReelGeneration() {
     linkedin: false
   });
 
-  const handleGenerate = () => {
-    if (!prompt) return;
+  const handleGenerate = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!prompt.trim()) return;
+    
+    // Add user message
+    const userMsg = prompt.trim();
+    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setPrompt('');
     setIsGenerating(true);
-    setTimeout(() => setIsGenerating(false), 3000);
+
+    // Simulate AI thinking and generating
+    setTimeout(() => {
+      setMessages(prev => [...prev, { role: 'ai', content: 'Got it! I am writing the script and generating the 9:16 vertical video using Vertex AI (Veo 3). This may take a few moments...' }]);
+    }, 500);
+
+    setTimeout(() => {
+      setIsGenerating(false);
+      setMessages(prev => [...prev, { role: 'ai', content: 'Your video is ready! You can preview it on the right. If you want to make any changes, just let me know.' }]);
+    }, 4000);
   };
 
   return (
@@ -63,29 +81,74 @@ export default function ReelGeneration() {
       <div className="flex-1 overflow-auto bg-gray-50 relative">
         {activeTab === 'studio' && (
           <div className="absolute inset-0 flex">
-            {/* Left Panel: Prompt */}
-            <div className="w-1/2 p-8 overflow-y-auto bg-white border-r border-gray-200 flex flex-col">
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-gray-900">Script & Prompt Engine</h2>
-                <p className="text-sm text-gray-500 mt-1">Write your scene description. Veo 3 will generate a 9:16 vertical video.</p>
+            {/* Left Panel: LLM Chatbot Interface */}
+            <div className="w-1/2 overflow-hidden bg-white border-r border-gray-200 flex flex-col">
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                    AI Studio Assistant
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-1">Powered by Gemini & Veo 3</p>
+                </div>
               </div>
-              <textarea 
-                className="flex-1 w-full p-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-base resize-none shadow-sm"
-                placeholder="E.g., A 30-second cinematic tour of a modern villa in Dubai with upbeat background music..."
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-              />
-              <button 
-                className="mt-6 w-full bg-indigo-600 text-white font-semibold py-4 px-4 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-lg"
-                onClick={handleGenerate}
-                disabled={isGenerating || !prompt}
-              >
-                {isGenerating ? (
-                  <span className="flex items-center gap-2"><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Rendering with Vertex AI...</span>
-                ) : (
-                  <span className="flex items-center gap-2"><Video className="w-5 h-5" /> Generate 9:16 Reel</span>
+
+              {/* Chat Messages */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {messages.map((msg, idx) => (
+                  <div key={idx} className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {msg.role === 'ai' && (
+                      <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                        <Video className="w-4 h-4 text-indigo-600" />
+                      </div>
+                    )}
+                    <div className={`max-w-[80%] rounded-2xl p-4 text-sm ${
+                      msg.role === 'user' 
+                        ? 'bg-indigo-600 text-white rounded-br-none shadow-sm' 
+                        : 'bg-gray-100 text-gray-800 rounded-bl-none'
+                    }`}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+                {isGenerating && (
+                  <div className="flex gap-4 justify-start">
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                      <Video className="w-4 h-4 text-indigo-600" />
+                    </div>
+                    <div className="max-w-[80%] rounded-2xl p-4 text-sm bg-gray-100 text-gray-800 rounded-bl-none flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                      Generating video...
+                    </div>
+                  </div>
                 )}
-              </button>
+              </div>
+
+              {/* Chat Input */}
+              <div className="p-6 bg-white border-t border-gray-100">
+                <form onSubmit={handleGenerate} className="relative flex items-center">
+                  <textarea 
+                    className="w-full pl-4 pr-14 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm resize-none shadow-sm h-[60px] flex items-center"
+                    placeholder="Type your prompt here..."
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleGenerate();
+                      }
+                    }}
+                  />
+                  <button 
+                    type="submit"
+                    className="absolute right-2 w-10 h-10 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center shadow-md"
+                    disabled={isGenerating || !prompt.trim()}
+                  >
+                    <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                  </button>
+                </form>
+                <p className="text-center text-xs text-gray-400 mt-3">Shift + Enter to add a new line. The AI will write the script and create the video.</p>
+              </div>
             </div>
 
             {/* Right Panel: Preview (Mobile Device Frame) */}
