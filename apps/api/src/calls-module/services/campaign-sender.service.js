@@ -98,8 +98,15 @@ function buildHtmlEmail(bodyText, contactId, trackingPixelUrl) {
 </html>`;
 }
 
+let aiRateLimitPauseUntil = 0;
+
 async function processAutomatedEmails() {
   try {
+    if (Date.now() < aiRateLimitPauseUntil) {
+      console.log(`[AutomatedSender] Paused due to AI Rate Limit. Resuming in ${Math.round((aiRateLimitPauseUntil - Date.now()) / 60000)} minutes.`);
+      return;
+    }
+
     // Check Pakistani Time Constraint (6:00 PM to 2:00 AM PKT)
     const pktDate = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Karachi"}));
     const pktHour = pktDate.getHours();
@@ -158,12 +165,9 @@ Subject line should be included at the very beginning in the format: "Subject: <
         let parsed = parseEmailContent(rawText, contact);
 
         if (!parsed || !parsed.body || parsed.body.includes('You are an expert B2B sales copywriter')) {
-          console.error(`[AutomatedSender] AI failed for ${contact.email}, falling back to standard template.`);
-          parsed = {
-            subject: `Potential Collaboration with ${contact.company || 'your company'}`,
-            body: `<p>Hi ${contact.name || 'there'},</p><p>I noticed your recent work and wanted to reach out regarding a potential collaboration. We offer B2B services to help scale and streamline operations.</p><p>Would you have time for a quick chat next week to discuss potential synergies?</p><p>Best regards,</p>`
-          };
-          await new Promise(r => setTimeout(r, 10000)); // Allow rate limits to recover
+          console.error(`[AutomatedSender] AI failed for ${contact.email} due to rate limits. Pausing for 15 minutes...`);
+          aiRateLimitPauseUntil = Date.now() + 15 * 60 * 1000;
+          return; // Stop processing this batch
         }
 
         // Tracking pixel URL — contact_id based
