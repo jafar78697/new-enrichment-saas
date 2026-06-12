@@ -159,6 +159,7 @@ Subject line should be included at the very beginning in the format: "Subject: <
 
         if (!parsed || !parsed.body || parsed.body.includes('You are an expert B2B sales copywriter')) {
           console.error(`[AutomatedSender] Skipping contact ${contact.email} because AI email generation failed or returned prompt.`);
+          await new Promise(r => setTimeout(r, 6000)); // Sleep 6s to allow rate limits to recover
           continue;
         }
 
