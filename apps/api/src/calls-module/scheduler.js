@@ -56,9 +56,11 @@ async function processCampaigns() {
     `);
 
     const senderRes = await client.query(`
-      SELECT * FROM email_accounts
-      WHERE status = 'active' AND sent_today < 25 AND sent_today < daily_limit
-      ORDER BY sent_today ASC
+      SELECT e.*, b.email as business_email 
+      FROM email_accounts e
+      LEFT JOIN business_emails b ON b.gmail_account_id = e.id AND b.active = true
+      WHERE e.status = 'active' AND e.sent_today < 25 AND e.sent_today < e.daily_limit
+      ORDER BY e.sent_today ASC, RANDOM()
       LIMIT 1
     `);
 
@@ -128,15 +130,16 @@ async function processCampaigns() {
         }
       });
 
+      const senderEmailAlias = sender.business_email || sender.email;
       await transporter.sendMail({
-        from: \`"Jento AI" <\${sender.email}>\`,
+        from: `"Jento AI" <${senderEmailAlias}>`,
         to: contact.email || contact.contact_email,
         subject: subjectLine,
         html: emailHtmlTemplate,
         text: generatedEmailHtml.replace(/<[^>]+>/g, '') // strip html
       });
 
-      console.log(`[Campaign Scheduler] Successfully sent email to ${contact.email || contact.name}`);
+      console.log(`[Campaign Scheduler] Successfully sent email to ${contact.email || contact.name} via ${senderEmailAlias}`);
 
       // Save email to history so it shows up in the UI popup
       await client.query(`
@@ -152,7 +155,7 @@ async function processCampaigns() {
 
       await client.query(
         'INSERT INTO contact_emails_history (contact_id, subject, body, from_email) VALUES ($1, $2, $3, $4)',
-        [contact.id, subjectLine, generatedEmailHtml, sender.email]
+        [contact.id, subjectLine, generatedEmailHtml, senderEmailAlias]
       );
 
       // 5. Update State

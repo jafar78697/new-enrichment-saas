@@ -531,9 +531,12 @@ export default function EmailOutreach() {
                               </div>
                               <div className="w-full bg-gray-200 rounded-full h-1.5">
                                 <div className="bg-indigo-600 h-1.5 rounded-full" style={{ width: `${Math.min(100, (acc.sent_today / acc.daily_limit) * 100)}%` }}></div>
-                              </div>
                             </div>
                           </div>
+                          
+                          {/* Business Emails Manager */}
+                          <BusinessEmailManager accountId={acc.id} token={token} />
+
                         </div>
                       ))}
                     </div>

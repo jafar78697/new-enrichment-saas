@@ -53,4 +53,53 @@ router.post('/', requireAuth, asyncHandler(async (req, res) => {
   }
 }));
 
+// Setup business_emails table dynamically
+const initBusinessEmailsTable = async () => {
+  await query(`
+    CREATE TABLE IF NOT EXISTS business_emails (
+      id SERIAL PRIMARY KEY,
+      email TEXT NOT NULL,
+      gmail_account_id INTEGER REFERENCES email_accounts(id) ON DELETE CASCADE,
+      active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+  `);
+};
+
+// Get business emails for an account
+router.get('/:id/business-emails', requireAuth, asyncHandler(async (req, res) => {
+  await initBusinessEmailsTable();
+  const result = await query(
+    'SELECT * FROM business_emails WHERE gmail_account_id = $1 ORDER BY created_at ASC',
+    [req.params.id]
+  );
+  res.json({ business_emails: result.rows });
+}));
+
+// Add business email
+router.post('/:id/business-emails', requireAuth, asyncHandler(async (req, res) => {
+  await initBusinessEmailsTable();
+  const { email } = req.body;
+  
+  // Verify ownership of the gmail account
+  const accCheck = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+  if (accCheck.rowCount === 0) return res.status(403).json({ error: 'Account not found' });
+
+  const result = await query(
+    'INSERT INTO business_emails (email, gmail_account_id) VALUES ($1, $2) RETURNING *',
+    [email, req.params.id]
+  );
+  res.json({ business_email: result.rows[0] });
+}));
+
+// Delete business email
+router.delete('/:id/business-emails/:business_id', requireAuth, asyncHandler(async (req, res) => {
+  await initBusinessEmailsTable();
+  const accCheck = await query('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+  if (accCheck.rowCount === 0) return res.status(403).json({ error: 'Account not found' });
+
+  await query('DELETE FROM business_emails WHERE id = $1 AND gmail_account_id = $2', [req.params.business_id, req.params.id]);
+  res.json({ success: true });
+}));
+
 export default router;
