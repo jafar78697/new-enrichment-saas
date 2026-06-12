@@ -115,7 +115,7 @@ export default function EmailOutreach() {
     setCurrentPage(1);
   };
 
-  const { data: contactsData, isLoading: contactsLoading } = useQuery({
+  const { data: contactsData, isLoading: contactsLoading, refetch: refetchContacts } = useQuery({
     queryKey: ['contacts'],
     queryFn: callsApi.listContacts
   });
