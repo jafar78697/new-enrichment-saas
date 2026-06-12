@@ -138,6 +138,23 @@ async function processCampaigns() {
 
       console.log(`[Campaign Scheduler] Successfully sent email to ${contact.email || contact.name}`);
 
+      // Save email to history so it shows up in the UI popup
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS contact_emails_history (
+          id SERIAL PRIMARY KEY,
+          contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+          subject TEXT,
+          body TEXT,
+          from_email TEXT,
+          sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )
+      `);
+
+      await client.query(
+        'INSERT INTO contact_emails_history (contact_id, subject, body, from_email) VALUES ($1, $2, $3, $4)',
+        [contact.id, subjectLine, generatedEmailHtml, sender.email]
+      );
+
       // 5. Update State
       await client.query(
         'UPDATE contacts SET emails_sent = COALESCE(emails_sent, 0) + 1, stage = $1, last_email_sent_at = NOW() WHERE id = $2',
