@@ -155,12 +155,15 @@ Subject line should be included at the very beginning in the format: "Subject: <
 
       try {
         const rawText = await generateEmailWithAI(defaultPrompt, contact);
-        const parsed = parseEmailContent(rawText, contact);
+        let parsed = parseEmailContent(rawText, contact);
 
         if (!parsed || !parsed.body || parsed.body.includes('You are an expert B2B sales copywriter')) {
-          console.error(`[AutomatedSender] Skipping contact ${contact.email} because AI email generation failed or returned prompt.`);
-          await new Promise(r => setTimeout(r, 10000)); // Sleep 10s to allow rate limits to recover
-          continue;
+          console.error(`[AutomatedSender] AI failed for ${contact.email}, falling back to standard template.`);
+          parsed = {
+            subject: `Potential Collaboration with ${contact.company || 'your company'}`,
+            body: `<p>Hi ${contact.name || 'there'},</p><p>I noticed your recent work and wanted to reach out regarding a potential collaboration. We offer B2B services to help scale and streamline operations.</p><p>Would you have time for a quick chat next week to discuss potential synergies?</p><p>Best regards,</p>`
+          };
+          await new Promise(r => setTimeout(r, 10000)); // Allow rate limits to recover
         }
 
         // Tracking pixel URL — contact_id based
