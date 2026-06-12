@@ -429,7 +429,7 @@ export default function EmailOutreach() {
                         <Send className="w-4 h-4" />
                         {lead.stage === 'email_sent' ? 'Sent' : 'Send Email'}
                       </button>
-                    )}>
+                    )}
                   </div>
                 ))}
               </div>
