@@ -71,7 +71,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const tokens = await tokenResponse.json() as any;
 
       if (tokens.error) {
-        fastify.log.error('YouTube Token Error:', tokens);
+        fastify.log.error(tokens, 'YouTube Token Error');
         return reply.code(400).send({ error: tokens.error_description || tokens.error });
       }
 
@@ -102,7 +102,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return { success: true, channelId, channelTitle };
 
     } catch (err: any) {
-      fastify.log.error('Error in YouTube auth callback:', err);
+      fastify.log.error(err, 'Error in YouTube auth callback');
       return reply.code(500).send({ error: 'Internal Server Error' });
     }
   });
