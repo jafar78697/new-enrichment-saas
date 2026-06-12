@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
-import { Mail, MessageCircle, Settings, CheckCircle, Eye, Reply, Send } from 'lucide-react';
+import { Mail, MessageCircle, Settings, CheckCircle, Eye, Reply, Send, RefreshCw } from 'lucide-react';
 import callsApi, { Contact } from '../services/callsApi';
 import SentEmailsPopup from '../components/SentEmailsPopup';
 
@@ -107,6 +107,13 @@ export default function EmailOutreach() {
   const { token } = useAuth();
   const [statusMsg, setStatusMsg] = useState<{type: 'success'|'error', text: string} | null>(null);
   const [viewingHistoryContact, setViewingHistoryContact] = useState<{id: number, name: string, email: string} | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
+  const handleSubTabClick = (tab: any) => {
+    setEmailSubTab(tab);
+    setCurrentPage(1);
+  };
 
   const { data: contactsData, isLoading: contactsLoading } = useQuery({
     queryKey: ['contacts'],
@@ -365,9 +372,13 @@ export default function EmailOutreach() {
 
             <div className="flex justify-between items-center mb-6">
               <div className="flex gap-2">
-                <button onClick={() => setEmailSubTab('pending')} className={`px-4 py-2 rounded-lg text-sm font-medium ${emailSubTab === 'pending' ? 'bg-gray-900 text-white' : 'bg-gray-100'}`}>Pending</button>
-                <button onClick={() => setEmailSubTab('sent')} className={`px-4 py-2 rounded-lg text-sm font-medium ${emailSubTab === 'sent' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>Sent</button>
-                <button onClick={() => setEmailSubTab('replied')} className={`px-4 py-2 rounded-lg text-sm font-medium ${emailSubTab === 'replied' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>Replied</button>
+                <button onClick={() => handleSubTabClick('pending')} className={`px-4 py-2 rounded-lg text-sm font-medium ${emailSubTab === 'pending' ? 'bg-gray-900 text-white' : 'bg-gray-100'}`}>Pending</button>
+                <button onClick={() => handleSubTabClick('sent')} className={`px-4 py-2 rounded-lg text-sm font-medium ${emailSubTab === 'sent' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>Sent</button>
+                <button onClick={() => handleSubTabClick('replied')} className={`px-4 py-2 rounded-lg text-sm font-medium ${emailSubTab === 'replied' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>Replied</button>
+                <button onClick={() => refetchContacts()} className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4" />
+                  Refresh
+                </button>
               </div>
 
               {emailSubTab === 'pending' && selectedLeads.size > 0 && campaignsData?.campaigns && (
@@ -398,13 +409,27 @@ export default function EmailOutreach() {
             
             {contactsLoading ? <div className="text-center py-10">Loading...</div> : (
               <div className="space-y-4">
-                {contactsData?.contacts?.filter((lead: Contact) => {
-                  if (emailSubTab === 'pending') return !lead.stage || lead.stage === 'new_lead';
-                  if (emailSubTab === 'sent') return lead.stage === 'email_sent';
-                  return (lead.emails_received || 0) > 0;
-                }).map((lead: Contact) => (
-                  <div key={lead.id} className="p-4 border rounded-lg bg-white flex justify-between items-center">
-                    <div className="flex items-center gap-4">
+                {(() => {
+                  const filtered = contactsData?.contacts?.filter((lead: Contact) => {
+                    if (emailSubTab === 'pending') return !lead.stage || lead.stage === 'new_lead';
+                    if (emailSubTab === 'sent') return lead.stage === 'email_sent';
+                    return (lead.emails_received || 0) > 0;
+                  }) || [];
+
+                  const sorted = filtered.sort((a, b) => {
+                    const dateA = a.last_email_sent_at ? new Date(a.last_email_sent_at).getTime() : (a.updated_at ? new Date(a.updated_at).getTime() : a.id);
+                    const dateB = b.last_email_sent_at ? new Date(b.last_email_sent_at).getTime() : (b.updated_at ? new Date(b.updated_at).getTime() : b.id);
+                    return dateB - dateA;
+                  });
+
+                  const totalPages = Math.ceil(sorted.length / itemsPerPage);
+                  const paginated = sorted.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+                  return (
+                    <>
+                      {paginated.map((lead: Contact) => (
+                        <div key={lead.id} className="p-4 border rounded-lg bg-white flex justify-between items-center">
+                          <div className="flex items-center gap-4">
                       {emailSubTab === 'pending' && <input type="checkbox" checked={selectedLeads.has(lead.id)} onChange={() => handleSelectLead(lead.id)} />}
                       <div>
                         <div className="font-bold">{lead.name}</div>
@@ -431,7 +456,29 @@ export default function EmailOutreach() {
                       </button>
                     )}
                   </div>
-                ))}
+                      ))}
+                      {totalPages > 1 && (
+                        <div className="flex justify-between items-center mt-6 p-4 bg-white border rounded-lg">
+                          <button 
+                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                            disabled={currentPage === 1}
+                            className="px-4 py-2 border rounded-lg disabled:opacity-50 hover:bg-gray-50 font-medium text-sm"
+                          >
+                            Previous
+                          </button>
+                          <span className="text-sm font-medium text-gray-700">Page {currentPage} of {totalPages}</span>
+                          <button 
+                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                            disabled={currentPage === totalPages}
+                            className="px-4 py-2 border rounded-lg disabled:opacity-50 hover:bg-gray-50 font-medium text-sm"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
