@@ -480,21 +480,21 @@ export default function EmailOutreach() {
                   <h2 className="text-xl font-bold text-gray-800 mb-6">Connected Email Senders</h2>
                   
                   <div className="bg-gray-50/50 rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Connect New Gmail Smtp</h3>
-                    <p className="text-sm text-gray-500 mb-4">Use a Google App Password (16-digits), not your regular password.</p>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Connect Business Email</h3>
+                    <p className="text-sm text-gray-500 mb-4">Connect your professional business email (Google Workspace/App Password supported).</p>
                     <div className="grid md:grid-cols-2 gap-4 items-start">
                       <input 
                         type="email" 
                         value={newAccEmail}
                         onChange={e => setNewAccEmail(e.target.value)}
-                        placeholder="name@gmail.com" 
+                        placeholder="you@yourcompany.com" 
                         className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                       />
                       <input 
                         type="password" 
                         value={newAccPass}
                         onChange={e => setNewAccPass(e.target.value)}
-                        placeholder="16-digit App Password" 
+                        placeholder="App Password / SMTP Password" 
                         className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                       />
                       <button 
