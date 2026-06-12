@@ -20,90 +20,103 @@ export default function ReelGeneration() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Reel Generation & CRM</h1>
-        <p className="mt-2 text-gray-600">Generate videos with AI and publish them across YouTube, Instagram, Facebook, and LinkedIn.</p>
-      </div>
-
-      {/* Tabs */}
-      <div className="border-b border-gray-200 mb-8">
-        <nav className="-mb-px flex space-x-8">
+    <div className="flex flex-col h-full w-full bg-white relative">
+      <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Video className="w-6 h-6 text-indigo-600" />
+            Reel Generation Studio
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">Vertex AI powered vertical video creator for YouTube Shorts, IG Reels & LinkedIn.</p>
+        </div>
+        
+        {/* Tabs inside Header */}
+        <div className="flex bg-gray-100 p-1 rounded-lg">
           <button
             onClick={() => setActiveTab('studio')}
-            className={`whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
-              activeTab === 'studio' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+              activeTab === 'studio' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            <Video className="w-4 h-4" />
-            AI Studio (Edit)
+            <Video className="w-4 h-4" /> Studio
           </button>
           <button
             onClick={() => setActiveTab('scenes')}
-            className={`whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
-              activeTab === 'scenes' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+              activeTab === 'scenes' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            <Play className="w-4 h-4" />
-            Scenes & Videos
+            <Play className="w-4 h-4" /> Library
           </button>
           <button
             onClick={() => setActiveTab('crm')}
-            className={`whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
-              activeTab === 'crm' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+              activeTab === 'crm' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            <Share2 className="w-4 h-4" />
-            Publish (CRM)
+            <Share2 className="w-4 h-4" /> Publish
           </button>
-        </nav>
+        </div>
       </div>
 
       {/* Tab Content */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 min-h-[600px]">
+      <div className="flex-1 overflow-auto bg-gray-50 relative">
         {activeTab === 'studio' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="flex flex-col space-y-6">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">Video Prompt</h2>
-                <p className="text-sm text-gray-500 mt-1">Describe what Veo 3 should generate.</p>
+          <div className="absolute inset-0 flex">
+            {/* Left Panel: Prompt */}
+            <div className="w-1/2 p-8 overflow-y-auto bg-white border-r border-gray-200 flex flex-col">
+              <div className="mb-6">
+                <h2 className="text-xl font-semibold text-gray-900">Script & Prompt Engine</h2>
+                <p className="text-sm text-gray-500 mt-1">Write your scene description. Veo 3 will generate a 9:16 vertical video.</p>
               </div>
               <textarea 
-                className="w-full h-64 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="flex-1 w-full p-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-base resize-none shadow-sm"
                 placeholder="E.g., A 30-second cinematic tour of a modern villa in Dubai with upbeat background music..."
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
               />
               <button 
-                className="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                className="mt-6 w-full bg-indigo-600 text-white font-semibold py-4 px-4 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-lg"
                 onClick={handleGenerate}
                 disabled={isGenerating || !prompt}
               >
-                {isGenerating ? 'Rendering with Vertex AI...' : 'Generate Reel'}
+                {isGenerating ? (
+                  <span className="flex items-center gap-2"><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Rendering with Vertex AI...</span>
+                ) : (
+                  <span className="flex items-center gap-2"><Video className="w-5 h-5" /> Generate 9:16 Reel</span>
+                )}
               </button>
             </div>
-            <div className="bg-gray-50 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-300 p-8">
-              {isGenerating ? (
-                <div className="text-center animate-pulse">
-                  <Video className="w-12 h-12 text-indigo-400 mx-auto mb-4" />
-                  <p className="text-indigo-600 font-medium">Generating preview...</p>
-                </div>
-              ) : (
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Play className="w-8 h-8 text-gray-400 ml-1" />
+
+            {/* Right Panel: Preview (Mobile Device Frame) */}
+            <div className="w-1/2 p-8 flex items-center justify-center bg-[#0B0F19]">
+              <div className="relative w-[320px] h-[640px] bg-black rounded-[3rem] border-[8px] border-gray-800 shadow-2xl overflow-hidden flex flex-col">
+                {/* Mobile Notch */}
+                <div className="absolute top-0 inset-x-0 h-6 bg-gray-800 rounded-b-xl w-32 mx-auto z-10" />
+                
+                {isGenerating ? (
+                  <div className="flex-1 flex flex-col items-center justify-center bg-gray-900">
+                    <Video className="w-12 h-12 text-indigo-400 mx-auto mb-4 animate-pulse" />
+                    <p className="text-indigo-400 font-medium text-sm animate-pulse">Rendering Veo 3 output...</p>
                   </div>
-                  <p className="text-gray-500">Your generated video will appear here.</p>
-                </div>
-              )}
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center bg-gray-900 text-gray-500 p-6 text-center">
+                    <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mb-4">
+                      <Play className="w-8 h-8 ml-1 opacity-50" />
+                    </div>
+                    <p className="text-sm">Preview</p>
+                    <p className="text-xs mt-2 opacity-60">Automatically resized to 16:9, 1:1, or 9:16 using FFmpeg before publishing.</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
         {activeTab === 'scenes' && (
-          <div>
+          <div className="p-8">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Video Library</h2>
+              <h2 className="text-2xl font-semibold text-gray-900">Video Library</h2>
               <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <Settings className="w-4 h-4" /> Filter
               </button>
@@ -126,8 +139,8 @@ export default function ReelGeneration() {
         )}
 
         {activeTab === 'crm' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-            <div className="space-y-6">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-12 p-8 max-w-7xl mx-auto">
+            <div className="space-y-6 bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
               <div>
                 <h2 className="text-xl font-semibold text-gray-900">Publish Settings</h2>
                 <p className="text-sm text-gray-500 mt-1">Configure metadata and platform distribution.</p>
