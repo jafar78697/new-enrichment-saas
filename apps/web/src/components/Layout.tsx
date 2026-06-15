@@ -1,14 +1,17 @@
+import { useState, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { getCallUser, clearCallSession } from '../services/employeesApi';
+import { Bell, AlertTriangle } from 'lucide-react';
+import { callsApi } from '../services/callsApi';
 
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></svg> },
   { to: '/google-maps', label: 'Scraper', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> },
-  { to: '/enrichment', label: 'Enrichment', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
   { to: '/leads', label: 'Leads', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
   { to: '/outreach', label: 'Outreach', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> },
   { to: '/outreach/reels', label: 'Reel Generation', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg> },
+  { to: '/outreach/social-posts', label: 'Social Media Studio', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg> },
   { to: '/employees', label: 'Employee Reports', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> },
   { to: '/teams', label: 'Teams', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
   { to: '/call-system', label: 'Call Center', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg> },
@@ -28,6 +31,7 @@ const MARKETER_NAV = [
   { to: '/leads', label: 'All Leads', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
   { to: '/outreach', label: 'Social Outreach', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> },
   { to: '/outreach/reels', label: 'Reel Generation', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg> },
+  { to: '/outreach/social-posts', label: 'Social Media Studio', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg> },
   { to: '/call-system', label: 'Call Center', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg> },
   { to: '/leaderboard', label: 'Leaderboard', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10"/><path d="M17 4v8a5 5 0 0 1-10 0V4"/><path d="M4 9h3"/><path d="M17 9h3"/></svg> },
 ];
@@ -43,6 +47,33 @@ export default function Layout() {
   const isCaller = callUser?.role === 'caller' || callUser?.role === 'employee'; // treating default employee as caller
   
   const currentNav = isManager ? NAV : (callUser?.role === 'marketer' ? MARKETER_NAV : CALLER_NAV);
+
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  useEffect(() => {
+    fetchAlerts();
+    const intv = setInterval(fetchAlerts, 60000);
+    return () => clearInterval(intv);
+  }, []);
+
+  const fetchAlerts = async () => {
+    try {
+      const data = await callsApi.customRequest('/email-accounts/system-alerts');
+      if (data && data.alerts) setAlerts(data.alerts);
+    } catch (e) {
+      console.error('Failed to fetch alerts', e);
+    }
+  };
+
+  const resolveAlert = async (id: number) => {
+    try {
+      await callsApi.customRequest(`/email-accounts/system-alerts/${id}/resolve`, 'PUT');
+      setAlerts(prev => prev.filter(a => a.id !== id));
+    } catch (e) {
+      console.error('Failed to resolve alert', e);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#F6F7F2', fontFamily: 'Manrope, sans-serif' }}>
@@ -113,6 +144,11 @@ export default function Layout() {
           {callUser && (
             <div style={{ fontSize: 11, color: '#52606D', marginBottom: 8 }}>
               Call-center: <b>{callUser.email}</b>
+              {callUser.twilio_phone_number && (
+                <div style={{ marginTop: 4, color: '#0F766E' }}>
+                  Phone: <b style={{ fontFamily: 'Space Grotesk, sans-serif' }}>{callUser.twilio_phone_number}</b>
+                </div>
+              )}
             </div>
           )}
           <button
@@ -127,7 +163,40 @@ export default function Layout() {
       {/* Main */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Top bar */}
-        <header style={{ background: '#fff', borderBottom: '1px solid #D8E1D7', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+        <header style={{ background: '#fff', borderBottom: '1px solid #D8E1D7', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '20px' }}>
+          <div style={{ position: 'relative' }}>
+            <button 
+              onClick={() => setShowDropdown(!showDropdown)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center' }}
+            >
+              <Bell style={{ width: 20, height: 20, color: '#52606D' }} />
+              {alerts.length > 0 && (
+                <span style={{ position: 'absolute', top: -5, right: -5, background: '#EF4444', color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                  {alerts.length}
+                </span>
+              )}
+            </button>
+            {showDropdown && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, width: 320, background: '#fff', border: '1px solid #D8E1D7', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, marginTop: 10, maxHeight: 400, overflowY: 'auto' }}>
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid #D8E1D7', fontWeight: 600, fontSize: 14 }}>System Alerts</div>
+                {alerts.length === 0 ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: '#7B8794', fontSize: 13 }}>No active alerts</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {alerts.map(a => (
+                      <div key={a.id} style={{ padding: '12px 16px', borderBottom: '1px solid #F3F4F6', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                        <AlertTriangle style={{ color: '#EF4444', width: 16, height: 16, marginTop: 2, flexShrink: 0 }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, color: '#1F2937', marginBottom: 4 }}>{a.message}</div>
+                          <button onClick={() => resolveAlert(a.id)} style={{ background: 'none', border: 'none', padding: 0, color: '#2563EB', fontSize: 12, cursor: 'pointer', fontWeight: 500 }}>Mark as resolved</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <span style={{ fontSize: 12, color: '#7B8794', fontFamily: 'JetBrains Mono, monospace' }}>enrichment-sys</span>
         </header>
 

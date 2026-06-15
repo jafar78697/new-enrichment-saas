@@ -9,36 +9,41 @@
  */
 
 import nodemailer from 'nodemailer';
-import { VertexAI } from '@google-cloud/vertexai';
+import OpenAI from 'openai';
 import { query } from '../db/index.js';
 
-const project = 'maximal-kingdom-499107-f8';
-const location = 'us-central1';
-const vertexAI = new VertexAI({ project, location });
-const generativeModel = vertexAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+const API_BASE = process.env.API_URL || 'https://api.jentoai.pro';
 
-async function generateEmailWithAI(prompt, contact) {
+const openai = new OpenAI({
+  baseURL: 'https://api.deepseek.com',
+  apiKey: process.env.DEEPSEEK_API_KEY
+});
+
+async function generateEmailWithAI(prompt, contact, senderName) {
   try {
     const systemPrompt = prompt
       .replace(/\{\{contact_name\}\}/gi, contact.name || 'there')
-      .replace(/\{\{company_name\}\}/gi, contact.company || 'your company')
+      .replace(/\{\{company_name\}\}/gi, contact.company || contact.name || 'your company')
+      .replace(/\{\{sender_name\}\}/gi, senderName || 'Jento AI')
       .replace(/\{\{website\}\}/gi, contact.website || '')
       .replace(/\{\{location\}\}/gi, contact.location || '')
       .replace(/\{\{services\}\}/gi, contact.niche || '')
       .replace(/\{\{company_description\}\}/gi, contact.company_description || '')
       .replace(/\{\{research_data\}\}/gi, contact.notes || '');
 
-    const request = {
-      contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-      }
-    };
-
-    const result = await generativeModel.generateContent(request);
+    const chatCompletion = await openai.chat.completions.create({
+      messages: [
+        {
+          role: "user",
+          content: systemPrompt,
+        },
+      ],
+      model: "deepseek-chat",
+      temperature: 0.7,
+    });
     
-    if (result.response && result.response.candidates && result.response.candidates.length > 0) {
-      const generatedText = result.response.candidates[0].content.parts[0].text;
+    if (chatCompletion.choices && chatCompletion.choices.length > 0) {
+      const generatedText = chatCompletion.choices[0].message?.content;
       return generatedText ? generatedText.trim() : null;
     }
     
@@ -61,18 +66,26 @@ function parseEmailContent(rawText, contact) {
   return { subject, body };
 }
 
-async function getAvailableSenderGlobal() {
-  const { rows } = await query(
-    `SELECT s.id as sender_id, ea.id as account_id, ea.email as gmail, ea.app_password,
-            s.biz_email, s.display_name, ea.sent_today, ea.daily_limit
-     FROM senders s
-     JOIN email_accounts ea ON ea.id = s.gmail_id
-     WHERE ea.status = 'active' 
-       AND ea.sent_today < ea.daily_limit
-       AND s.active = TRUE
-     ORDER BY ea.last_used_at ASC NULLS FIRST, s.last_used_at ASC NULLS FIRST
-     LIMIT 1`
-  );
+async function getAvailableSenderGlobal(requiredSenderId = null) {
+  let queryStr = `
+    SELECT be.id as sender_id, ea.id as account_id, ea.email as gmail, ea.app_password,
+           be.email as biz_email, '' as display_name, ea.sent_today, ea.daily_limit
+    FROM business_emails be
+    JOIN email_accounts ea ON ea.id = be.gmail_account_id
+    WHERE ea.status = 'active' 
+      AND ea.sent_today < ea.daily_limit
+      AND be.active = TRUE
+  `;
+  const params = [];
+
+  if (requiredSenderId) {
+    queryStr += ` AND ea.id = $1 `;
+    params.push(requiredSenderId);
+  }
+
+  queryStr += ` ORDER BY ea.last_used_at ASC NULLS FIRST LIMIT 1`;
+
+  const { rows } = await query(queryStr, params);
   return rows[0] || null;
 }
 
@@ -99,8 +112,15 @@ function buildHtmlEmail(bodyText, contactId, trackingPixelUrl) {
 }
 
 let aiRateLimitPauseUntil = 0;
+let isSendingEmails = false;
 
 async function processAutomatedEmails() {
+  if (isSendingEmails) {
+    console.log('[AutomatedSender] Previous batch is still running. Skipping this interval.');
+    return;
+  }
+
+  isSendingEmails = true;
   try {
     if (Date.now() < aiRateLimitPauseUntil) {
       console.log(`[AutomatedSender] Paused due to AI Rate Limit. Resuming in ${Math.round((aiRateLimitPauseUntil - Date.now()) / 60000)} minutes.`);
@@ -115,21 +135,38 @@ async function processAutomatedEmails() {
       return;
     }
 
-    // Set any un-started emails to 'emailing' stage
+    // Bypassing stage updates - sending directly to anyone with an email
+
+    // Ensure schema updates for Stickiness & Threading
+    await query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS sender_account_id INTEGER;`);
+    await query(`ALTER TABLE contact_emails_history ADD COLUMN IF NOT EXISTS message_id TEXT;`);
+    
+    // Ensure system_alerts table exists
     await query(`
-      UPDATE contacts
-      SET omnichannel_stage = 'emailing', stage = 'in_progress'
-      WHERE email IS NOT NULL AND email != '' AND (emails_sent IS NULL OR emails_sent = 0) AND (omnichannel_stage IS NULL OR omnichannel_stage = 'new')
+      CREATE TABLE IF NOT EXISTS system_alerts (
+        id SERIAL PRIMARY KEY,
+        type VARCHAR(50) NOT NULL,
+        message TEXT NOT NULL,
+        account_id INTEGER,
+        resolved BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
     `);
 
-    // Fetch up to 50 pending contacts globally
+    // Fetch contacts for INITIAL SEND (emails_sent = 0) OR FOLLOW-UP (emails_sent = 1 and 3 days passed)
     const { rows: contacts } = await query(
-      `SELECT * FROM contacts 
-       WHERE (emails_sent IS NULL OR emails_sent = 0) 
-         AND (unsubscribed IS NULL OR unsubscribed = FALSE)
-         AND email IS NOT NULL AND email != ''
-         AND omnichannel_stage = 'emailing'
-       ORDER BY id ASC
+      `SELECT c.*, camp.base_template as custom_prompt 
+       FROM contacts c
+       LEFT JOIN campaigns camp ON c.campaign_id = camp.id
+       WHERE (c.unsubscribed IS NULL OR c.unsubscribed = FALSE)
+         AND c.stage NOT IN ('bounced', 'replied')
+         AND c.email IS NOT NULL AND c.email != ''
+         AND (
+           (c.emails_sent IS NULL OR c.emails_sent = 0) 
+           OR 
+           (c.emails_sent = 1 AND c.last_email_sent_at < NOW() - INTERVAL '3 days')
+         )
+       ORDER BY c.emails_sent ASC, c.id ASC
        LIMIT 50`
     );
 
@@ -140,28 +177,72 @@ async function processAutomatedEmails() {
 
     console.log(`[AutomatedSender] Found ${contacts.length} pending contacts. Processing...`);
 
-    const defaultPrompt = `
+    const fallbackPrompt = `
 You are an expert B2B sales representative writing a personalized cold email. 
-Write a highly personalized, professional, and concise cold email to {{contact_name}} at {{company_name}}.
-Here is the website data or notes about their company:
-"""
-{{research_data}}
-"""
+Write a highly personalized, professional, and concise cold email.
+The goal of the email is to pitch our core services: 
+1. Fixing and optimizing their business sales funnels.
+2. Creating high-converting landing pages.
+3. Building automated follow-up message sequences.
+4. Setting up instant booking and confirmation automations.
 
-The goal of the email is to offer our B2B services to help them scale and streamline their operations. Ask for a quick 5-minute chat next week to discuss potential synergies.
-Keep the tone conversational and professional. Keep it under 100 words. Do NOT include a signature. Output ONLY the email body in HTML format (using <p> and <br> tags).
-Subject line should be included at the very beginning in the format: "Subject: <your subject here>\n\n".
+Use professional yet easy-to-understand industry language (e.g., "streamlining the customer journey", "optimizing conversion rates", "frictionless booking flows", "nurturing leads on autopilot").
+Keep the tone conversational, professional, and avoid generic AI buzzwords.
+Do NOT use placeholder names like [Your Name].
 `;
 
     for (const contact of contacts) {
-      const sender = await getAvailableSenderGlobal();
+      const isFollowUp = contact.emails_sent === 1;
+      const sender = await getAvailableSenderGlobal(contact.sender_account_id);
+      
       if (!sender) {
-        console.log(`[AutomatedSender] No sender available (all limits reached or no active senders). Stopping this batch.`);
-        break; // stop processing if no sender is available
+        console.log(`[AutomatedSender] No sender available for ${contact.email} (Limit reached or account inactive). Skipping.`);
+        continue; // skip this contact but keep going for others
       }
+      
+      const senderDisplayName = sender.display_name || 'Jento AI';
 
       try {
-        const rawText = await generateEmailWithAI(defaultPrompt, contact);
+        const userPrompt = contact.custom_prompt ? contact.custom_prompt : fallbackPrompt;
+        
+        let finalPrompt = '';
+        if (isFollowUp) {
+           finalPrompt = `
+Here is the user's base template or instructions for the email campaign:
+"""
+${userPrompt}
+"""
+
+Contact Details: Name: {{contact_name}}, Company: {{company_name}}
+Sender Name: {{sender_name}}
+
+INSTRUCTIONS FOR FOLLOW-UP:
+1. Write a short, highly personalized follow-up email (Step 2) to bump the previous message.
+2. Keep it under 3-4 sentences. Ask a quick clarifying question or provide one quick new value point.
+3. Sign off with the Sender Name.
+4. Output ONLY the email body in HTML format (using <p> and <br> tags).
+5. Subject line MUST be exactly: "Subject: Re: <make up a relevant subject>\\n\\n".
+`;
+        } else {
+           finalPrompt = `
+Here is the user's base template or instructions for the email:
+"""
+${userPrompt}
+"""
+
+Contact Details: Name: {{contact_name}}, Company: {{company_name}}, Website: {{website}}, Research: {{research_data}}
+Sender Name: {{sender_name}}
+
+INSTRUCTIONS:
+1. Write a highly personalized email using the base template/instructions above and the contact's details.
+2. Sign off the email with the Sender Name provided above. NEVER use placeholders like [Your Name].
+3. Output ONLY the email body in HTML format (using <p> and <br> tags).
+4. Subject line MUST be included at the very beginning in the exact format: "Subject: <your subject here>\\n\\n".
+5. Keep the call to action soft and open-ended.
+`;
+        }
+
+        const rawText = await generateEmailWithAI(finalPrompt, contact, senderDisplayName);
         let parsed = parseEmailContent(rawText, contact);
 
         if (!parsed || !parsed.body || parsed.body.includes('You are an expert B2B sales copywriter')) {
@@ -186,17 +267,42 @@ Subject line should be included at the very beginning in the format: "Subject: <
         const displayName = sender.display_name || 'Jento AI';
         const messageId = `<${Date.now()}.${contact.id}@${sender.biz_email.split('@')[1]}>`;
 
-        await transporter.sendMail({
+        // Threading Logic (In-Reply-To)
+        let inReplyTo = undefined;
+        let originalSubject = parsed.subject;
+        
+        if (isFollowUp) {
+          const { rows: historyRows } = await query(
+            `SELECT message_id, subject FROM contact_emails_history WHERE contact_id = $1 ORDER BY id ASC LIMIT 1`,
+            [contact.id]
+          );
+          if (historyRows.length > 0 && historyRows[0].message_id) {
+            inReplyTo = historyRows[0].message_id;
+            // Force subject to be Re: Original Subject to thread correctly
+            if (historyRows[0].subject) {
+              originalSubject = historyRows[0].subject.toLowerCase().startsWith('re:') ? historyRows[0].subject : `Re: ${historyRows[0].subject}`;
+            }
+          }
+        }
+
+        const messageOptions = {
           from: `"${displayName}" <${sender.biz_email}>`,
           to: contact.email,
-          subject: parsed.subject,
+          subject: originalSubject,
           html: htmlBody,
           messageId,
           envelope: {
             from: sender.gmail,
             to: contact.email
           }
-        });
+        };
+
+        if (inReplyTo) {
+          messageOptions.inReplyTo = inReplyTo;
+          messageOptions.references = [inReplyTo];
+        }
+
+        await transporter.sendMail(messageOptions);
 
         // Ensure table exists
         await query(`
@@ -206,22 +312,28 @@ Subject line should be included at the very beginning in the format: "Subject: <
             subject TEXT,
             body TEXT,
             from_email TEXT,
+            message_id TEXT,
             sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
           )
         `);
 
         // Log the email in history
         await query(
-          'INSERT INTO contact_emails_history (contact_id, subject, body, from_email) VALUES ($1, $2, $3, $4)',
-          [contact.id, parsed.subject, htmlBody, sender.biz_email]
+          'INSERT INTO contact_emails_history (contact_id, subject, body, from_email, message_id) VALUES ($1, $2, $3, $4, $5)',
+          [contact.id, originalSubject, htmlBody, sender.biz_email, messageId]
         );
 
-        // Mark contact as emailed
+        // Mark contact as emailed and lock the sender account to this contact
         await query(
-          `UPDATE contacts SET emails_sent = COALESCE(emails_sent, 0) + 1, 
-           stage = 'email_sent', last_email_sent_at = NOW(), updated_at = NOW(),
-           notes = COALESCE(notes, '') WHERE id = $1`,
-          [contact.id]
+          `UPDATE contacts SET 
+             emails_sent = COALESCE(emails_sent, 0) + 1, 
+             stage = 'email_sent', 
+             last_email_sent_at = NOW(), 
+             updated_at = NOW(),
+             notes = COALESCE(notes, ''),
+             sender_account_id = $2
+           WHERE id = $1`,
+          [contact.id, sender.account_id]
         );
 
         // Increment account sent_today and update last_used_at
@@ -230,11 +342,7 @@ Subject line should be included at the very beginning in the format: "Subject: <
           [sender.account_id]
         );
 
-        // Update sender last_used_at for rotation
-        await query(
-          `UPDATE senders SET last_used_at = NOW() WHERE id = $1`,
-          [sender.sender_id]
-        );
+        // The email_accounts table last_used_at was already updated above.
 
         console.log(`[AutomatedSender] ✅ Sent to ${contact.email} via ${sender.biz_email} (${contact.company || contact.name})`);
 
@@ -244,9 +352,34 @@ Subject line should be included at the very beginning in the format: "Subject: <
       } catch (sendErr) {
         console.error(`[AutomatedSender] ❌ Failed to send to ${contact.email}:`, sendErr.message);
         
-        // Instant Bounce Detection
+        // Error Classification
         const errStr = sendErr.message.toLowerCase();
-        if (sendErr.responseCode >= 500 || errStr.includes('not found') || errStr.includes('rejected') || errStr.includes('does not exist')) {
+        
+        const isQuotaError = errStr.includes('daily user sending limit') || errStr.includes('quota');
+        const isAuthError = errStr.includes('authenticationfailed') || errStr.includes('invalid credentials') || errStr.includes('login failed');
+        
+        if (isQuotaError || isAuthError) {
+          console.error(`[AutomatedSender] Account error for ${sender.biz_email} (Quota/Auth). Disabling account temporarily.`);
+          
+          const alertType = isQuotaError ? 'email_limit' : 'auth_error';
+          const errorMsg = isQuotaError ? 'Daily user sending limit exceeded.' : 'Invalid credentials. Please update password.';
+          
+          await query(
+            `UPDATE email_accounts SET status = 'error', updated_at = NOW() WHERE id = $1`,
+            [sender.account_id]
+          );
+          
+          await query(
+            `INSERT INTO system_alerts (type, message, account_id) VALUES ($1, $2, $3)`,
+            [alertType, \`Account ${sender.biz_email}: ${errorMsg}\`, sender.account_id]
+          );
+          
+          // Do not bounce the contact. It will be picked up again in the next loop with a new sender.
+          continue;
+        }
+
+        // Instant Bounce Detection for Contact-level errors
+        if (sendErr.responseCode >= 500 || errStr.includes('not found') || errStr.includes('rejected') || errStr.includes('does not exist') || errStr.includes('blocked')) {
           console.log(`[AutomatedSender] Email bounced/rejected for ${contact.email}. Moving to Cold Calling Pipeline.`);
           await query(
             `UPDATE contacts SET omnichannel_stage = 'cold_calling', stage = 'cold_calling', notes = concat(COALESCE(notes, ''), '\n[Auto] Email bounced: ', $1::text) WHERE id = $2`,
@@ -257,6 +390,8 @@ Subject line should be included at the very beginning in the format: "Subject: <
     }
   } catch (err) {
     console.error('[AutomatedSender] processAutomatedEmails error:', err.message);
+  } finally {
+    isSendingEmails = false;
   }
 }
 
@@ -308,10 +443,10 @@ function checkAccountReplies(acc) {
         const since = new Date();
         since.setDate(since.getDate() - 2);
 
-        imap.search(['SINCE', since], async (err2, uids) => {
+        imap.search([['SINCE', since]], async (err2, uids) => {
           if (err2 || !uids || uids.length === 0) return done();
 
-          const fetch = imap.fetch(uids.slice(-50), { bodies: ['HEADER', 'TEXT'], struct: true });
+          const fetch = imap.fetch(uids.slice(-150), { bodies: ['HEADER', 'TEXT'], struct: true });
 
           fetch.on('message', (msg) => {
             let headerBuffer = '';
@@ -375,21 +510,21 @@ async function resetDailyCounters() {
   }
 }
 
-// Move unresponsive email leads to cold_calling pipeline
+// Move unresponsive email leads to cold_calling pipeline ONLY after 2 emails sent
 async function processOmnichannelFallback() {
   try {
     const result = await query(
       `UPDATE contacts 
        SET omnichannel_stage = 'cold_calling', stage = 'cold_calling', updated_at = NOW()
        WHERE omnichannel_stage = 'emailing'
-         AND emails_sent > 0
+         AND emails_sent >= 2
          AND (emails_received IS NULL OR emails_received = 0)
          AND (email_opened IS NULL OR email_opened = 0)
-         AND last_email_sent_at < NOW() - INTERVAL '24 hours'
+         AND last_email_sent_at < NOW() - INTERVAL '3 days'
        RETURNING id, email`
     );
     if (result.rowCount > 0) {
-      console.log(`[Omnichannel] Moved ${result.rowCount} unresponsive email leads to the Cold Calling pipeline.`);
+      console.log(`[Omnichannel] Moved ${result.rowCount} completely unresponsive email leads to the Cold Calling pipeline.`);
     }
   } catch (err) {
     console.error('[Omnichannel] Auto-Mover error:', err.message);
@@ -401,10 +536,7 @@ export function initCampaignSender() {
   console.log('[AutomatedSender] Initialized — checking for pending contacts every 60 seconds.');
   setInterval(processAutomatedEmails, 60 * 1000);
 
-  // Reply sync every 5 minutes
-  console.log('[ReplySync] Initialized — checking replies every 5 minutes.');
-  setInterval(syncReplies, 5 * 60 * 1000);
-  setTimeout(syncReplies, 30 * 1000); // first run after 30s
+// Old syncReplies removed because imap-sync.service.js handles it now
 
   // Omnichannel Auto-Mover (Email -> Social) every hour
   console.log('[Omnichannel] Initialized — checking for unresponsive email leads every hour.');

@@ -102,4 +102,18 @@ router.delete('/:id/business-emails/:business_id', requireAuth, asyncHandler(asy
   res.json({ success: true });
 }));
 
+// Get system alerts
+router.get('/system-alerts', requireAuth, asyncHandler(async (req, res) => {
+  const result = await query(
+    'SELECT * FROM system_alerts WHERE resolved = FALSE ORDER BY created_at DESC'
+  );
+  res.json({ alerts: result.rows });
+}));
+
+// Resolve system alert
+router.put('/system-alerts/:id/resolve', requireAuth, asyncHandler(async (req, res) => {
+  await query('UPDATE system_alerts SET resolved = TRUE WHERE id = $1', [req.params.id]);
+  res.json({ success: true });
+}));
+
 export default router;
