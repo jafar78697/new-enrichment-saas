@@ -51,7 +51,7 @@ router.get(
       [contact_id]
     );
 
-    res.send(`
+    res.type('html').send(`
       <!DOCTYPE html>
       <html>
       <head>
@@ -97,6 +97,26 @@ router.get(
     res.json({ campaigns: result.rows });
   })
 );
+// GET /api/campaigns/replies
+router.get(
+  '/replies',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    // Fetch inbound emails
+    const { rows: replies } = await query(
+      `SELECT h.id, h.subject, h.body, h.from_email, h.sent_at as received_at,
+              c.name as contact_name, c.company as contact_company, c.email as contact_email
+       FROM contact_emails_history h
+       JOIN contacts c ON c.id = h.contact_id
+       WHERE h.is_inbound = TRUE
+       ORDER BY h.sent_at DESC
+       LIMIT 100`
+    );
+
+    res.json({ replies });
+  })
+);
+
 
 // POST /api/campaigns
 router.post(

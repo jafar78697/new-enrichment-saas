@@ -1,4 +1,4 @@
-import { query, getPool } from './db.js';
+import { query, getPool } from './db/index.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { env } from './config/env.js';
 import nodemailer from 'nodemailer';
@@ -71,7 +71,7 @@ async function processWarmup() {
       });
 
       await transporter.sendMail({
-        from: \`"Team" <\${sender.email}>\`,
+        from: `"Team" <${sender.email}>`,
         to: receiver.email,
         subject: subjectLine,
         text: generatedEmail

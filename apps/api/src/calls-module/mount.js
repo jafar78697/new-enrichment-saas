@@ -23,6 +23,8 @@ import teamsRoutes from './routes/teams.routes.js';
 import leaderboardRoutes from './routes/leaderboard.routes.js';
 import campaignsRoutes from './routes/campaigns.routes.js';
 import emailAccountsRoutes from './routes/email-accounts.routes.js';
+import realEstateRoutes from './routes/real-estate.routes.js';
+import nichesRoutes from './routes/niches.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { softAuth } from './middleware/auth.js';
 
@@ -66,6 +68,12 @@ export function createCallsApp() {
   // Outreach: Campaigns & Email Accounts
   app.use('/api/campaigns', campaignsRoutes);
   app.use('/api/email-accounts', emailAccountsRoutes);
+
+  // Niches
+  app.use('/api/niches', nichesRoutes);
+
+  // Real Estate Webhooks
+  app.use('/api/real-estate', realEstateRoutes);
 
   // 404 + error tail — only fires for unmatched /api/* paths.
   // Fastify will fall through to its own routes for everything else.

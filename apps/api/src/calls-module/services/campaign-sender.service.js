@@ -16,7 +16,7 @@ const API_BASE = process.env.API_URL || 'https://api.jentoai.pro';
 
 const openai = new OpenAI({
   baseURL: 'https://api.deepseek.com',
-  apiKey: process.env.DEEPSEEK_API_KEY
+  apiKey: process.env.DEEPSEEK_API_KEY || 'dummy_key_to_prevent_crash'
 });
 
 async function generateEmailWithAI(prompt, contact, senderName) {
@@ -112,6 +112,7 @@ function buildHtmlEmail(bodyText, contactId, trackingPixelUrl) {
 }
 
 let aiRateLimitPauseUntil = 0;
+let quotaPauseUntil = 0;
 let isSendingEmails = false;
 
 async function processAutomatedEmails() {
@@ -127,11 +128,27 @@ async function processAutomatedEmails() {
       return;
     }
 
+    if (Date.now() < quotaPauseUntil) {
+      console.log(`[AutomatedSender] Intelligent Quota Pause Active. Resuming in ${Math.round((quotaPauseUntil - Date.now()) / 60000)} minutes.`);
+      return;
+    }
+
     // Check Pakistani Time Constraint (6:00 PM to 2:00 AM PKT)
     const pktDate = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Karachi"}));
     const pktHour = pktDate.getHours();
     if (pktHour >= 2 && pktHour < 18) {
       console.log('[AutomatedSender] Outside of active sending window (6:00 PM to 2:00 AM PKT). Skipping.');
+      return;
+    }
+
+    // Check if ANY global sender is available before processing
+    const globalSenderCheck = await getAvailableSenderGlobal();
+    if (!globalSenderCheck) {
+      console.log("[AutomatedSender] Aaj ka quota pura ho gaya hai! (Today's global email quota is complete).");
+      console.log('[AutomatedSender] Agent intelligently pausing for 1 hour before retrying.');
+      console.log('[AutomatedSender] Agar phir bhi quota complete hua, tou raat 12 baje ke baad (1 AM to 2 AM) automatically retry hoga.');
+      
+      quotaPauseUntil = Date.now() + 60 * 60 * 1000; // Pause for 1 hour
       return;
     }
 
@@ -371,7 +388,7 @@ INSTRUCTIONS:
           
           await query(
             `INSERT INTO system_alerts (type, message, account_id) VALUES ($1, $2, $3)`,
-            [alertType, \`Account ${sender.biz_email}: ${errorMsg}\`, sender.account_id]
+            [alertType, `Account ${sender.biz_email}: ${errorMsg}`, sender.account_id]
           );
           
           // Do not bounce the contact. It will be picked up again in the next loop with a new sender.

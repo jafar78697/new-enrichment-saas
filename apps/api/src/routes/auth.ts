@@ -61,7 +61,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           code,
-          client_id: '1071909841111-sfa36eroerh8ggr58cu6v7upcvop380g.apps.googleusercontent.com',
+          client_id: process.env.GOOGLE_CLIENT_ID || '1071909841111-sfa36eroerh8ggr58cu6v7upcvop380g.apps.googleusercontent.com',
           client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
           redirect_uri: redirectUri,
           grant_type: 'authorization_code',
@@ -86,23 +86,89 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const channelData = await channelRes.json() as any;
       let channelId = null;
       let channelTitle = null;
+      let channelLogo = null;
+      let totalViews = 0;
+      let totalComments = 0;
+      let totalVideos = 0;
+      let subscriberCount = 0;
 
       if (channelData.items && channelData.items.length > 0) {
-        channelId = channelData.items[0].id;
-        channelTitle = channelData.items[0].snippet.title;
+        const item = channelData.items[0];
+        channelId = item.id;
+        channelTitle = item.snippet?.title;
+        channelLogo = item.snippet?.thumbnails?.default?.url || null;
+        totalViews = parseInt(item.statistics?.viewCount || '0', 10);
+        subscriberCount = parseInt(item.statistics?.subscriberCount || '0', 10);
+        totalVideos = parseInt(item.statistics?.videoCount || '0', 10);
       }
 
       // Save to Postgres Database
       await fastify.db.query(
-        `INSERT INTO youtube_accounts (tenant_id, user_id, channel_id, channel_title, access_token, refresh_token, token_expiry)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [tenantId, userId, channelId, channelTitle, accessToken, refreshToken, expiry]
+        `INSERT INTO youtube_accounts (tenant_id, user_id, channel_id, channel_title, access_token, refresh_token, token_expiry, channel_logo, total_views, total_comments, total_videos, subscriber_count)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [tenantId, userId, channelId, channelTitle, accessToken, refreshToken, expiry, channelLogo, totalViews, totalComments, totalVideos, subscriberCount]
       );
 
       return { success: true, channelId, channelTitle };
 
     } catch (err: any) {
       fastify.log.error(err, 'Error in YouTube auth callback');
+      return reply.code(500).send({ error: 'Internal Server Error' });
+    }
+  });
+
+  // POST /v1/auth/linkedin/callback
+  fastify.post('/v1/auth/linkedin/callback', {
+    preHandler: [fastify.authenticate as any]
+  }, async (request: any, reply) => {
+    const { code, redirectUri } = request.body as any;
+    const { tenantId, userId } = request.tenant;
+
+    if (!code) return reply.code(400).send({ error: 'Missing code' });
+
+    try {
+      // 1. Exchange code for LinkedIn access token
+      const tokenResponse = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          client_id: process.env.LINKEDIN_CLIENT_ID || '',
+          client_secret: process.env.LINKEDIN_CLIENT_SECRET || '',
+          redirect_uri: redirectUri,
+        }).toString(),
+      });
+
+      const tokens = await tokenResponse.json() as any;
+      if (tokens.error) {
+        fastify.log.error(tokens, 'LinkedIn Token Error');
+        return reply.code(400).send({ error: tokens.error_description || tokens.error });
+      }
+
+      const accessToken = tokens.access_token;
+      const refreshToken = tokens.refresh_token || null;
+      const expiry = new Date(Date.now() + tokens.expires_in * 1000);
+
+      // 2. Fetch user profile (to get URN)
+      const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const profileData = await profileRes.json() as any;
+      const linkedinUrn = `urn:li:person:${profileData.sub}`;
+      const profileName = `${profileData.given_name} ${profileData.family_name}`;
+
+      // 3. Save to database
+      await fastify.db.query(
+        `INSERT INTO linkedin_accounts (tenant_id, user_id, linkedin_urn, profile_name, access_token, refresh_token, token_expiry)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [tenantId, userId, linkedinUrn, profileName, accessToken, refreshToken, expiry]
+      );
+
+      return { success: true, linkedinUrn, profileName };
+
+    } catch (err: any) {
+      fastify.log.error(err, 'Error in LinkedIn auth callback');
       return reply.code(500).send({ error: 'Internal Server Error' });
     }
   });

@@ -119,3 +119,57 @@ async function markMessageAsFailed(logId, errorMsg) {
     body: JSON.stringify({ log_id: logId, status: 'failed', error: errorMsg })
   });
 }
+
+// --- DAILY CONSISTENCY TRACKER ---
+
+function getTodayString() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Initialize or reset daily habits
+function ensureDailyReset() {
+  const today = getTodayString();
+  chrome.storage.local.get(['dailyHabits'], (res) => {
+    const habits = res.dailyHabits || {};
+    if (habits.date !== today) {
+      chrome.storage.local.set({
+        dailyHabits: {
+          date: today,
+          likes: 0,
+          comments: 0,
+          reels: 0
+        }
+      });
+    }
+  });
+}
+
+// Check on startup and periodically
+ensureDailyReset();
+chrome.alarms.create('dailyResetCheck', { periodInMinutes: 60 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'dailyResetCheck') ensureDailyReset();
+});
+
+// Listen for habit actions from content scripts
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'RECORD_ACTION') {
+    const today = getTodayString();
+    chrome.storage.local.get(['dailyHabits'], (res) => {
+      let habits = res.dailyHabits || { date: today, likes: 0, comments: 0, reels: 0 };
+      
+      // Auto-reset if midnight passed while browser open
+      if (habits.date !== today) {
+        habits = { date: today, likes: 0, comments: 0, reels: 0 };
+      }
+
+      if (message.action === 'like') habits.likes += 1;
+      if (message.action === 'comment') habits.comments += 1;
+      if (message.action === 'reel') habits.reels += 1;
+
+      chrome.storage.local.set({ dailyHabits: habits });
+    });
+  }
+});
+

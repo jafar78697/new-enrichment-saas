@@ -12,11 +12,10 @@ const nicheSchema = z.object({
   assigned_agent_id: z.coerce.number().int().positive().optional().nullable()
 });
 
-// List all niches (Manager only)
+// List all niches (All authenticated users)
 router.get(
   '/',
   requireAuth,
-  requireManager,
   asyncHandler(async (req, res) => {
     const result = await query(
       `
@@ -33,6 +32,7 @@ router.get(
     res.json({ niches: result.rows });
   })
 );
+
 
 // Get my assigned niches (Employee)
 router.get(

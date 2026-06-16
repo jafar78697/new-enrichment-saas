@@ -14,13 +14,13 @@ export default function YouTubeCallback() {
 
     if (error) {
       toast.error('Google Auth Failed: ' + error);
-      navigate('/outreach/reels');
+      navigate('/outreach/youtube-studio');
       return;
     }
 
     if (!code) {
       toast.error('No authorization code found');
-      navigate('/outreach/reels');
+      navigate('/outreach/youtube-studio');
       return;
     }
 
@@ -29,12 +29,12 @@ export default function YouTubeCallback() {
     socialApi.connectYouTube(code)
       .then(() => {
         toast.success('YouTube Channel connected successfully!');
-        navigate('/outreach/reels?youtube_connected=true');
+        navigate('/outreach/youtube-studio');
       })
       .catch((err) => {
         console.error('YouTube connection error:', err);
         toast.error('Failed to connect YouTube channel.');
-        navigate('/outreach/reels');
+        navigate('/outreach/youtube-studio');
       });
   }, [searchParams, navigate]);
 

@@ -163,7 +163,7 @@ async function processEmailAccount(account) {
       await query(`UPDATE email_accounts SET status = 'error', updated_at = NOW() WHERE id = $1`, [account.id]);
       await query(
         `INSERT INTO system_alerts (type, message, account_id) VALUES ($1, $2, $3)`,
-        ['auth_error', \`Account ${account.email}: Invalid credentials. Please update password.\`, account.id]
+        ['auth_error', `Account ${account.email}: Invalid credentials. Please update password.`, account.id]
       );
     } else {
       console.warn(`[imap-sync] Failed to sync ${account.email}: ${err.message}`);

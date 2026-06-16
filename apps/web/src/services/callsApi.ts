@@ -12,7 +12,7 @@ export const CALL_TOKEN_KEY = 'call_token';
 export const CALL_USER_KEY = 'call_user';
 
 function getAuthHeader(): Record<string, string> {
-  const token = localStorage.getItem(CALL_TOKEN_KEY);
+  const token = localStorage.getItem('enr_token') || localStorage.getItem(CALL_TOKEN_KEY);
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -66,8 +66,9 @@ export interface Contact {
   reddit_url?: string | null;
   facebook?: string | null;
   instagram?: string | null;
+  unsubscribed?: boolean | null;
   score?: number | null;
-  stage?: 'new_lead' | 'in_progress' | 'converted_lost' | 'email_sent' | 'replied' | 'fallback_linkedin' | 'needs_browser' | 'cold_calling' | 'discovery' | 'proposal_sent' | 'negotiation' | 'won' | 'lost' | null;
+  stage?: 'new_lead' | 'in_progress' | 'converted_lost' | 'email_sent' | 'replied' | 'fallback_linkedin' | 'needs_browser' | 'cold_calling' | 'discovery' | 'proposal_sent' | 'negotiation' | 'won' | 'lost' | 'unsubscribed' | null;
   omnichannel_stage?: string | null;
   messages_count?: number | null;
   emails_sent?: number | null;
@@ -224,6 +225,8 @@ export const callsApi = {
       body: JSON.stringify({ contact_ids }),
     }),
 
+  getReplies: () => request<{ replies: any[] }>('/campaigns/replies'),
+
   getEmailAccounts: () =>
     request<{ accounts: any[] }>('/email-accounts'),
     
@@ -293,6 +296,12 @@ export const callsApi = {
     request<{ task: any }>(`/contacts/${id}/reddit-task`, {
       method: 'POST',
       body: JSON.stringify({ task_type }),
+    }),
+
+  customRequest: async (path: string, method: string = 'GET', body?: any) => 
+    request<any>(path, {
+      method,
+      body: body ? JSON.stringify(body) : undefined,
     }),
 };
 

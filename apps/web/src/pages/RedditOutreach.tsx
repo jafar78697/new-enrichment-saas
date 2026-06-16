@@ -14,12 +14,12 @@ export default function RedditOutreach() {
   const [activeSocialSubTab, setActiveSocialSubTab] = useState<'campaigns' | 'leads' | 'queue'>('campaigns');
   const [emailSubTab, setEmailSubTab] = useState<'pending' | 'sent' | 'replied'>('pending');
   const [newCampName, setNewCampName] = useState('');
-  const [newCampTemplate, setNewCampTemplate] = useState('I noticed your real estate listings and wanted to reach out regarding a potential collaboration. Would you have time for a quick chat next week?');
+  const [newCampTemplate, setNewCampTemplate] = useState('');
   const [newCampDailyLimit, setNewCampDailyLimit] = useState<number>(50);
   const [newCampSendTime, setNewCampSendTime] = useState<string>('09:00');
   const [newCampStartDate, setNewCampStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [newCampEndDate, setNewCampEndDate] = useState<string>('');
-  const [baseTemplate, setBaseTemplate] = useState('I noticed your real estate listings and wanted to reach out regarding a potential collaboration. Would you have time for a quick chat next week?');
+  const [baseTemplate, setBaseTemplate] = useState('');
   const [accounts, setAccounts] = useState<any[]>([]);
   const { token } = useAuth();
   const [statusMsg, setStatusMsg] = useState<{type: 'success'|'error', text: string} | null>(null);

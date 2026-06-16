@@ -5,9 +5,9 @@
 # ═══════════════════════════════════════════════════════
 set -e
 
-EC2_IP="34.26.233.14"
+EC2_IP="13.61.8.100"
 EC2_USER="ubuntu"
-PEM_KEY="$HOME/Downloads/enrichment-key.pem"
+PEM_KEY="$HOME/Downloads/aws-enrichment-key.pem"
 APP_DIR="/home/ubuntu/enrichment-saas"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -33,6 +33,7 @@ rsync -avz --delete \
   --exclude '*.sqlite-shm' \
   --exclude '*.sqlite-wal' \
   --exclude '*.pem' \
+  --exclude 'infra' \
   -e "ssh -i \"$PEM_KEY\" -o StrictHostKeyChecking=no" \
   ./ "$EC2_USER@$EC2_IP:$APP_DIR/"
 
@@ -51,11 +52,12 @@ echo "→ Installing dependencies..."
 CI=true pnpm install --no-frozen-lockfile
 
 echo "→ Setting up Python Worker..."
-sudo apt-get update && sudo apt-get install -y python3-pip python3-venv libpq-dev python3-dev gcc
+sudo apt-get update && sudo apt-get install -y python3-pip python3-venv libpq-dev python3-dev gcc libxml2-dev libxslt1-dev chromium-browser
 cd /home/ubuntu/enrichment-saas/apps/worker-http
 if [ ! -d ".venv" ]; then
   python3 -m venv .venv
 fi
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 .venv/bin/pip install -r requirements.txt
 
 echo "→ Restarting API and Worker with PM2..."
@@ -65,6 +67,13 @@ pm2 start "npx tsx src/index.ts" \
   --name enrichment-api \
   --env production \
   --restart-delay 3000 \
+  --max-restarts 10
+
+pm2 delete browser-enrichment 2>/dev/null || true
+pm2 start "node src/calls-module/scripts/browser-enrichment.js" \
+  --name browser-enrichment \
+  --env production \
+  --restart-delay 5000 \
   --max-restarts 10
 
 cd /home/ubuntu/enrichment-saas/apps/worker-http

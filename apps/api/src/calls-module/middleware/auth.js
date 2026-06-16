@@ -41,14 +41,18 @@ export async function softAuth(req, _res, next) {
       return next();
     } catch (e) {
       // If it fails, try to decode as an Enrichment token
-      const enrichmentSecret = process.env.JWT_PRIVATE_KEY || 'jento-enrichment-secret-key-2024-change-this';
-      const enrichmentPayload = jwt.verify(token, enrichmentSecret);
-      
-      // If valid, and role is owner, grant manager access
-      if (enrichmentPayload && enrichmentPayload.role === 'owner') {
+      const { AuthManager } = await import('@enrichment-saas/auth');
+      const authManager = new AuthManager(process.env.JWT_PRIVATE_KEY || '', process.env.JWT_PUBLIC_KEY || '');
+      const enrichmentPayload = authManager.verifyUserToken(token);
+
+      // If valid, map the enrichment user to a Calls Agent by email
+      if (enrichmentPayload) {
+        const userEmail = enrichmentPayload.email || null;
+        const { rows: agents } = await query('SELECT id, name, email, role, status FROM agents WHERE email = $1', [userEmail]);
+        const agent = agents[0] || { id: 1 }; // fallback to agent 1 if not found
         req.user = {
-          id: enrichmentPayload.user_id, // Map owner's ID
-          email: enrichmentPayload.email || 'admin@jentoai.com',
+          id: agent.id, 
+          email: userEmail || 'admin@jentoai.com',
           role: 'manager',
           status: 'active'
         };

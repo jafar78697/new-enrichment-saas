@@ -36,6 +36,8 @@ import passwordResetRoutes from './routes/password-reset';
 import publicEnrichRoutes from './routes/public-enrich';
 import crmRoutes from './routes/crm';
 import outreachRoutes from './routes/outreach';
+import aiMediaRoutes from './routes/ai-media';
+import socialRoutes from './routes/social';
 
 fastify.register(authRoutes);
 fastify.register(jobRoutes);
@@ -46,6 +48,8 @@ fastify.register(passwordResetRoutes);
 fastify.register(publicEnrichRoutes);
 fastify.register(crmRoutes);
 fastify.register(outreachRoutes);
+fastify.register(aiMediaRoutes);
+fastify.register(socialRoutes);
 
 // Register Plugins
 fastify.register(helmet);
@@ -143,9 +147,19 @@ async function mountCallsModule() {
 }
 
 // Start Server
+import { startImapSync } from './calls-module/services/imap-sync.service.js';
+import { startWarmupScheduler } from './calls-module/warmup.js';
+
 const start = async () => {
   try {
     await mountCallsModule();
+    
+    // Start background IMAP syncing
+    startImapSync();
+
+    // Start Email Warmup Scheduler
+    startWarmupScheduler();
+
     const port = parseInt(process.env.PORT || '3000');
     await fastify.listen({ port, host: '0.0.0.0' });
     console.log(`🚀 API Server running on port ${port}`);

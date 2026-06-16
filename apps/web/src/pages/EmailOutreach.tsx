@@ -97,25 +97,46 @@ export default function EmailOutreach() {
   const [activeSocialSubTab, setActiveSocialSubTab] = useState<'campaigns' | 'leads' | 'queue'>('campaigns');
   const [emailSubTab, setEmailSubTab] = useState<'pending' | 'sent' | 'replied'>('sent');
   const [newCampName, setNewCampName] = useState('');
-  const [newCampTemplate, setNewCampTemplate] = useState('I noticed your real estate listings and wanted to reach out regarding a potential collaboration. Would you have time for a quick chat next week?');
+  const [newCampTemplate, setNewCampTemplate] = useState('');
   const [newCampDailyLimit, setNewCampDailyLimit] = useState<number>(50);
   const [newCampSendTime, setNewCampSendTime] = useState<string>('09:00');
   const [newCampStartDate, setNewCampStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [newCampEndDate, setNewCampEndDate] = useState<string>('');
-  const [baseTemplate, setBaseTemplate] = useState('I noticed your real estate listings and wanted to reach out regarding a potential collaboration. Would you have time for a quick chat next week?');
+  const [baseTemplate, setBaseTemplate] = useState('');
   const [accounts, setAccounts] = useState<any[]>([]);
   const { token } = useAuth();
   const [statusMsg, setStatusMsg] = useState<{type: 'success'|'error', text: string} | null>(null);
   const [viewingHistoryContact, setViewingHistoryContact] = useState<{id: number, name: string, email: string} | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
+  const [dateFilter, setDateFilter] = useState<string>('all');
+
+  const isDateMatch = (dateString?: string) => {
+    if (dateFilter === 'all') return true;
+    if (!dateString) return false;
+    
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (dateFilter === 'today') {
+      return date.toDateString() === today.toDateString();
+    }
+    if (dateFilter === 'yesterday') {
+      return date.toDateString() === yesterday.toDateString();
+    }
+    
+    const filterDate = new Date(dateFilter);
+    return date.toDateString() === filterDate.toDateString();
+  };
 
   const handleSubTabClick = (tab: any) => {
     setEmailSubTab(tab);
     setCurrentPage(1);
   };
 
-  const { data: contactsData, isLoading: contactsLoading, refetch: refetchContacts } = useQuery({
+  const { data: contactsData, isLoading: contactsLoading, isFetching: contactsFetching, refetch: refetchContacts } = useQuery({
     queryKey: ['contacts'],
     queryFn: callsApi.listContacts
   });
@@ -176,6 +197,11 @@ export default function EmailOutreach() {
   const { data: campaignsData, isLoading: campaignsLoading } = useQuery({
     queryKey: ['campaigns', 'email'],
     queryFn: () => callsApi.getCampaigns('email'),
+  });
+
+  const { data: repliesData, isLoading: repliesLoading } = useQuery({
+    queryKey: ['campaigns', 'replies'],
+    queryFn: () => callsApi.getReplies(),
   });
 
   const { data: linkedinCampaignsData, isLoading: linkedinCampaignsLoading } = useQuery({
@@ -292,15 +318,47 @@ export default function EmailOutreach() {
       <div className="mt-6">
         {activeTab === 'email' && (
           <div className="space-y-6">
+            {/* Date Filter */}
+            <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+              <span className="text-sm font-semibold text-gray-700">Filter Stats by Date:</span>
+              <button 
+                onClick={() => setDateFilter('today')} 
+                className={`px-4 py-2 text-sm rounded-lg font-medium transition-all ${dateFilter === 'today' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                Today
+              </button>
+              <button 
+                onClick={() => setDateFilter('yesterday')} 
+                className={`px-4 py-2 text-sm rounded-lg font-medium transition-all ${dateFilter === 'yesterday' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                Yesterday
+              </button>
+              <button 
+                onClick={() => setDateFilter('all')} 
+                className={`px-4 py-2 text-sm rounded-lg font-medium transition-all ${dateFilter === 'all' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                All Time
+              </button>
+              <div className="flex items-center gap-2 ml-auto">
+                <span className="text-sm text-gray-500">Pick specific date:</span>
+                <input 
+                  type="date" 
+                  value={dateFilter !== 'today' && dateFilter !== 'yesterday' && dateFilter !== 'all' ? dateFilter : ''}
+                  onChange={(e) => setDateFilter(e.target.value || 'all')}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
             {/* Email Main Dashboard Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-center gap-3 mb-2">
                   <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Mail className="w-5 h-5"/></div>
-                  <h3 className="text-gray-500 font-medium text-sm">Emails Sent Today</h3>
+                  <h3 className="text-gray-500 font-medium text-sm">Emails Sent</h3>
                 </div>
                 <p className="text-3xl font-bold text-gray-900">
-                  {contactsData?.contacts?.filter((lead: Contact) => lead.stage === 'email_sent').length || 0}
+                  {contactsData?.contacts?.filter((lead: Contact) => lead.stage === 'email_sent' && isDateMatch(lead.last_email_sent_at || lead.updated_at)).length || 0}
                 </p>
               </div>
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
@@ -309,7 +367,7 @@ export default function EmailOutreach() {
                   <h3 className="text-gray-500 font-medium text-sm">Total Opened</h3>
                 </div>
                 <p className="text-3xl font-bold text-gray-900">
-                  {contactsData?.contacts?.filter((lead: Contact) => (lead.email_opened || 0) > 0).length || 0}
+                  {contactsData?.contacts?.filter((lead: Contact) => (lead.email_opened || 0) > 0 && isDateMatch(lead.updated_at)).length || 0}
                 </p>
               </div>
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
@@ -318,7 +376,7 @@ export default function EmailOutreach() {
                   <h3 className="text-gray-500 font-medium text-sm">Total Replied</h3>
                 </div>
                 <p className="text-3xl font-bold text-gray-900">
-                  {contactsData?.contacts?.filter((lead: Contact) => (lead.emails_received || 0) > 0).length || 0}
+                  {contactsData?.contacts?.filter((lead: Contact) => (lead.emails_received || 0) > 0 && isDateMatch(lead.updated_at)).length || 0}
                 </p>
               </div>
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
@@ -375,9 +433,17 @@ export default function EmailOutreach() {
                 <button onClick={() => handleSubTabClick('pending')} className={`px-4 py-2 rounded-lg text-sm font-medium ${emailSubTab === 'pending' ? 'bg-gray-900 text-white' : 'bg-gray-100'}`}>Pending</button>
                 <button onClick={() => handleSubTabClick('sent')} className={`px-4 py-2 rounded-lg text-sm font-medium ${emailSubTab === 'sent' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>Sent</button>
                 <button onClick={() => handleSubTabClick('replied')} className={`px-4 py-2 rounded-lg text-sm font-medium ${emailSubTab === 'replied' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>Replied</button>
-                <button onClick={() => refetchContacts()} className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4" />
-                  Refresh
+                <button 
+                  onClick={async () => {
+                    await refetchContacts();
+                    setStatusMsg({ type: 'success', text: 'Live Logs refreshed successfully!' });
+                    setTimeout(() => setStatusMsg(null), 3000);
+                  }} 
+                  disabled={contactsFetching}
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-2 disabled:opacity-75"
+                >
+                  <RefreshCw className={`w-4 h-4 ${contactsFetching ? 'animate-spin' : ''}`} />
+                  {contactsFetching ? 'Refreshing...' : 'Refresh'}
                 </button>
               </div>
 
@@ -444,6 +510,14 @@ export default function EmailOutreach() {
                       >
                         <Eye className="w-4 h-4" />
                         View Sent Email
+                      </button>
+                    ) : emailSubTab === 'replied' ? (
+                      <button
+                        onClick={() => setActiveEmailTab('replies')}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold flex items-center gap-2"
+                      >
+                        <Eye className="w-4 h-4" />
+                        Check Reply
                       </button>
                     ) : (
                       <button
@@ -682,14 +756,57 @@ export default function EmailOutreach() {
 
               {activeEmailTab === 'replies' && (
                 <div>
-                  <h2 className="text-xl font-bold text-gray-800 mb-6">Replies & Inbox</h2>
-                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-                    <Mail className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">Inbox is Empty</h3>
-                    <p className="text-gray-500 max-w-md mx-auto">
-                      All replies to your automated campaigns will appear here. The system actively monitors your connected sending accounts for incoming responses.
-                    </p>
-                  </div>
+                  <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                    <Mail className="w-6 h-6 text-indigo-600" />
+                    Replies & Inbox
+                  </h2>
+                  
+                  {repliesLoading ? (
+                    <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
+                  ) : repliesData?.replies?.length === 0 ? (
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+                      <Mail className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">Inbox is Empty</h3>
+                      <p className="text-gray-500 max-w-md mx-auto">
+                        All replies to your automated campaigns will appear here. The system actively monitors your connected sending accounts for incoming responses.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {repliesData?.replies?.map((reply: any) => (
+                        <div key={reply.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 transition-all hover:shadow-md">
+                          <div className="flex justify-between items-start mb-4 border-b border-gray-50 pb-4">
+                            <div>
+                              <h3 className="font-bold text-lg text-gray-900">{reply.contact_name} <span className="text-sm font-normal text-gray-500 ml-2">({reply.contact_company})</span></h3>
+                              <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
+                                <Mail className="w-3 h-3" /> {reply.from_email || reply.contact_email}
+                              </p>
+                            </div>
+                            <span className="text-xs font-medium text-gray-400 whitespace-nowrap">
+                              {new Date(reply.received_at).toLocaleString()}
+                            </span>
+                          </div>
+                          
+                          <div className="mb-2">
+                            <h4 className="text-md font-semibold text-gray-800 mb-2">Subject: {reply.subject}</h4>
+                            <div className="text-sm text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100 whitespace-pre-wrap font-sans">
+                              {reply.body}
+                            </div>
+                          </div>
+                          
+                          <div className="mt-4 flex gap-3">
+                            <button className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-medium rounded-lg text-sm transition-colors flex items-center gap-2">
+                              <MessageCircle className="w-4 h-4" />
+                              Reply
+                            </button>
+                            <button className="px-4 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 font-medium rounded-lg text-sm transition-colors">
+                              Mark as Read
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

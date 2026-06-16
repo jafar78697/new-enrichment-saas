@@ -16,7 +16,7 @@ import ResetPassword from './pages/ResetPassword';
 // New pages
 import CallSystem from './pages/CallSystem';
 import RealEstateLanding from './pages/RealEstateLanding';
-import EnrichmentPage from './pages/Enrichment';
+import RealEstateDemo from './pages/RealEstateDemo';
 import LeadsPage from './pages/Leads';
 import OutreachPage from './pages/Outreach';
 import EmailOutreach from './pages/EmailOutreach';
@@ -24,6 +24,8 @@ import FacebookOutreach from './pages/FacebookOutreach';
 import LinkedInOutreach from './pages/LinkedInOutreach';
 import RedditOutreach from './pages/RedditOutreach';
 import ReelGeneration from './pages/ReelGeneration';
+import SocialPosts from './pages/SocialPosts';
+import YouTubeDashboard from './pages/YouTubeDashboard';
 import YouTubeCallback from './pages/YouTubeCallback';
 import AccessSystemPage from './pages/AccessSystem';
 import EmployeesPage from './pages/Employees';
@@ -52,12 +54,12 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/real-estate-ai" element={<RealEstateLanding />} />
+        <Route path="/real-estate-demo" element={<RealEstateDemo />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/login" element={<Navigate to="/call-login" replace />} />
         <Route path="/signup" element={<Navigate to="/login" replace />} />
         <Route element={<PrivateRoute><Layout /></PrivateRoute>}>
           <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="enrichment" element={<EnrichmentPage />} />
           <Route path="leads" element={<LeadsPage />} />
           <Route path="outreach" element={<OutreachPage />} />
           <Route path="outreach/email" element={<EmailOutreach />} />
@@ -65,6 +67,8 @@ export default function App() {
           <Route path="outreach/linkedin" element={<LinkedInOutreach />} />
           <Route path="outreach/reddit" element={<RedditOutreach />} />
           <Route path="outreach/reels" element={<ReelGeneration />} />
+          <Route path="outreach/social-posts" element={<SocialPosts />} />
+          <Route path="outreach/youtube-studio" element={<YouTubeDashboard />} />
           <Route path="call-system" element={<CallSystem />} />
           <Route path="access-system" element={<AccessSystemPage />} />
           <Route path="employees" element={<EmployeesPage />} />

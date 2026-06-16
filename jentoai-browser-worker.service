@@ -1,0 +1,18 @@
+[Unit]
+Description=JentoAI Browser Enrichment Worker
+After=network.target jentoai-api.service
+
+[Service]
+Type=simple
+User=jafar-tayyar-siddiqi
+WorkingDirectory=/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api
+ExecStart=/home/jafar-tayyar-siddiqi/.nvm/versions/node/v20.19.6/bin/npx tsx src/calls-module/scripts/browser-enrichment.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+Environment=PATH=/home/jafar-tayyar-siddiqi/.nvm/versions/node/v20.19.6/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+StandardOutput=append:/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/browser-worker.log
+StandardError=append:/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/browser-worker.log
+
+[Install]
+WantedBy=multi-user.target

@@ -91,7 +91,7 @@ function SocialIcon({ platform, url, count, onClick, disabled, badgeText }: { pl
 export default function LeadsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentPage = parseInt(searchParams.get('page') || '1', 10);
-  const pageSize = 50;
+  const pageSize = 20;
 
   const calculateAiScore = (lead: Contact) => {
     let score = 0;
@@ -113,7 +113,7 @@ export default function LeadsPage() {
   const [editingCrm, setEditingCrm] = useState('');
   const [editingPainPoints, setEditingPainPoints] = useState('');
   const [editingAutomation, setEditingAutomation] = useState('');
-  const [activeTab, setActiveTab] = useState<'new_lead' | 'outreach' | 'engaged' | 'discovery' | 'proposal_sent' | 'negotiation' | 'won' | 'lost'>('new_lead');
+  const [activeTab, setActiveTab] = useState<'new_lead' | 'outreach' | 'engaged' | 'discovery' | 'proposal_sent' | 'negotiation' | 'won' | 'lost' | 'unsubscribed'>('new_lead');
   const queryClient = useQueryClient();
 
   const updateNoteMutation = useMutation({
@@ -245,6 +245,9 @@ export default function LeadsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 16, color: '#14202B', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {lead.name}
+              {lead.unsubscribed && (
+                <span style={{ marginLeft: 10, background: '#FEE2E2', color: '#DC2626', padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, flexShrink: 0 }}>Unsubscribed</span>
+              )}
               {lead.niche_name && (
                 <span style={{
                   marginLeft: 10, background: '#F3E8FF', color: '#7E22CE', padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, flexShrink: 0
@@ -340,6 +343,7 @@ export default function LeadsPage() {
               <option value="cold_calling">To Call</option>
               <option value="in_progress">In Progress</option>
               <option value="converted_lost">Converted / Lost</option>
+              <option value="unsubscribed">Unsubscribed</option>
             </select>
             {lead.email_opened ? (
                <div style={{ fontSize: 11, color: '#0F766E', fontWeight: 700, background: '#CCFBF1', padding: '4px 8px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -450,6 +454,10 @@ export default function LeadsPage() {
   }
 
   const tabLeads = otherLeads.filter(l => {
+    const isUnsubscribed = l.unsubscribed === true || l.stage === 'unsubscribed';
+    if (activeTab === 'unsubscribed') return isUnsubscribed;
+    if (isUnsubscribed) return false;
+
     const isEngaged = (l.email_opened && l.email_opened > 0) || 
                       (l.emails_received && l.emails_received > 0) || 
                       (l.messages_count && l.messages_count > 0) || 
@@ -561,7 +569,8 @@ export default function LeadsPage() {
           { id: 'proposal_sent', label: 'Proposal Sent' },
           { id: 'negotiation', label: 'Negotiation' },
           { id: 'won', label: 'Won 🏆' },
-          { id: 'lost', label: 'Lost' }
+          { id: 'lost', label: 'Lost' },
+          { id: 'unsubscribed', label: 'Unsubscribed 🚫' }
         ].map(tab => (
           <button 
             key={tab.id}
@@ -596,7 +605,12 @@ export default function LeadsPage() {
               {paginatedLeads.map(lead => (
                 <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: '#fff' }}>
                   <td style={{ padding: '16px' }}>
-                    <div style={{ fontWeight: 700, color: '#14202B' }}>{lead.name}</div>
+                    <div style={{ fontWeight: 700, color: '#14202B', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {lead.name}
+                      {lead.unsubscribed && (
+                        <span style={{ background: '#FEE2E2', color: '#DC2626', padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>Unsubscribed</span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 13, color: '#6B7280' }}>{lead.email || lead.phone_number || 'No contact info'}</div>
                   </td>
                   <td style={{ padding: '16px', textAlign: 'center' }}>

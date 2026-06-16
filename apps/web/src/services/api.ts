@@ -139,8 +139,36 @@ export const webhooksApi = {
 
 export const socialApi = {
   connectYouTube: async (code: string) => {
-    if (MOCK) { await delay(); return { data: { success: true } }; }
     return api.post('/auth/youtube/callback', { code, redirectUri: `${window.location.origin}/auth/youtube/callback` });
+  },
+  disconnectYouTube: (channelId: string) => api.delete(`/social/youtube/${channelId}`),
+  connectLinkedIn: async (code: string) => {
+    return api.post('/auth/linkedin/callback', { code, redirectUri: `${window.location.origin}/auth/linkedin/callback` });
+  },
+  getAccounts: async () => {
+    return api.get('/social/accounts');
+  },
+  publish: async (data: { assetId: string, platforms: string[], youtubeChannelIds?: string[], text?: string, title?: string }) => {
+    return api.post('/social/publish', data);
+  }
+};
+
+export const aiMediaApi = {
+  generateText: async (prompt: string, platform: string) => {
+    if (MOCK) { await delay(2000); return { data: { success: true, text: 'This is a mocked AI generated text for ' + platform } }; }
+    return api.post('/ai/generate-post', { prompt, platform });
+  },
+  generateImage: async (prompt: string) => {
+    if (MOCK) { await delay(2000); return { data: { success: true, imageUrl: 'https://via.placeholder.com/800', assetId: 'mock-1' } }; }
+    return api.post('/ai/generate-image', { prompt });
+  },
+  generateVideo: async (prompt: string) => {
+    if (MOCK) { await delay(4000); return { data: { success: true, videoUrl: 'https://www.w3schools.com/html/mov_bbb.mp4', assetId: 'mock-2' } }; }
+    return api.post('/ai/generate-video', { prompt });
+  },
+  getMediaAssets: async () => {
+    if (MOCK) { await delay(); return { data: { assets: [{ id: 'mock-2', title: 'Mocked Video', media_type: 'video', media_url: 'https://www.w3schools.com/html/mov_bbb.mp4' }] } }; }
+    return api.get('/media');
   }
 };
 

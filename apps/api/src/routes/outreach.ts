@@ -1,26 +1,28 @@
 import { FastifyInstance } from 'fastify';
-import { OutreachSenderService } from '../services/outreach-sender.service';
+// import { OutreachSenderService } from '../services/outreach-sender.service';
 import { OutreachImapService } from '../services/outreach-imap.service';
 
 export default async function outreachRoutes(fastify: FastifyInstance) {
-  const senderService = new OutreachSenderService(fastify.db);
+  // const senderService = new OutreachSenderService(fastify.db); // Disabled (OpenAI)
   const imapService = new OutreachImapService(fastify.db);
 
-  // Background Task: Process Email Queue every 1 minute
+  // Background Task: Process Email Queue every 1 minute (Disabled - Using DeepSeek)
+  /*
   setInterval(async () => {
     try {
       await senderService.processQueue();
     } catch (err) {
-      fastify.log.error(err, 'Error in Outreach Sender Queue');
+      console.error('Error in Outreach Sender Queue', err);
     }
   }, 60 * 1000);
+  */
 
   // Background Task: Sync IMAP Replies every 5 minutes
   setInterval(async () => {
     try {
       await imapService.syncReplies();
     } catch (err) {
-      fastify.log.error(err, 'Error in Outreach IMAP Sync');
+      console.error('Error in Outreach IMAP Sync', err);
     }
   }, 5 * 60 * 1000);
 
@@ -37,7 +39,7 @@ export default async function outreachRoutes(fastify: FastifyInstance) {
           WHERE id = $1 AND status = 'sent'
         `, [query.log_id]);
       } catch (e) {
-        fastify.log.error(e, 'Error tracking pixel for log ' + query.log_id);
+        console.error('Error tracking pixel for log ' + query.log_id, e);
       }
     }
 
@@ -144,6 +146,79 @@ export default async function outreachRoutes(fastify: FastifyInstance) {
     `, [status, error || null, log_id, tenantId]);
 
     return reply.send({ success: true });
+  });
+
+  // 5a. Extension fetches tasks (dashboard)
+  fastify.get('/v1/outreach/facebook/tasks', { preHandler: [authenticateApiKey] }, async (request: any, reply) => {
+    const { tenantId } = request.tenant;
+    
+    const { rows } = await fastify.db.query(`
+      SELECT ol.id, ol.status, ol.channel, er.company_name
+      FROM outreach_logs ol
+      JOIN enrichment_results er ON ol.lead_id = er.id
+      WHERE ol.tenant_id = $1 AND ol.channel IN ('facebook', 'instagram')
+      ORDER BY ol.created_at DESC
+      LIMIT 50
+    `, [tenantId]);
+
+    return reply.send({ tasks: rows });
+  });
+
+  // 5b. Extension syncs reply from DOM scraping
+  fastify.post('/v1/outreach/facebook/sync-reply', { preHandler: [authenticateApiKey] }, async (request: any, reply) => {
+    const { tenantId } = request.tenant;
+    const { profileUrl, messageText, platform } = request.body;
+
+    if (!profileUrl || !messageText) {
+      return reply.code(400).send({ error: 'Missing profileUrl or messageText' });
+    }
+
+    // Find a lead with a matching social URL who we sent a message to
+    const urlPattern = `%${profileUrl.split('?')[0].replace(/\/$/, '')}%`;
+    const urlColumn = platform === 'instagram' ? 'instagram_url' : 'facebook_url';
+    
+    const { rows } = await fastify.db.query(`
+      SELECT ol.id as log_id, ol.lead_id, oa.id as account_id
+      FROM outreach_logs ol
+      JOIN enrichment_results er ON ol.lead_id = er.id
+      JOIN outreach_accounts oa ON ol.account_id = oa.id
+      WHERE ol.tenant_id = $1 
+        AND ol.status = 'sent' 
+        AND er.${urlColumn} LIKE $2
+      LIMIT 1
+    `, [tenantId, urlPattern]);
+
+    if (rows.length > 0) {
+      const log = rows[0];
+
+      // Mark log as replied
+      await fastify.db.query(`
+        UPDATE outreach_logs SET status = 'replied' WHERE id = $1
+      `, [log.log_id]);
+
+      await fastify.db.query(`
+        UPDATE contacts SET stage = 'replied' WHERE id = $1
+      `, [log.lead_id]);
+
+      // Insert into unified_inbox
+      await fastify.db.query(`
+        INSERT INTO unified_inbox 
+        (tenant_id, account_id, lead_id, msg_id, subject, body_text)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT DO NOTHING
+      `, [
+        tenantId, 
+        log.account_id, 
+        log.lead_id, 
+        `ext_${Date.now()}`, 
+        `${platform === 'instagram' ? 'Instagram' : 'Facebook'} Reply`, 
+        messageText
+      ]);
+
+      return reply.send({ success: true, matched: true });
+    }
+
+    return reply.send({ success: true, matched: false });
   });
 
   // --- META GRAPH API (WEBHOOKS) ---

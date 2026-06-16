@@ -2,12 +2,12 @@
 # Deploy Frontend to Cloudflare Pages
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# The calls backend now lives merged inside api.jentoai.pro (EC2 54.91.39.13)
+# The calls backend now lives merged inside api.jentoai.pro (EC2 13.61.8.100)
 # at /api/* paths. Override only if you split it out into a different host.
-CALLS_URL="${CALLS_URL:-https://api.jentoai.pro}"
+CALLS_URL="${CALLS_URL:-http://13.61.8.100}"
 
 echo "→ Building frontend..."
-echo "  API:     https://api.jentoai.pro"
+echo "  API:     http://13.61.8.100"
 echo "  MAILER:  https://mailer.jentoai.com"
 echo "  CALLS:   $CALLS_URL"
 cd "$ROOT/apps/web"

@@ -26,7 +26,7 @@ async function processCampaigns() {
     // 1. Transaction to safely lock a pending lead
     await client.query('BEGIN');
     
-    // Find ONE pending lead in an active campaign (with anti-stuck locking)
+    // Find ONE pending lead in an active campaign whose scheduled send_time has arrived
     const leadRes = await client.query(`
       SELECT c.*, camp.base_template, camp.status as camp_status
       FROM contacts c
@@ -34,6 +34,7 @@ async function processCampaigns() {
       WHERE camp.status = 'active'
         AND c.emails_sent = 0
         AND c.stage != 'email_sent'
+        AND (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::time >= camp.send_time::time
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     `);
@@ -188,7 +189,20 @@ async function processCampaigns() {
   }
 }
 
+function scheduleNextCampaignProcess() {
+  // Random delay between 30 and 45 seconds
+  const min = 30000;
+  const max = 45000;
+  const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+  
+  setTimeout(async () => {
+    await processCampaigns();
+    scheduleNextCampaignProcess();
+  }, delay);
+}
+
 export function startCampaignScheduler() {
-  console.log('[Campaign Scheduler] Started background loop (30s interval)');
-  setInterval(processCampaigns, 30 * 1000);
+  console.log('[Campaign Scheduler] Started background loop with random interval (30s - 45s)');
+  // Start the first run immediately, then schedule the next ones randomly
+  processCampaigns().then(() => scheduleNextCampaignProcess());
 }
