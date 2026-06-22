@@ -12,6 +12,7 @@ import { env } from '../../config/env.js';
  * @param {Function} config.onTranscription - Called when the user's speech is transcribed
  * @param {Function} config.onAssistantText - Called when the assistant speaks text
  * @param {Function} config.onToolCall - Called when the AI requests a tool
+ * @param {Function} config.onUsage - Called when usage metrics are received
  * @param {Function} config.onReady - Called when the session is successfully configured
  * @param {Function} config.onError - Called on errors
  * @param {Function} config.onClose - Called when the socket closes
@@ -117,6 +118,12 @@ export function createOpenAISession(config) {
         case 'error':
           console.error('[voice-agent:openai] API Error:', msg.error);
           if (config.onError) config.onError(new Error(msg.error.message));
+          break;
+          
+        case 'response.done':
+          if (config.onUsage && msg.response && msg.response.usage) {
+            config.onUsage(msg.response.usage);
+          }
           break;
           
         case 'response.created':

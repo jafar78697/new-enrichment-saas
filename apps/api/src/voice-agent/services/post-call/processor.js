@@ -77,6 +77,8 @@ export async function processPostCall(callSid) {
       inputTokens: summary.inputTokens + sentiment.inputTokens + leadQualification.inputTokens,
       outputTokens: summary.outputTokens + sentiment.outputTokens + leadQualification.outputTokens,
       ttsCharacters: session.ttsCharacters || 0,
+      openAiInputTokens: session.metadata?.inputTokens || 0,
+      openAiOutputTokens: session.metadata?.outputTokens || 0,
     });
 
     // 4. Save to voice_call_sessions table

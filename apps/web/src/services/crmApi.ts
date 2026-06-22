@@ -120,6 +120,11 @@ export interface AnalyticsOverview {
   tasks_open: number;
   enrichment_jobs: { status: string; n: number }[];
   top_industries: { industry: string; n: number }[];
+  costs: {
+    twilio: number;
+    openai: number;
+    total: number;
+  };
 }
 
 export const analyticsApi = {

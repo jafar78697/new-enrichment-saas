@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { employeesApi, getCallUser } from '../services/employeesApi';
+import { analyticsApi } from '../services/crmApi';
 import { useAuth } from '../hooks/useAuth';
 
 export default function DashboardPage() {
@@ -33,6 +34,13 @@ export default function DashboardPage() {
     enabled: isManager
   });
 
+  // Fetch analytics for costs (Managers Only)
+  const { data: analyticsData, isLoading: loadingAnalytics } = useQuery({
+    queryKey: ['analytics-overview'],
+    queryFn: () => analyticsApi.overview(30),
+    enabled: isManager
+  });
+
   // Fetch own stats (Employees Only)
   const { data: myStatsData, isLoading: loadingMyStats } = useQuery({
     queryKey: ['my-dashboard-stats', 24],
@@ -44,7 +52,7 @@ export default function DashboardPage() {
   const pool = poolData?.numbers || [];
   const myStats = myStatsData?.stats;
 
-  const isLoading = isManager ? (loadingSummary || loadingPool) : loadingMyStats;
+  const isLoading = isManager ? (loadingSummary || loadingPool || loadingAnalytics) : loadingMyStats;
 
   if (isLoading) {
     return <div style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>Loading dashboard...</div>;
@@ -147,19 +155,32 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* GCP Billing Card */}
+        {/* Cost Tracking Cards */}
         <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 8, display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5H5a2 2 0 0 0 0 4h16"/></svg>
-              GCP Billing (This Month)
+            <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 8 }}>
+              📞 Twilio Costs (30d)
             </div>
             <div style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 36, fontWeight: 700, color: '#2563EB' }}>
-              $0.00
+              ${analyticsData?.costs?.twilio?.toFixed(2) || '0.00'}
             </div>
           </div>
-          <div style={{ fontSize: 11, color: '#F59E0B', marginTop: 4, background: '#FEF3C7', padding: '4px 8px', borderRadius: '4px', display: 'inline-block' }}>
-            Setup Required
+          <div style={{ fontSize: 11, color: '#7B8794', marginTop: 4 }}>
+            Voice & SMS Usage
+          </div>
+        </div>
+
+        <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 8 }}>
+              🤖 OpenAI Costs (30d)
+            </div>
+            <div style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 36, fontWeight: 700, color: '#10B981' }}>
+              ${analyticsData?.costs?.openai?.toFixed(2) || '0.00'}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: '#7B8794', marginTop: 4 }}>
+            Realtime API Usage
           </div>
         </div>
       </div>

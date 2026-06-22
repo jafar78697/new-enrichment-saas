@@ -284,6 +284,24 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
     systemPrompt,
     tools,
     
+    // Track OpenAI Realtime API usage
+    onUsage: (usage) => {
+      import('../services/session/session-store.js').then(async ({ getSession, updateSession }) => {
+        const session = await getSession(callSid);
+        if (session) {
+          const currentInput = session.metadata.inputTokens || 0;
+          const currentOutput = session.metadata.outputTokens || 0;
+          await updateSession(callSid, {
+            metadata: {
+              ...session.metadata,
+              inputTokens: currentInput + (usage.input_tokens || 0),
+              outputTokens: currentOutput + (usage.output_tokens || 0),
+            }
+          });
+        }
+      }).catch(e => console.error('[voice-agent:orchestrator] Error tracking usage:', e.message));
+    },
+
     // OpenAI sending audio to play to the user
     onAudioDelta: (base64Audio) => {
       activeAdapter.sendAudio(streamSid, base64Audio);

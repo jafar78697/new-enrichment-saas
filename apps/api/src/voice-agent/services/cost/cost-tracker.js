@@ -33,6 +33,10 @@ const PRICING = {
   elevenLabs: {
     per1KChars: 0.001, // Turbo v2.5
   },
+  openAI: {
+    realtimeInputPer1K: 0.10, // $100 per 1M tokens (audio)
+    realtimeOutputPer1K: 0.20, // $200 per 1M tokens (audio)
+  },
 };
 
 /**
@@ -56,6 +60,8 @@ export function trackCallCost({
   outputTokens = 0,
   ttsCharacters = 0,
   wasRecorded = false,
+  openAiInputTokens = 0,
+  openAiOutputTokens = 0,
 }) {
   const durationMinutes = durationSeconds / 60;
 
@@ -84,8 +90,13 @@ export function trackCallCost({
   // ElevenLabs cost
   const elevenLabsCost = (ttsCharacters / 1000) * PRICING.elevenLabs.per1KChars;
 
+  // OpenAI Realtime cost
+  const openAiInputCost = (openAiInputTokens / 1000) * PRICING.openAI.realtimeInputPer1K;
+  const openAiOutputCost = (openAiOutputTokens / 1000) * PRICING.openAI.realtimeOutputPer1K;
+  const openAiCost = openAiInputCost + openAiOutputCost;
+
   // Totals
-  const totalCost = twilioTotalCost + sttCost + vertexTotalCost + elevenLabsCost;
+  const totalCost = twilioTotalCost + sttCost + vertexTotalCost + elevenLabsCost + openAiCost;
 
   const breakdown = {
     callSid,
@@ -118,6 +129,13 @@ export function trackCallCost({
       characters: ttsCharacters,
       per1KCharsRate: PRICING.elevenLabs.per1KChars,
     },
+    openAI: {
+      cost: roundToCents(openAiCost),
+      inputTokens: openAiInputTokens,
+      outputTokens: openAiOutputTokens,
+      inputCost: roundToCents(openAiInputCost),
+      outputCost: roundToCents(openAiOutputCost),
+    },
     total: roundToCents(totalCost),
   };
 
@@ -143,6 +161,7 @@ export function aggregateCosts(sessions) {
       sttCost: 0,
       vertexCost: 0,
       elevenLabsCost: 0,
+      openAiCost: 0,
       totalTokens: 0,
       totalCharacters: 0,
     };
@@ -154,6 +173,7 @@ export function aggregateCosts(sessions) {
   let sttCost = 0;
   let vertexCost = 0;
   let elevenLabsCost = 0;
+  let openAiCost = 0;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalCharacters = 0;
@@ -171,6 +191,7 @@ export function aggregateCosts(sessions) {
     sttCost += breakdown.googleSTT?.cost || 0;
     vertexCost += breakdown.vertexAI?.total || 0;
     elevenLabsCost += breakdown.elevenLabs?.cost || 0;
+    openAiCost += breakdown.openAI?.cost || 0;
     totalInputTokens += breakdown.vertexAI?.inputTokens || 0;
     totalOutputTokens += breakdown.vertexAI?.outputTokens || 0;
     totalCharacters += breakdown.elevenLabs?.characters || 0;
@@ -187,6 +208,7 @@ export function aggregateCosts(sessions) {
     sttCost: roundToCents(sttCost),
     vertexCost: roundToCents(vertexCost),
     elevenLabsCost: roundToCents(elevenLabsCost),
+    openAiCost: roundToCents(openAiCost),
     totalInputTokens,
     totalOutputTokens,
     totalCharacters,

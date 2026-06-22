@@ -288,7 +288,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     const q = (request.query || {}) as any;
     const days = Math.min(365, Math.max(1, parseInt(q.days || '30')));
 
-    const [leadsByStage, stageMovement, tasksOpen, enrichJobs, topIndustries] = await Promise.all([
+    const [leadsByStage, stageMovement, tasksOpen, enrichJobs, topIndustries, costsData] = await Promise.all([
       fastify.db.query(
         `SELECT lead_stage, COUNT(*)::int AS n FROM enrichment_results
          WHERE tenant_id = $1 GROUP BY lead_stage`,
@@ -317,6 +317,15 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          GROUP BY industry_guess ORDER BY n DESC LIMIT 10`,
         [tenantId],
       ),
+      fastify.db.query(
+        `SELECT 
+           COALESCE(SUM((cost_breakdown->'twilio'->>'total')::numeric), 0) AS twilio_cost,
+           COALESCE(SUM((cost_breakdown->'openAI'->>'cost')::numeric), 0) AS openai_cost
+         FROM voice_call_sessions vcs
+         JOIN calls c ON c.call_sid = vcs.call_sid
+         WHERE c.tenant_id = $1 AND vcs.created_at > now() - ($2 || ' days')::interval`,
+        [tenantId, String(days)],
+      ),
     ]);
 
     return {
@@ -326,6 +335,11 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       tasks_open: tasksOpen.rows[0]?.n || 0,
       enrichment_jobs: enrichJobs.rows,
       top_industries: topIndustries.rows,
+      costs: {
+        twilio: parseFloat(costsData?.rows[0]?.twilio_cost || 0),
+        openai: parseFloat(costsData?.rows[0]?.openai_cost || 0),
+        total: parseFloat(costsData?.rows[0]?.twilio_cost || 0) + parseFloat(costsData?.rows[0]?.openai_cost || 0),
+      }
     };
   });
 
