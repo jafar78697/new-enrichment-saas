@@ -62,6 +62,13 @@ export default function EmployeesPage() {
       </div>
 
       <div style={{ marginBottom: 24, display: 'flex', gap: 16 }}>
+        <button
+          onClick={() => window.location.href = '/ai-agent'}
+          style={{ padding: '8px 16px', borderRadius: 8, background: '#F59E0B', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+        >
+          🤖 View AI Agent Pipeline
+        </button>
+        <div style={{ width: 1, background: '#D8E1D7' }}></div>
         <select 
           value={teamFilter} 
           onChange={e => setTeamFilter(e.target.value)}

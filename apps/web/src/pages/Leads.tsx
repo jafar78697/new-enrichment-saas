@@ -116,6 +116,24 @@ export default function LeadsPage() {
   const [activeTab, setActiveTab] = useState<'new_lead' | 'outreach' | 'engaged' | 'discovery' | 'proposal_sent' | 'negotiation' | 'won' | 'lost' | 'unsubscribed'>('new_lead');
   const queryClient = useQueryClient();
 
+  const callUser = getCallUser();
+  const isManager = !callUser || callUser.role === 'manager';
+  
+  const [viewMode, setViewMode] = useState<'my_leads' | 'lead_pool'>('my_leads');
+  const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
+
+  const claimMutation = useMutation({
+    mutationFn: (contactIds: number[]) => callsApi.claimContacts(contactIds),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      setSelectedLeads([]);
+      toast.success(`Successfully claimed ${data.claimedIds.length} lead(s)!`);
+    },
+    onError: (err: any) => {
+      toast.error('Failed to claim leads. Please try again.');
+    }
+  });
+
   const updateNoteMutation = useMutation({
     mutationFn: ({ id, notes, current_crm, pain_points, automation_opportunities }: { id: number; notes: string | null; current_crm: string | null; pain_points: string | null; automation_opportunities: string | null; }) => 
       callsApi.updateContact(id, { notes, current_crm, pain_points, automation_opportunities }),
@@ -210,11 +228,22 @@ export default function LeadsPage() {
     }
   };
 
-  const enrichedOrManualLeads = data?.contacts.filter(lead => 
+  const enrichedOrManualLeads = data?.contacts.filter(lead => {
     // Keep manually added leads, hide Google Maps un-enriched, and hide social pipeline leads
-    (lead.source !== 'google-maps-scraper' || (lead.score && lead.score > 0)) &&
-    lead.omnichannel_stage !== 'social'
-  ) || [];
+    const baseFilter = (lead.source !== 'google-maps-scraper' || (lead.score && lead.score > 0)) &&
+                       lead.omnichannel_stage !== 'social';
+    if (!baseFilter) return false;
+
+    if (isManager) {
+      return true;
+    }
+
+    if (viewMode === 'my_leads') {
+      return lead.assigned_agent_id === callUser?.id;
+    } else {
+      return !lead.assigned_agent_id;
+    }
+  }) || [];
 
   const filteredLeads = enrichedOrManualLeads.filter(lead => 
     lead.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -229,6 +258,8 @@ export default function LeadsPage() {
   const renderLead = (lead: Contact, isHighlighted = false) => {
     const bg = isHighlighted ? '#FEF2F2' : '#fff';
     const border = isHighlighted ? '2px solid #FCA5A5' : '1px solid #D8E1D7';
+    const isPool = viewMode === 'lead_pool';
+    const isSelected = selectedLeads.includes(lead.id);
     
     return (
       <div key={lead.id} style={{
@@ -238,8 +269,30 @@ export default function LeadsPage() {
         padding: '16px 24px',
         boxShadow: '0 2px 4px -1px rgba(0, 0, 0, 0.05)',
         transition: 'transform 0.2s',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16
       }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1.5fr) auto auto auto', gap: 32, alignItems: 'center' }}>
+        {isPool && (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={(e) => {
+              if (e.target.checked) {
+                setSelectedLeads(prev => [...prev, lead.id]);
+              } else {
+                setSelectedLeads(prev => prev.filter(id => id !== lead.id));
+              }
+            }}
+            style={{
+              width: 18,
+              height: 18,
+              cursor: 'pointer',
+              accentColor: '#0F766E'
+            }}
+          />
+        )}
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(200px, 1.5fr) auto auto auto', gap: 32, alignItems: 'center' }}>
           
           {/* 1. Lead Info (Name, Company, Notes) */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
@@ -260,24 +313,28 @@ export default function LeadsPage() {
               {lead.notes ? (
                  <span 
                    style={{ fontWeight: 800, color: '#111827', display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', letterSpacing: 0.2 }}
-                   onClick={() => handleOpenNoteModal(lead)}
-                   title="Click to edit note"
+                   onClick={() => !isPool && handleOpenNoteModal(lead)}
+                   title={isPool ? undefined : "Click to edit note"}
                  >
                    {lead.notes.split(' ').slice(0, 5).join(' ')}{lead.notes.split(' ').length > 5 ? '...' : ''}
-                   <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, background: '#F0FDFA', borderRadius: '50%', color: '#0F766E', boxShadow: '0 1px 2px rgba(15,118,110,0.1)' }}>
-                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                   </span>
+                   {!isPool && (
+                     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, background: '#F0FDFA', borderRadius: '50%', color: '#0F766E', boxShadow: '0 1px 2px rgba(15,118,110,0.1)' }}>
+                       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                     </span>
+                   )}
                  </span>
               ) : (
-                 <button
-                   onClick={() => handleOpenNoteModal(lead)}
-                   style={{ background: '#F0FDFA', border: '1px dashed #5EEAD4', color: '#0F766E', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '4px 10px', borderRadius: 12, fontWeight: 600, transition: 'all 0.2s ease' }}
-                   onMouseEnter={(e) => { e.currentTarget.style.background = '#CCFBF1'; e.currentTarget.style.borderStyle = 'solid'; }}
-                   onMouseLeave={(e) => { e.currentTarget.style.background = '#F0FDFA'; e.currentTarget.style.borderStyle = 'dashed'; }}
-                 >
-                   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                   Add Note
-                 </button>
+                 !isPool && (
+                   <button
+                     onClick={() => handleOpenNoteModal(lead)}
+                     style={{ background: '#F0FDFA', border: '1px dashed #5EEAD4', color: '#0F766E', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '4px 10px', borderRadius: 12, fontWeight: 600, transition: 'all 0.2s ease' }}
+                     onMouseEnter={(e) => { e.currentTarget.style.background = '#CCFBF1'; e.currentTarget.style.borderStyle = 'solid'; }}
+                     onMouseLeave={(e) => { e.currentTarget.style.background = '#F0FDFA'; e.currentTarget.style.borderStyle = 'dashed'; }}
+                   >
+                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                     Add Note
+                   </button>
+                 )
               )}
             </div>
           </div>
@@ -309,139 +366,167 @@ export default function LeadsPage() {
               url={lead.email} 
               count={lead.emails_sent} 
               badgeText={lead.emails_sent ? "A" : undefined}
+              disabled={isPool}
               onClick={() => {
                 if (lead.email) {
                   setActiveEmailLead(lead);
                 }
               }}
             />
-            <SocialIcon platform="website" url={lead.website} />
-            <SocialIcon platform="linkedin" url={lead.linkedin} />
-            <SocialIcon platform="facebook" url={lead.facebook} />
-            <SocialIcon platform="instagram" url={lead.instagram} />
+            <SocialIcon platform="website" url={lead.website} disabled={isPool} />
+            <SocialIcon platform="linkedin" url={lead.linkedin} disabled={isPool} />
+            <SocialIcon platform="facebook" url={lead.facebook} disabled={isPool} />
+            <SocialIcon platform="instagram" url={lead.instagram} disabled={isPool} />
           </div>
 
           {/* 4. Actions */}
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <select
-              value={lead.stage || 'new_lead'}
-              onChange={(e) => updateStageMutation.mutate({ id: lead.id, stage: e.target.value })}
-              disabled={updateStageMutation.isPending}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 8,
-                border: '1px solid #D8E1D7',
-                background: '#F9FAFB',
-                fontSize: 12,
-                fontWeight: 600,
-                color: '#4B5563',
-                cursor: 'pointer',
-                outline: 'none'
-              }}
-            >
-              <option value="new_lead">New Lead</option>
-              <option value="cold_calling">To Call</option>
-              <option value="in_progress">In Progress</option>
-              <option value="converted_lost">Converted / Lost</option>
-              <option value="unsubscribed">Unsubscribed</option>
-            </select>
-            {lead.email_opened ? (
-               <div style={{ fontSize: 11, color: '#0F766E', fontWeight: 700, background: '#CCFBF1', padding: '4px 8px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
-                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                 Seen
-               </div>
-            ) : null}
-            {lead.emails_received ? (
-               <div style={{ fontSize: 11, color: '#4338CA', fontWeight: 700, background: '#E0E7FF', padding: '4px 8px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
-                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
-                 Replied
-               </div>
-            ) : (
-              lead.emails_sent ? (
-                <button 
-                  onClick={() => markRepliedMutation.mutate(lead.id)}
-                  disabled={markRepliedMutation.isPending}
-                  style={{ fontSize: 10, color: '#6B7280', background: 'transparent', border: '1px solid #D1D5DB', padding: '4px 8px', borderRadius: 12, cursor: 'pointer' }}
-                >
-                  Mark Replied
-                </button>
-              ) : null
-            )}
-            {lead.meeting_time && (
-               <div style={{ fontSize: 12, color: isHighlighted ? '#DC2626' : '#D97706', fontWeight: 700, background: isHighlighted ? '#FEE2E2' : '#FEF3C7', padding: '6px 12px', borderRadius: 20, marginRight: 8, whiteSpace: 'nowrap' }}>
-                 🗓 {new Date(lead.meeting_time).toLocaleDateString()}
-               </div>
-            )}
-            <button
-              onClick={() => lead.phone_number && setActiveCall(lead)}
-              disabled={!lead.phone_number}
-              style={{
-                background: lead.phone_number ? 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)' : '#F3F4F6',
-                color: lead.phone_number ? '#fff' : '#9CA3AF',
-                border: 'none', padding: '8px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: lead.phone_number ? 'pointer' : 'not-allowed',
-                display: 'flex', alignItems: 'center', gap: 6,
-                boxShadow: lead.phone_number ? '0 4px 10px rgba(15, 118, 110, 0.2)' : 'none',
-                transition: 'all 0.2s ease', whiteSpace: 'nowrap'
-              }}
-              onMouseEnter={(e) => {
-                if (lead.phone_number) {
+            {isPool ? (
+              <button
+                onClick={() => claimMutation.mutate([lead.id])}
+                disabled={claimMutation.isPending}
+                style={{
+                  background: 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)',
+                  color: '#fff',
+                  border: 'none', padding: '8px 20px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  boxShadow: '0 4px 10px rgba(15, 118, 110, 0.2)',
+                  transition: 'all 0.2s ease', whiteSpace: 'nowrap'
+                }}
+                onMouseEnter={(e) => {
                   e.currentTarget.style.transform = 'translateY(-1px)';
                   e.currentTarget.style.boxShadow = '0 6px 12px rgba(15, 118, 110, 0.3)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (lead.phone_number) {
+                }}
+                onMouseLeave={(e) => {
                   e.currentTarget.style.transform = 'translateY(0)';
                   e.currentTarget.style.boxShadow = '0 4px 10px rgba(15, 118, 110, 0.2)';
-                }
-              }}
-            >
-              <svg fill="currentColor" viewBox="0 0 20 20" style={{ width: 14, height: 14 }}>
-                <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
-              </svg>
-              {lead.phone_number ? 'Call Now' : 'No Phone'}
-            </button>
-            <button
-              onClick={() => linkedinMutation.mutate({ id: lead.id, task_type: 'scrape_profile' })}
-              disabled={linkedinMutation.isPending}
-              style={{
-                background: '#0A66C2',
-                color: '#fff',
-                border: 'none', padding: '8px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: linkedinMutation.isPending ? 'wait' : 'pointer',
-                display: 'flex', alignItems: 'center', gap: 6,
-                boxShadow: '0 4px 10px rgba(10, 102, 194, 0.2)',
-                transition: 'all 0.2s ease', whiteSpace: 'nowrap'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 6px 12px rgba(10, 102, 194, 0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 10px rgba(10, 102, 194, 0.2)';
-              }}
-              title="Auto-Scrape Profile"
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
-                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-              </svg>
-              Scrape
-            </button>
-
-            {getCallUser()?.role === 'manager' && (
-              <button
-                onClick={() => handleDelete(lead.id, lead.name)}
-                style={{
-                  background: 'transparent', color: '#9CA3AF', padding: '6px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease',
                 }}
-                title="Delete lead"
-                onMouseEnter={(e) => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEF2F2'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = '#9CA3AF'; e.currentTarget.style.background = 'transparent'; }}
               >
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 16, height: 16, strokeWidth: 2 }}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
+                {claimMutation.isPending ? 'Claiming...' : 'Claim Lead'}
               </button>
+            ) : (
+              <>
+                <select
+                  value={lead.stage || 'new_lead'}
+                  onChange={(e) => updateStageMutation.mutate({ id: lead.id, stage: e.target.value })}
+                  disabled={updateStageMutation.isPending}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #D8E1D7',
+                    background: '#F9FAFB',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: '#4B5563',
+                    cursor: 'pointer',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="new_lead">New Lead</option>
+                  <option value="cold_calling">To Call</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="converted_lost">Converted / Lost</option>
+                  <option value="unsubscribed">Unsubscribed</option>
+                </select>
+                {lead.email_opened ? (
+                   <div style={{ fontSize: 11, color: '#0F766E', fontWeight: 700, background: '#CCFBF1', padding: '4px 8px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                     Seen
+                   </div>
+                ) : null}
+                {lead.emails_received ? (
+                   <div style={{ fontSize: 11, color: '#4338CA', fontWeight: 700, background: '#E0E7FF', padding: '4px 8px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+                     Replied
+                   </div>
+                ) : (
+                  lead.emails_sent ? (
+                    <button 
+                      onClick={() => markRepliedMutation.mutate(lead.id)}
+                      disabled={markRepliedMutation.isPending}
+                      style={{ fontSize: 10, color: '#6B7280', background: 'transparent', border: '1px solid #D1D5DB', padding: '4px 8px', borderRadius: 12, cursor: 'pointer' }}
+                    >
+                      Mark Replied
+                    </button>
+                  ) : null
+                )}
+                {lead.meeting_time && (
+                   <div style={{ fontSize: 12, color: isHighlighted ? '#DC2626' : '#D97706', fontWeight: 700, background: isHighlighted ? '#FEE2E2' : '#FEF3C7', padding: '6px 12px', borderRadius: 20, marginRight: 8, whiteSpace: 'nowrap' }}>
+                     🗓 {new Date(lead.meeting_time).toLocaleDateString()}
+                   </div>
+                )}
+                <button
+                  onClick={() => lead.phone_number && setActiveCall(lead)}
+                  disabled={!lead.phone_number}
+                  style={{
+                    background: lead.phone_number ? 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)' : '#F3F4F6',
+                    color: lead.phone_number ? '#fff' : '#9CA3AF',
+                    border: 'none', padding: '8px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: lead.phone_number ? 'pointer' : 'not-allowed',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    boxShadow: lead.phone_number ? '0 4px 10px rgba(15, 118, 110, 0.2)' : 'none',
+                    transition: 'all 0.2s ease', whiteSpace: 'nowrap'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (lead.phone_number) {
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = '0 6px 12px rgba(15, 118, 110, 0.3)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (lead.phone_number) {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 4px 10px rgba(15, 118, 110, 0.2)';
+                    }
+                  }}
+                >
+                  <svg fill="currentColor" viewBox="0 0 20 20" style={{ width: 14, height: 14 }}>
+                    <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
+                  </svg>
+                  {lead.phone_number ? 'Call Now' : 'No Phone'}
+                </button>
+                <button
+                  onClick={() => linkedinMutation.mutate({ id: lead.id, task_type: 'scrape_profile' })}
+                  disabled={linkedinMutation.isPending}
+                  style={{
+                    background: '#0A66C2',
+                    color: '#fff',
+                    border: 'none', padding: '8px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: linkedinMutation.isPending ? 'wait' : 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    boxShadow: '0 4px 10px rgba(10, 102, 194, 0.2)',
+                    transition: 'all 0.2s ease', whiteSpace: 'nowrap'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                    e.currentTarget.style.boxShadow = '0 6px 12px rgba(10, 102, 194, 0.3)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 4px 10px rgba(10, 102, 194, 0.2)';
+                  }}
+                  title="Auto-Scrape Profile"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
+                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                  </svg>
+                  Scrape
+                </button>
+
+                {getCallUser()?.role === 'manager' && (
+                  <button
+                    onClick={() => handleDelete(lead.id, lead.name)}
+                    style={{
+                      background: 'transparent', color: '#9CA3AF', padding: '6px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease',
+                    }}
+                    title="Delete lead"
+                    onMouseEnter={(e) => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEF2F2'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = '#9CA3AF'; e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ width: 16, height: 16, strokeWidth: 2 }}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -453,7 +538,7 @@ export default function LeadsPage() {
     return <div style={{ padding: 40, textAlign: 'center', color: '#7B8794' }}>Loading leads...</div>;
   }
 
-  const tabLeads = otherLeads.filter(l => {
+  const tabLeads = (viewMode === 'lead_pool') ? otherLeads : otherLeads.filter(l => {
     const isUnsubscribed = l.unsubscribed === true || l.stage === 'unsubscribed';
     if (activeTab === 'unsubscribed') return isUnsubscribed;
     if (isUnsubscribed) return false;
@@ -487,28 +572,80 @@ export default function LeadsPage() {
     <div style={{ maxWidth: 1400 }}>
       {/* Header & Revenue Dashboard */}
       <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 28, fontWeight: 700, color: '#14202B', margin: '0 0 16px' }}>
-          💼 Agency Pipeline
+        <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 28, fontWeight: 700, color: '#14202B', margin: '0 0 8px' }}>
+          {viewMode === 'lead_pool' ? '🌊 Lead Pool' : '💼 Agency Pipeline'}
         </h1>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-          <div style={{ background: '#fff', border: '1px solid #D8E1D7', padding: 20, borderRadius: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: 8 }}>Total Leads</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#14202B' }}>{filteredLeads.length}</div>
+        <p style={{ color: '#52606D', fontSize: 15, margin: '0 0 16px' }}>
+          {viewMode === 'lead_pool' ? 'Browse and claim available leads in your niches' : 'Manage your sales pipeline and outreach'}
+        </p>
+        
+        {(isManager || viewMode === 'my_leads') && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+            <div style={{ background: '#fff', border: '1px solid #D8E1D7', padding: 20, borderRadius: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: 8 }}>Total Leads</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: '#14202B' }}>{filteredLeads.length}</div>
+            </div>
+            <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', padding: 20, borderRadius: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1D4ED8', textTransform: 'uppercase', marginBottom: 8 }}>🗓️ Discovery Calls</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: '#1E3A8A' }}>{filteredLeads.filter(l => l.meeting_time).length}</div>
+            </div>
+            <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', padding: 20, borderRadius: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#B45309', textTransform: 'uppercase', marginBottom: 8 }}>📄 Proposals Sent</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: '#78350F' }}>{filteredLeads.filter(l => ['proposal_sent', 'negotiation', 'won'].includes(l.stage || '')).length}</div>
+            </div>
+            <div style={{ background: '#ECFCCB', border: '1px solid #D9F99D', padding: 20, borderRadius: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#4D7C0F', textTransform: 'uppercase', marginBottom: 8 }}>💰 Closed Revenue</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: '#3F6212' }}>${filteredLeads.filter(l => l.stage === 'won').reduce((acc, l) => acc + (l.deal_value || 0), 0).toLocaleString()}</div>
+            </div>
           </div>
-          <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', padding: 20, borderRadius: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1D4ED8', textTransform: 'uppercase', marginBottom: 8 }}>🗓️ Discovery Calls</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#1E3A8A' }}>{filteredLeads.filter(l => l.meeting_time).length}</div>
-          </div>
-          <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', padding: 20, borderRadius: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#B45309', textTransform: 'uppercase', marginBottom: 8 }}>📄 Proposals Sent</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#78350F' }}>{filteredLeads.filter(l => ['proposal_sent', 'negotiation', 'won'].includes(l.stage || '')).length}</div>
-          </div>
-          <div style={{ background: '#ECFCCB', border: '1px solid #D9F99D', padding: 20, borderRadius: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#4D7C0F', textTransform: 'uppercase', marginBottom: 8 }}>💰 Closed Revenue</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#3F6212' }}>${filteredLeads.filter(l => l.stage === 'won').reduce((acc, l) => acc + (l.deal_value || 0), 0).toLocaleString()}</div>
-          </div>
-        </div>
+        )}
       </div>
+
+      {/* View Mode Toggle for Employees */}
+      {!isManager && (
+        <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+          <button
+            onClick={() => { setViewMode('my_leads'); setSearchParams({ page: '1' }); }}
+            style={{
+              padding: '10px 20px',
+              borderRadius: 20,
+              border: viewMode === 'my_leads' ? 'none' : '1px solid #D8E1D7',
+              background: viewMode === 'my_leads' ? 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)' : '#fff',
+              color: viewMode === 'my_leads' ? '#fff' : '#4B5563',
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: viewMode === 'my_leads' ? '0 4px 10px rgba(15, 118, 110, 0.2)' : 'none',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
+            }}
+          >
+            <span>👤</span> My Leads
+          </button>
+          <button
+            onClick={() => { setViewMode('lead_pool'); setSearchParams({ page: '1' }); }}
+            style={{
+              padding: '10px 20px',
+              borderRadius: 20,
+              border: viewMode === 'lead_pool' ? 'none' : '1px solid #D8E1D7',
+              background: viewMode === 'lead_pool' ? 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)' : '#fff',
+              color: viewMode === 'lead_pool' ? '#fff' : '#4B5563',
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: viewMode === 'lead_pool' ? '0 4px 10px rgba(15, 118, 110, 0.2)' : 'none',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
+            }}
+          >
+            <span>🌊</span> Lead Pool
+          </button>
+        </div>
+      )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -548,7 +685,7 @@ export default function LeadsPage() {
         />
       </div>
 
-      {todayMeetings.length > 0 && (
+      {viewMode !== 'lead_pool' && todayMeetings.length > 0 && (
         <div style={{ marginBottom: 32 }}>
           <h2 style={{ color: '#DC2626', fontSize: 20, marginBottom: 16, fontFamily: 'Space Grotesk, sans-serif' }}>
             🚨 Call Today! (Meeting Scheduled)
@@ -559,34 +696,97 @@ export default function LeadsPage() {
         </div>
       )}
 
-      {/* Stage Tabs */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #E5E7EB', paddingBottom: 8, overflowX: 'auto', whiteSpace: 'nowrap' }}>
-        {[
-          { id: 'new_lead', label: 'New Leads' },
-          { id: 'outreach', label: 'Outreach' },
-          { id: 'engaged', label: 'Engaged' },
-          { id: 'discovery', label: 'Discovery Call' },
-          { id: 'proposal_sent', label: 'Proposal Sent' },
-          { id: 'negotiation', label: 'Negotiation' },
-          { id: 'won', label: 'Won 🏆' },
-          { id: 'lost', label: 'Lost' },
-          { id: 'unsubscribed', label: 'Unsubscribed 🚫' }
-        ].map(tab => (
-          <button 
-            key={tab.id}
-            onClick={() => { setActiveTab(tab.id as any); setSearchParams({ page: '1' }); }}
-            style={{ 
-              background: 'none', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer',
-              color: activeTab === tab.id ? '#0F766E' : '#6B7280',
-              borderBottom: activeTab === tab.id ? '2px solid #0F766E' : 'none',
-              paddingBottom: 8,
-              transition: 'all 0.2s'
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Batch Actions for Lead Pool */}
+      {!isManager && viewMode === 'lead_pool' && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          background: '#F0FDFA',
+          border: '1px solid #CCFBF1',
+          padding: '12px 20px',
+          borderRadius: 12,
+          marginBottom: 16,
+          boxShadow: '0 4px 6px -1px rgba(15, 118, 110, 0.05)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <input
+              type="checkbox"
+              checked={paginatedLeads.length > 0 && paginatedLeads.every(l => selectedLeads.includes(l.id))}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  const toAdd = paginatedLeads.map(l => l.id).filter(id => !selectedLeads.includes(id));
+                  setSelectedLeads(prev => [...prev, ...toAdd]);
+                } else {
+                  const toRemove = paginatedLeads.map(l => l.id);
+                  setSelectedLeads(prev => prev.filter(id => !toRemove.includes(id)));
+                }
+              }}
+              style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#0F766E' }}
+            />
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#0F766E' }}>
+              Select All on Page
+            </span>
+          </div>
+
+          {selectedLeads.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#0F766E' }}>
+                {selectedLeads.length} lead(s) selected
+              </span>
+              <button
+                onClick={() => claimMutation.mutate(selectedLeads)}
+                disabled={claimMutation.isPending}
+                style={{
+                  background: 'linear-gradient(135deg, #0F766E 0%, #115E59 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '8px 16px',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 10px rgba(15, 118, 110, 0.2)',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {claimMutation.isPending ? 'Claiming...' : 'Claim Selected Leads'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stage Tabs (Only shown in My Leads or for Managers) */}
+      {(isManager || viewMode === 'my_leads') && (
+        <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #E5E7EB', paddingBottom: 8, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+          {[
+            { id: 'new_lead', label: 'New Leads' },
+            { id: 'outreach', label: 'Outreach' },
+            { id: 'engaged', label: 'Engaged' },
+            { id: 'discovery', label: 'Discovery Call' },
+            { id: 'proposal_sent', label: 'Proposal Sent' },
+            { id: 'negotiation', label: 'Negotiation' },
+            { id: 'won', label: 'Won 🏆' },
+            { id: 'lost', label: 'Lost' },
+            { id: 'unsubscribed', label: 'Unsubscribed 🚫' }
+          ].map(tab => (
+            <button 
+              key={tab.id}
+              onClick={() => { setActiveTab(tab.id as any); setSearchParams({ page: '1' }); }}
+              style={{ 
+                background: 'none', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                color: activeTab === tab.id ? '#0F766E' : '#6B7280',
+                borderBottom: activeTab === tab.id ? '2px solid #0F766E' : 'none',
+                paddingBottom: 8,
+                transition: 'all 0.2s'
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Leads Grid or Table */}
       {['engaged', 'discovery', 'proposal_sent', 'negotiation', 'won', 'lost'].includes(activeTab) ? (

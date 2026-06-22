@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { Mail, MessageCircle, Settings, CheckCircle, Eye, Reply, Send, RefreshCw } from 'lucide-react';
 import callsApi, { Contact } from '../services/callsApi';
+import { nichesApi, Niche } from '../services/nichesApi';
 import SentEmailsPopup from '../components/SentEmailsPopup';
 
 const BusinessEmailManager = ({ accountId, token }: { accountId: number, token: string }) => {
@@ -93,9 +94,13 @@ export default function EmailOutreach() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('email');
-  const [activeEmailTab, setActiveEmailTab] = useState<'history' | 'accounts' | 'campaigns' | 'replies' | 'followups'>('history');
+  const [activeEmailTab, setActiveEmailTab] = useState<'history' | 'accounts' | 'campaigns' | 'replies' | 'followups' | 'prompts'>('history');
   const [activeSocialSubTab, setActiveSocialSubTab] = useState<'campaigns' | 'leads' | 'queue'>('campaigns');
   const [emailSubTab, setEmailSubTab] = useState<'pending' | 'sent' | 'replied'>('sent');
+  const [selectedNicheId, setSelectedNicheId] = useState<number | null>(null);
+  const [promptText, setPromptText] = useState('');
+  const [savingPrompt, setSavingPrompt] = useState(false);
+  const promptEditorRef = useRef<HTMLTextAreaElement>(null);
   const [newCampName, setNewCampName] = useState('');
   const [newCampTemplate, setNewCampTemplate] = useState('');
   const [newCampDailyLimit, setNewCampDailyLimit] = useState<number>(50);
@@ -242,6 +247,11 @@ export default function EmailOutreach() {
     queryFn: () => callsApi.getEmailAccounts(),
   });
 
+  const { data: nichesData } = useQuery({
+    queryKey: ['niches'],
+    queryFn: nichesApi.list,
+  });
+
   const createAccountMutation = useMutation({
     mutationFn: (data: { email: string; app_password: string }) => callsApi.createEmailAccount(data),
     onSuccess: () => {
@@ -296,6 +306,28 @@ export default function EmailOutreach() {
       if (data.accounts) setAccounts(data.accounts);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleNicheSelect = (nicheId: number) => {
+    setSelectedNicheId(nicheId);
+    const niche = nichesData?.niches?.find(n => n.id === nicheId);
+    setPromptText(niche?.custom_prompt || '');
+  };
+
+  const handleSavePrompt = async () => {
+    if (!selectedNicheId) return;
+    setSavingPrompt(true);
+    try {
+      await nichesApi.update(selectedNicheId, { custom_prompt: promptText });
+      queryClient.invalidateQueries({ queryKey: ['niches'] });
+      setStatusMsg({ type: 'success', text: 'Prompt saved successfully!' });
+      setTimeout(() => setStatusMsg(null), 3000);
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message || 'Failed to save prompt.' });
+      setTimeout(() => setStatusMsg(null), 5000);
+    } finally {
+      setSavingPrompt(false);
     }
   };
 
@@ -416,6 +448,12 @@ export default function EmailOutreach() {
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeEmailTab === 'followups' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200/50'}`}
               >
                 Follow-ups
+              </button>
+              <button 
+                onClick={() => setActiveEmailTab('prompts')}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${activeEmailTab === 'prompts' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200/50'}`}
+              >
+                Prompt Settings
               </button>
             </div>
 
@@ -823,6 +861,129 @@ export default function EmailOutreach() {
                       Create Follow-up Sequence
                     </button>
                   </div>
+                </div>
+              )}
+
+              {activeEmailTab === 'prompts' && (
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800 mb-6">Niche Prompt Settings</h2>
+                  <p className="text-gray-500 mb-6">
+                    Customize the AI prompt template for each niche. Use <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono text-indigo-600">{"{{variable}}"}</code> placeholders that will be replaced with real contact data when emails are sent.
+                  </p>
+
+                  {/* Niche Selector */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Select Niche</label>
+                    <select
+                      value={selectedNicheId || ''}
+                      onChange={(e) => handleNicheSelect(Number(e.target.value))}
+                      className="w-full max-w-md p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                    >
+                      <option value="" disabled>Choose a niche...</option>
+                      {nichesData?.niches?.map((niche: Niche) => (
+                        <option key={niche.id} value={niche.id}>
+                          {niche.name} ({niche.contact_count} contacts)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedNicheId && (
+                    <>
+                      {/* Variable Chips */}
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Available Variables (click to insert at cursor)
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            '{{contact_name}}',
+                            '{{company_name}}',
+                            '{{website}}',
+                            '{{website_data}}',
+                            '{{location}}',
+                            '{{services}}',
+                            '{{niche_name}}',
+                            '{{headline}}',
+                            '{{research_data}}',
+                            '{{company_description}}',
+                            '{{sender_name}}',
+                          ].map((variable) => (
+                            <button
+                              key={variable}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                const textarea = promptEditorRef.current;
+                                if (textarea) {
+                                  const start = textarea.selectionStart;
+                                  const end = textarea.selectionEnd;
+                                  const currentValue = textarea.value;
+                                  const newText = currentValue.substring(0, start) + variable + currentValue.substring(end);
+                                  setPromptText(newText);
+                                  requestAnimationFrame(() => {
+                                    textarea.focus();
+                                    textarea.setSelectionRange(start + variable.length, start + variable.length);
+                                  });
+                                }
+                              }}
+                              className="px-2.5 py-1 text-xs font-mono bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors cursor-pointer"
+                            >
+                              {variable}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Prompt Editor */}
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          AI Prompt Template
+                        </label>
+                        <textarea
+                          ref={promptEditorRef}
+                          id="prompt-editor"
+                          value={promptText}
+                          onChange={(e) => setPromptText(e.target.value)}
+                          placeholder={`You are an expert B2B sales representative writing a personalized cold email.\n\nContact: {{contact_name}}\nCompany: {{company_name}} ({{website}})\nLocation: {{location}}\nServices: {{services}}\n\nWebsite Data: {{website_data}}\nHeadline: {{headline}}\n\nWrite a highly personalized cold email referencing specific details from their website...`}
+                          className="w-full h-64 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-sm"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">
+                          Default prompt will be used if this is empty. All {"{{variable}}"} placeholders are auto-replaced with real data.
+                        </p>
+                      </div>
+
+                      {/* Save Button */}
+                      <div className="flex items-center gap-4">
+                        <button
+                          onClick={handleSavePrompt}
+                          disabled={savingPrompt}
+                          className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                        >
+                          {savingPrompt ? 'Saving...' : 'Save Prompt'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedNicheId(null);
+                            setPromptText('');
+                          }}
+                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {!selectedNicheId && (
+                    <div className="bg-gray-50 rounded-xl border border-gray-200 p-8 text-center">
+                      <Settings className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">Select a Niche</h3>
+                      <p className="text-gray-500 max-w-md mx-auto">
+                        Choose a niche from the dropdown above to view or edit its AI prompt template. Each niche can have its own personalized prompt.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -39,10 +39,13 @@ export default function CallSystem() {
     queryFn: callsApi.listContacts
   });
 
-  // Filter ONLY leads that are in cold_calling stage
-  const callLeads = data?.contacts.filter(lead => 
-    lead.omnichannel_stage === 'cold_calling' || lead.stage === 'cold_calling'
-  ) || [];
+  // Filter ONLY leads that are in cold_calling stage and assigned to this employee
+  const callUser = getCallUser();
+  const callLeads = data?.contacts.filter(lead => {
+    const isStage = lead.omnichannel_stage === 'cold_calling' || lead.stage === 'cold_calling';
+    const isAssignedToMe = !callUser || callUser.role === 'manager' || lead.assigned_agent_id === callUser.id;
+    return isStage && isAssignedToMe;
+  }) || [];
 
   const filteredLeads = callLeads.filter(lead => 
     lead.name.toLowerCase().includes(search.toLowerCase()) ||

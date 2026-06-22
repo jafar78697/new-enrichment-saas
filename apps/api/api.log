@@ -1,10 +1,206 @@
+
+> @enrichment-saas/api@1.0.0 dev
+> tsx watch src/index.ts
+
 [AutomatedSender] Initialized — checking for pending contacts every 60 seconds.
 [Omnichannel] Initialized — checking for unresponsive email leads every hour.
-{"level":30,"time":1781587129147,"pid":258060,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"calls-module socket.io live"}
+[imap-sync] Starting IMAP Sync background service (runs every 5 minutes)
+[Warmup Scheduler] Started background loop (15m interval)
+{"level":30,"time":1781614411412,"pid":336223,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"calls-module socket.io live"}
+🚀 API Server running on port 3000
+{"level":30,"time":1781614411445,"pid":336223,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"Server listening at http://0.0.0.0:3000"}
+[imap-sync] Failed to fetch accounts from Postgres: connect ECONNREFUSED 127.0.0.1:5432
+[AutomatedSender] Outside of active sending window (6:00 PM to 2:00 AM PKT). Skipping.
+[Omnichannel] Auto-Mover error: connect ECONNREFUSED 127.0.0.1:5432
+[AutomatedSender] Outside of active sending window (6:00 PM to 2:00 AM PKT). Skipping.
+{"level":30,"time":1781614567092,"pid":336223,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1","req":{"method":"POST","url":"/employees","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":58884},"msg":"incoming request"}
+{"level":30,"time":1781614567110,"pid":336223,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1","msg":"Route POST:/employees not found"}
+[0mPOST /employees [33m404[0m 10.500 ms - 82[0m
+{"level":30,"time":1781614567117,"pid":336223,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1","res":{"statusCode":404},"responseTime":24.336254000663757,"msg":"request completed"}
+[AutomatedSender] Outside of active sending window (6:00 PM to 2:00 AM PKT). Skipping.
+[AutomatedSender] Outside of active sending window (6:00 PM to 2:00 AM PKT). Skipping.
+[IMAP Sync] Global error: Error: connect ECONNREFUSED 127.0.0.1:5432
+    at /home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/node_modules/.pnpm/pg-pool@3.13.0_pg@8.20.0/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async OutreachImapService.syncReplies (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/services/outreach-imap.service.ts:15:34)
+    at async Timeout._onTimeout (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/routes/outreach.ts:23:7) {
+  errno: -111,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 5432
+}
+[AutomatedSender] Outside of active sending window (6:00 PM to 2:00 AM PKT). Skipping.
+[imap-sync] Failed to fetch accounts from Postgres: connect ECONNREFUSED 127.0.0.1:5432
+[AutomatedSender] Outside of active sending window (6:00 PM to 2:00 AM PKT). Skipping.
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[IMAP Sync] Global error: error: password authentication failed for user "postgres"
+    at /home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/node_modules/.pnpm/pg-pool@3.13.0_pg@8.20.0/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async OutreachImapService.syncReplies (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/services/outreach-imap.service.ts:15:34)
+    at async Timeout._onTimeout (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/routes/outreach.ts:23:7) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '331',
+  routine: 'auth_failed'
+}
+[imap-sync] Failed to fetch accounts from Postgres: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[IMAP Sync] Global error: error: password authentication failed for user "postgres"
+    at /home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/node_modules/.pnpm/pg-pool@3.13.0_pg@8.20.0/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async OutreachImapService.syncReplies (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/services/outreach-imap.service.ts:15:34)
+    at async Timeout._onTimeout (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/routes/outreach.ts:23:7) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '331',
+  routine: 'auth_failed'
+}
+/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/node_modules/.pnpm/pg-pool@3.13.0_pg@8.20.0/node_modules/pg-pool/index.js:45
+    Error.captureStackTrace(err)
+          ^
+
+error: password authentication failed for user "postgres"
+    at /home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/node_modules/.pnpm/pg-pool@3.13.0_pg@8.20.0/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async Timeout.processWarmup (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/calls-module/warmup.js:13:18) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '331',
+  routine: 'auth_failed'
+}
+
+Node.js v20.19.6
+7:06:10 PM [tsx] change in ./src/calls-module/services/campaign-sender.service.js Rerunning...
+c[AutomatedSender] Initialized — checking for pending contacts every 60 seconds.
+[Omnichannel] Initialized — checking for unresponsive email leads every hour.
+{"level":30,"time":1781618776172,"pid":370610,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"calls-module socket.io live"}
 [imap-sync] Starting IMAP Sync background service (runs every 5 minutes)
 [Warmup Scheduler] Started background loop (15m interval)
 🚀 API Server running on port 3000
-{"level":30,"time":1781587129164,"pid":258060,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"Server listening at http://0.0.0.0:3000"}
-{"level":30,"time":1781587130460,"pid":258060,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1","req":{"method":"GET","url":"/api/calls-health","hostname":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":57206},"msg":"incoming request"}
-[0mGET /api/calls-health [32m200[0m 1.671 ms - 28[0m
-{"level":30,"time":1781587130469,"pid":258060,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","reqId":"req-1","res":{"statusCode":200},"responseTime":8.811466008424759,"msg":"request completed"}
+{"level":30,"time":1781618776182,"pid":370610,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"Server listening at http://0.0.0.0:3000"}
+[imap-sync] Failed to fetch accounts from Postgres: password authentication failed for user "postgres"
+7:06:34 PM [tsx] change in ./src/calls-module/routes/contacts.routes.js Restarting...
+c[AutomatedSender] Initialized — checking for pending contacts every 60 seconds.
+[Omnichannel] Initialized — checking for unresponsive email leads every hour.
+{"level":30,"time":1781618800984,"pid":370852,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"calls-module socket.io live"}
+[imap-sync] Starting IMAP Sync background service (runs every 5 minutes)
+[Warmup Scheduler] Started background loop (15m interval)
+🚀 API Server running on port 3000
+{"level":30,"time":1781618801001,"pid":370852,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"Server listening at http://0.0.0.0:3000"}
+[imap-sync] Failed to fetch accounts from Postgres: password authentication failed for user "postgres"
+[Omnichannel] Auto-Mover error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[IMAP Sync] Global error: error: password authentication failed for user "postgres"
+    at /home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/node_modules/.pnpm/pg-pool@3.13.0_pg@8.20.0/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async OutreachImapService.syncReplies (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/services/outreach-imap.service.ts:15:34)
+    at async Timeout._onTimeout (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/routes/outreach.ts:23:7) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '331',
+  routine: 'auth_failed'
+}
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[imap-sync] Failed to fetch accounts from Postgres: password authentication failed for user "postgres"
+7:12:13 PM [tsx] change in ./src/calls-module/routes/contacts.routes.js Restarting...
+c[AutomatedSender] Initialized — checking for pending contacts every 60 seconds.
+[Omnichannel] Initialized — checking for unresponsive email leads every hour.
+{"level":30,"time":1781619139894,"pid":373269,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"calls-module socket.io live"}
+[imap-sync] Starting IMAP Sync background service (runs every 5 minutes)
+[Warmup Scheduler] Started background loop (15m interval)
+🚀 API Server running on port 3000
+{"level":30,"time":1781619139912,"pid":373269,"hostname":"jafar-tayyar-siddiqi-Latitude-7280","msg":"Server listening at http://0.0.0.0:3000"}
+[imap-sync] Failed to fetch accounts from Postgres: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[Omnichannel] Auto-Mover error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[IMAP Sync] Global error: error: password authentication failed for user "postgres"
+    at /home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/node_modules/.pnpm/pg-pool@3.13.0_pg@8.20.0/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async OutreachImapService.syncReplies (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/services/outreach-imap.service.ts:15:34)
+    at async Timeout._onTimeout (/home/jafar-tayyar-siddiqi/Downloads/email app/.kiro/specs/enrichment-saas/apps/api/src/routes/outreach.ts:23:7) {
+  length: 104,
+  severity: 'FATAL',
+  code: '28P01',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'auth.c',
+  line: '331',
+  routine: 'auth_failed'
+}
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"
+[imap-sync] Failed to fetch accounts from Postgres: password authentication failed for user "postgres"
+[AutomatedSender] processAutomatedEmails error: password authentication failed for user "postgres"

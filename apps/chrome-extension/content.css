@@ -1,72 +1,423 @@
+/* ──────────────────────────────────────────────
+   JENTOAI SETTER EXTENSION — Styles (Dark Theme)
+   Modern, animated UI for daily/weekly task tracking
+   ────────────────────────────────────────────── */
+
 #jento-ext-wrapper {
   position: fixed;
   bottom: 20px;
   right: 20px;
-  width: 250px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  width: 320px;
+  background: #0f0f1a;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,102,241,0.15);
   z-index: 999999;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  border: 1px solid #e5e7eb;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow: hidden;
+  animation: jento-slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+@keyframes jento-slideUp {
+  from { transform: translateY(30px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ── HEADER ── */
 #jento-ext-header {
-  background: #4f46e5;
   color: white;
-  padding: 10px 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.jento-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jento-logo {
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 16px;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+}
+
+.jento-title {
+  font-weight: 700;
+  font-size: 14px;
+  display: block;
+  letter-spacing: -0.2px;
+}
+
+.jento-platform {
+  font-size: 10px;
+  opacity: 0.6;
+  display: block;
+  margin-top: -1px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.jento-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jento-profile-badge {
+  background: rgba(255,255,255,0.1);
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+#jento-ext-toggle,
+#jento-ext-close {
+  background: rgba(255,255,255,0.08);
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+#jento-ext-toggle:hover,
+#jento-ext-close:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+/* ── BODY ── */
+#jento-ext-body {
+  padding: 14px;
+  max-height: 500px;
+  overflow-y: auto;
+  color: #e2e8f0;
+}
+
+/* ── PROFILE ROW ── */
+.jento-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #1e293b;
+}
+
+.jento-profile-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+}
+
+.jento-profile-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.jento-profile-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jento-profile-date {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 1px;
+}
+
+/* ── CIRCULAR PROGRESS ── */
+.jento-overall-progress {
+  flex-shrink: 0;
+}
+
+.jento-circular-chart {
+  width: 40px;
+  height: 40px;
+}
+
+.jento-circle-bg {
+  fill: none;
+  stroke: #1e293b;
+  stroke-width: 3;
+}
+
+.jento-circle {
+  fill: none;
+  stroke: #6366f1;
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  filter: drop-shadow(0 0 4px rgba(99,102,241,0.4));
+}
+
+.jento-circle-text {
+  font-size: 8px;
+  font-weight: 700;
+  text-anchor: middle;
+  fill: #a5b4fc;
+  dominant-baseline: central;
+}
+
+/* ── TABS ── */
+.jento-tabs {
+  display: flex;
+  gap: 4px;
+  background: #1a1a2e;
+  padding: 3px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #1e293b;
+}
+
+.jento-tab {
+  flex: 1;
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.jento-tab.active {
+  background: #1e1b4b;
+  color: #a5b4fc;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.jento-tab:hover:not(.active) {
+  color: #94a3b8;
+}
+
+.jento-hidden {
+  display: none !important;
+}
+
+/* ── TASK CARDS ── */
+.jento-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.jento-task-card {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
-  font-size: 14px;
+  padding: 8px 10px;
+  background: #1a1a2e;
+  border-radius: 10px;
+  border: 1px solid #1e293b;
+  transition: all 0.3s ease;
 }
 
-#jento-ext-header img {
-  border-radius: 4px;
-  background: white;
-  padding: 2px;
+.jento-task-card:hover {
+  border-color: #6366f1;
+  background: #1e1b4b;
 }
 
-#jento-ext-close {
-  margin-left: auto;
-  background: transparent;
-  border: none;
-  color: white;
-  cursor: pointer;
-  font-size: 16px;
-}
-
-#jento-ext-body {
-  padding: 16px;
-}
-
-#jento-ext-scrape {
-  width: 100%;
-  background: #10b981;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 0;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-#jento-ext-scrape:hover {
-  background: #059669;
-}
-
-#jento-ext-status {
-  margin-top: 10px;
+.jento-task-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.jento-task-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.jento-task-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-bottom: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.jento-task-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jento-task-bar-bg {
+  flex: 1;
+  height: 4px;
+  background: #1e293b;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.jento-task-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.jento-task-count {
+  font-size: 9px;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+  min-width: 40px;
+  text-align: right;
+}
+
+.jento-task-btn {
+  padding: 3px 10px;
+  border: 1.5px solid;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.jento-task-btn:hover {
+  transform: scale(1.08);
+  filter: brightness(1.2);
+  background: rgba(255,255,255,0.05);
+}
+
+.jento-task-btn:active {
+  transform: scale(0.95);
+}
+
+/* ── POP ANIMATION ── */
+.jento-pop {
+  animation: jento-popAnim 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes jento-popAnim {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.03); border-color: #6366f1; }
+  100% { transform: scale(1); }
+}
+
+/* ── ACTION BUTTONS ── */
+.jento-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.jento-action-btn {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  letter-spacing: 0.3px;
+}
+
+.jento-action-btn:hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99,102,241,0.3);
+}
+
+.jento-action-btn:active {
+  transform: translateY(0);
+}
+
+.jento-action-btn.secondary {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+}
+
+.jento-action-btn.secondary:hover {
+  background: #334155;
+  color: #e2e8f0;
+  border-color: #6366f1;
+}
+
+/* ── STATUS ── */
+#jento-ext-status {
+  margin-top: 8px;
+  font-size: 11px;
   text-align: center;
+  font-weight: 500;
+  min-height: 16px;
+  color: #64748b;
 }
 
 #jento-ext-status.success {
-  color: #10b981;
+  color: #34d399;
 }
 
 #jento-ext-status.error {
-  color: #ef4444;
+  color: #f87171;
+}
+
+/* ── SCROLLBAR ── */
+#jento-ext-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+#jento-ext-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#jento-ext-body::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+#jento-ext-body::-webkit-scrollbar-thumb:hover {
+  background: #334155;
 }

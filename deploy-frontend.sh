@@ -4,10 +4,10 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 # The calls backend now lives merged inside api.jentoai.pro (EC2 13.61.8.100)
 # at /api/* paths. Override only if you split it out into a different host.
-CALLS_URL="${CALLS_URL:-http://13.61.8.100}"
+CALLS_URL="${CALLS_URL:-https://api.jentoai.pro}"
 
 echo "→ Building frontend..."
-echo "  API:     http://13.61.8.100"
+echo "  API:     https://api.jentoai.pro"
 echo "  MAILER:  https://mailer.jentoai.com"
 echo "  CALLS:   $CALLS_URL"
 cd "$ROOT/apps/web"

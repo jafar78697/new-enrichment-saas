@@ -9,3 +9,11 @@ node_modules/
 ageless-wall-482522-u4-dbca4732bd4f.json
 maximal-kingdom-499107-f8-0dd67b720ec9.json
 apps/api/google-credentials.json
+
+# Build outputs and heavy folders to save LLM tokens/credits
+dist/
+build/
+.wrangler/
+.next/
+coverage/
+.turbo/

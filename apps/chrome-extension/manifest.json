@@ -15,7 +15,11 @@
     "https://*.instagram.com/*",
     "https://*.linkedin.com/*",
     "https://*.reddit.com/*",
-    "https://api.jentoai.pro/*"
+    "https://api.jentoai.pro/*",
+    "https://app.jentoai.pro/*",
+    "https://crm.jentoai.pro/*",
+    "http://localhost:5173/*",
+    "http://localhost:3000/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -7,6 +7,7 @@ export const PIPELINE_STAGES = [
   'enriched',
   'qualified',
   'assigned',
+  'calling',
   'called',
   'no_answer',
   'followup',
@@ -40,6 +41,13 @@ async function writeAudit(
 }
 
 export default async function crmRoutes(fastify: FastifyInstance) {
+  // Ensure assigned_to_ai exists (runs once on boot)
+  try {
+    await fastify.db.query('ALTER TABLE enrichment_results ADD COLUMN IF NOT EXISTS assigned_to_ai BOOLEAN DEFAULT false;');
+  } catch (err) {
+    console.error('Failed to alter enrichment_results for assigned_to_ai:', err);
+  }
+
   // ================================================================
   // LEADS  (enrichment_results surfaced as pipeline leads)
   // ================================================================
@@ -56,6 +64,10 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     const params: any[] = [tenantId];
     if (q.stage) { params.push(q.stage); where.push(`lead_stage = $${params.length}`); }
     if (q.owner) { params.push(q.owner); where.push(`lead_owner_id = $${params.length}`); }
+    if (q.assigned_to_ai) {
+      params.push(q.assigned_to_ai === 'true' || q.assigned_to_ai === true);
+      where.push(`assigned_to_ai = $${params.length}`);
+    }
     if (q.q) {
       params.push(`%${q.q}%`);
       where.push(`(domain ILIKE $${params.length} OR company_name ILIKE $${params.length} OR primary_email ILIKE $${params.length})`);
@@ -68,6 +80,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
              lead_stage, lead_owner_id, lead_priority, lead_notes,
              last_contacted_at, next_followup_at,
              ai_summary, ai_pain_points, ai_score, ai_updated_at,
+             assigned_to_ai,
              created_at
       FROM enrichment_results
       WHERE ${where.join(' AND ')}
@@ -81,6 +94,24 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       params,
     );
     return { leads: rows, total: parseInt(countRows[0].count), page, limit };
+  });
+
+  // GET /v1/leads/active-calls -> Returns mapping of contactId -> callSid for live monitoring
+  fastify.get('/v1/leads/active-calls', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
+    try {
+      // @ts-ignore
+      const { getPipelineStats } = await import('../voice-agent/orchestrator/call-pipeline.js');
+      const stats = getPipelineStats();
+      const activeCalls: Record<string, string> = {};
+      stats.pipelines.forEach((p: any) => {
+        if (p.contactId && p.callSid) {
+          activeCalls[p.contactId] = p.callSid;
+        }
+      });
+      return { activeCalls };
+    } catch (err) {
+      return { activeCalls: {} };
+    }
   });
 
   // GET /v1/leads/pipeline  → groups counts by stage for Kanban
@@ -126,7 +157,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     const params: any[] = [];
 
     const { rows: current } = await fastify.db.query(
-      `SELECT lead_stage, lead_owner_id FROM enrichment_results WHERE id = $1 AND tenant_id = $2`,
+      `SELECT lead_stage, lead_owner_id, assigned_to_ai FROM enrichment_results WHERE id = $1 AND tenant_id = $2`,
       [request.params.id, tenantId],
     );
     if (!current[0]) return reply.code(404).send({ error: 'Lead not found' });
@@ -145,6 +176,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     }
     if (body.next_followup_at === null || typeof body.next_followup_at === 'string') {
       params.push(body.next_followup_at); updates.push(`next_followup_at = $${params.length}`);
+    }
+    if (typeof body.assigned_to_ai === 'boolean') {
+      params.push(body.assigned_to_ai); updates.push(`assigned_to_ai = $${params.length}`);
     }
     if (!updates.length) return reply.code(400).send({ error: 'No valid fields to update' });
 

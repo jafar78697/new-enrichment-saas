@@ -14,6 +14,7 @@ export interface DialerPopupProps {
   onEnded?: (context: { callSid: string | null; connected: boolean; seconds: number }) => void;
   autoStart?: boolean; // auto-start call on mount
   record?: boolean;
+  isOpen?: boolean; // Controls visual visibility while keeping hook mounted
 }
 
 const DTMF_KEYS: Array<{ digit: string; letters: string }> = [
@@ -96,6 +97,7 @@ export default function DialerPopup({
   onEnded,
   autoStart = true,
   record = true,
+  isOpen = true,
 }: DialerPopupProps) {
   const agentId = useResolvedAgentId();
   const [manualPhone, setManualPhone] = useState<string>(() => smartClean(phone));
@@ -121,6 +123,8 @@ export default function DialerPopup({
     endCall,
     toggleMute,
     sendDtmf,
+    acceptIncoming,
+    rejectIncoming,
   } = useTwilioDevice(agentId);
 
   const isInCall = callStatus === 'dialing' || callStatus === 'ringing' || callStatus === 'connected' || callStatus === 'incoming';
@@ -222,7 +226,15 @@ export default function DialerPopup({
   const displayName = contactName || 'Manual dial';
   const displayMeta = contactCompany || cleanPhone;
 
-  if (minimized) {
+  // If not open and idle, return null to hide UI but keep Twilio hook active
+  if (!isOpen && isIdle) {
+    return null;
+  }
+
+  // Force open if incoming call
+  const isVisuallyMinimized = minimized && callStatus !== 'incoming';
+
+  if (isVisuallyMinimized) {
     return (
       <div
         className="fixed bottom-6 right-6 z-[70] bg-white border border-slate-200 shadow-2xl rounded-2xl px-4 py-3 flex items-center gap-3 cursor-pointer hover:shadow-xl transition"
@@ -384,7 +396,12 @@ export default function DialerPopup({
               title="Close"
               className="w-8 h-8 rounded-full hover:bg-rose-100 text-slate-500 hover:text-rose-600 text-lg flex items-center justify-center"
               onClick={() => {
-                try { endCall(); } catch { /* ignore */ }
+                if (callStatus === 'connected' || callStatus === 'ringing' || callStatus === 'dialing') {
+                  try { endCall(); } catch { /* ignore */ }
+                }
+                if (callStatus === 'incoming') {
+                  try { rejectIncoming(); } catch { /* ignore */ }
+                }
                 onClose();
               }}
             >✕</button>
@@ -443,7 +460,24 @@ export default function DialerPopup({
             {isMuted ? '🔇' : '🎤'}
           </button>
 
-          {isIdle ? (
+          {callStatus === 'incoming' ? (
+            <>
+              <button
+                onClick={acceptIncoming}
+                className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white text-2xl flex items-center justify-center shadow-lg shadow-emerald-200 transition"
+                title="Accept Call"
+              >
+                📞
+              </button>
+              <button
+                onClick={rejectIncoming}
+                className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-2xl flex items-center justify-center shadow-lg shadow-rose-200 transition"
+                title="Decline Call"
+              >
+                🛑
+              </button>
+            </>
+          ) : isIdle ? (
             <button
               disabled={!canCall}
               onClick={handleStart}

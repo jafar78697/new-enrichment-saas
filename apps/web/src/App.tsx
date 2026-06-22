@@ -34,6 +34,8 @@ import GoogleMapScraperPage from './pages/GoogleMapScraper';
 import TeamsPage from './pages/Teams';
 import LeaderboardPage from './pages/Leaderboard';
 import AgentSettings from './pages/AgentSettings';
+import AgentPipeline from './pages/AgentPipeline';
+import PipelinePage from './pages/Pipeline';
 
 import PrivacyPage from './pages/Privacy';
 
@@ -79,6 +81,8 @@ export default function App() {
           <Route path="calls/:id" element={<CallDetailPage />} />
           <Route path="google-maps" element={<GoogleMapScraperPage />} />
           <Route path="settings" element={<AgentSettings />} />
+          <Route path="pipeline" element={<PipelinePage />} />
+          <Route path="ai-agent" element={<AgentPipeline />} />
         </Route>
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />

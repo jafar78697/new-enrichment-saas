@@ -10,6 +10,7 @@ export interface Niche {
   agent_name?: string;
   agent_email?: string;
   contact_count: number;
+  custom_prompt?: string | null;
   status: 'active' | 'archived';
   created_at: string;
 }

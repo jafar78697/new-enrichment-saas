@@ -82,6 +82,28 @@ async function main() {
             // Extract all links
             const links = Array.from(document.querySelectorAll('a')).map(a => a.href);
             
+            // Extract headline (H1 or title tag)
+            const h1 = document.querySelector('h1');
+            const headline = h1 ? h1.innerText.trim().substring(0, 200) : (document.title || '');
+            
+            // Try to extract company name from title or meta tags
+            let companyName = '';
+            const ogSiteName = document.querySelector('meta[property="og:site_name"]');
+            if (ogSiteName) companyName = ogSiteName.getAttribute('content') || '';
+            if (!companyName) {
+              const titleText = document.title || '';
+              // Common patterns: "Company Name - ..." or "... | Company Name"
+              const splitTitle = titleText.split(/[\||\-|–|—]/);
+              if (splitTitle.length >= 2) {
+                companyName = splitTitle[splitTitle.length - 1].trim();
+              }
+            }
+            
+            // Try to extract location
+            let location = '';
+            const addressEl = document.querySelector('[itemprop="address"], .address, [data-location]');
+            if (addressEl) location = addressEl.textContent?.trim() || '';
+            
             // Basic Regex for Emails
             const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
             let emails = [];
@@ -113,7 +135,10 @@ async function main() {
             }
 
             return {
-              text: text.substring(0, 2000), // Keep some context
+              raw_text: text.substring(0, 2000), // Keep some context
+              headline,
+              company_name: companyName,
+              location,
               email: uniqueEmails.length > 0 ? uniqueEmails[0] : null,
               facebook_url,
               linkedin_url,
@@ -154,7 +179,7 @@ async function main() {
               websiteData.linkedin_url || null,
               websiteData.facebook_url || null,
               websiteData.instagram_url || null,
-              websiteData.text, // Save some context for the email AI writer later
+              JSON.stringify(websiteData), // Store full structured JSON for template resolver
               websiteData.email ? 40 : 10, // Higher score if email found
               lead.id
             ]

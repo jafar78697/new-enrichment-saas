@@ -1,206 +1,208 @@
 import React, { useState, useEffect, useRef } from 'react';
-
-// --- Mu-law encoding/decoding utilities ---
-
-const MULAW_BIAS = 0x84;
-const MULAW_MAX = 32635;
-
-function linearToMulaw(sample: number): number {
-  if (sample > MULAW_MAX) sample = MULAW_MAX;
-  else if (sample < -MULAW_MAX) sample = -MULAW_MAX;
-  
-  let sign = (sample >> 8) & 0x80;
-  if (sign !== 0) sample = -sample;
-  
-  sample += MULAW_BIAS;
-  
-  let exponent = 7;
-  for (let expMask = 0x4000; (sample & expMask) === 0 && exponent > 0; exponent--, expMask >>= 1) {}
-  
-  let mantissa = (sample >> (exponent + 3)) & 0x0F;
-  let mulaw = ~(sign | (exponent << 4) | mantissa);
-  
-  return mulaw & 0xFF;
-}
-
-const MULAW_TABLE = new Int16Array(256);
-for (let i = 0; i < 256; i++) {
-  const mulaw = ~i & 0xFF;
-  const sign = (mulaw & 0x80) ? 1 : -1;
-  const exponent = (mulaw >> 4) & 0x07;
-  const mantissa = mulaw & 0x0F;
-  MULAW_TABLE[i] = sign * ((mantissa << 3) + 0x84) << exponent;
-}
-
-function encodeMulaw(float32Array: Float32Array): Uint8Array {
-  const mulawBuffer = new Uint8Array(float32Array.length);
-  for (let i = 0; i < float32Array.length; i++) {
-    const sample = Math.max(-1, Math.min(1, float32Array[i])) * 32767;
-    mulawBuffer[i] = linearToMulaw(Math.round(sample));
-  }
-  return mulawBuffer;
-}
-
-function decodeMulaw(mulawBuffer: Uint8Array): Float32Array {
-  const float32Array = new Float32Array(mulawBuffer.length);
-  for (let i = 0; i < mulawBuffer.length; i++) {
-    const sample = MULAW_TABLE[mulawBuffer[i]];
-    float32Array[i] = sample / 32768.0;
-  }
-  return float32Array;
-}
-
-function arrayBufferToBase64(buffer: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < buffer.byteLength; i++) {
-    binary += String.fromCharCode(buffer[i]);
-  }
-  return btoa(binary);
-}
-
-function base64ToArrayBuffer(base64: string): Uint8Array {
-  const binary_string = atob(base64);
-  const len = binary_string.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binary_string.charCodeAt(i);
-  }
-  return bytes;
-}
+import { io, Socket } from 'socket.io-client';
 
 // --- Component ---
 
 export default function BrowserVoiceTest() {
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState('Idle');
+  const [error, setError] = useState<string | null>(null);
   
-  const wsRef = useRef<WebSocket | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-  
-  const nextPlayTimeRef = useRef<number>(0);
+  const socketRef = useRef<Socket | null>(null);
 
-  const startTest = async () => {
-    setStatus('Connecting to microphone...');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      const wsUrl = API_URL.replace('http', 'ws') + '/api/voice/media';
-      
-      setStatus('Connecting to AI agent...');
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      const testSid = 'web-test-' + Math.random().toString(36).substring(2, 9);
-
-      ws.onopen = () => {
-        setStatus('Connected! Start speaking.');
-        setIsActive(true);
-        
-        // Mimic Twilio start event
-        ws.send(JSON.stringify({
-          event: 'start',
-          streamSid: testSid,
-          start: { callSid: testSid }
-        }));
-
-        // Setup audio processing
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 8000 });
-        audioCtxRef.current = audioCtx;
-        nextPlayTimeRef.current = audioCtx.currentTime;
-
-        const source = audioCtx.createMediaStreamSource(stream);
-        
-        // Deprecated but easiest way without serving a separate worklet file
-        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
-        processorRef.current = processor;
-
-        processor.onaudioprocess = (e) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            const inputData = e.inputBuffer.getChannelData(0);
-            const mulawData = encodeMulaw(inputData);
-            const base64Data = arrayBufferToBase64(mulawData);
-            
-            ws.send(JSON.stringify({
-              event: 'media',
-              streamSid: testSid,
-              media: { payload: base64Data }
-            }));
-          }
-        };
-
-        source.connect(processor);
-        processor.connect(audioCtx.destination);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.event === 'media' && msg.media?.payload) {
-            playAudio(msg.media.payload);
-          } else if (msg.event === 'clear') {
-            // Barge-in: Stop current audio
-            if (audioCtxRef.current) {
-              nextPlayTimeRef.current = audioCtxRef.current.currentTime;
-            }
-          }
-        } catch (err) {
-          console.error(err);
-        }
-      };
-
-      ws.onclose = () => {
-        stopTest();
-      };
-
-    } catch (err: any) {
-      setStatus('Error: ' + err.message);
-      setIsActive(false);
-    }
-  };
-
-  const playAudio = (base64Payload: string) => {
-    const audioCtx = audioCtxRef.current;
-    if (!audioCtx) return;
-
-    const mulawData = base64ToArrayBuffer(base64Payload);
-    const float32Data = decodeMulaw(mulawData);
-    
-    const audioBuffer = audioCtx.createBuffer(1, float32Data.length, 8000);
-    audioBuffer.getChannelData(0).set(float32Data);
-    
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioCtx.destination);
-    
-    // Ensure sequential playback
-    const startTime = Math.max(audioCtx.currentTime, nextPlayTimeRef.current);
-    source.start(startTime);
-    nextPlayTimeRef.current = startTime + audioBuffer.duration;
-  };
+  // Playback state
+  const audioChunksRef = useRef<Float32Array[]>([]);
+  const chunkLengthRef = useRef(0);
+  const nextPlayTimeRef = useRef(0);
 
   const stopTest = () => {
-    setIsActive(false);
-    setStatus('Idle');
-    
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;
     }
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
     if (audioCtxRef.current) {
       audioCtxRef.current.close();
       audioCtxRef.current = null;
     }
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+    setIsActive(false);
+    isTestingRef.current = false;
+    setStatus('Ready to test');
+    audioChunksRef.current = [];
+    chunkLengthRef.current = 0;
+    nextPlayTimeRef.current = 0;
+  };
+
+  const processIncomingPCM = (pcmBuffer: ArrayBuffer) => {
+    if (!audioCtxRef.current) return;
+    
+    try {
+      const int16Array = new Int16Array(pcmBuffer);
+      const float32Array = new Float32Array(int16Array.length);
+      
+      // Convert Int16 to Float32 for Web Audio API
+      for (let i = 0; i < int16Array.length; i++) {
+        float32Array[i] = int16Array[i] / 32768.0;
+      }
+
+      audioChunksRef.current.push(float32Array);
+      chunkLengthRef.current += float32Array.length;
+
+      // When we have enough audio (e.g. 0.1s of audio at 16kHz = 1600 samples)
+      if (chunkLengthRef.current > 1600) {
+        schedulePlayback();
+      }
+    } catch (e) {
+      console.error('Error processing PCM buffer', e);
+    }
+  };
+
+  const schedulePlayback = () => {
+    if (!audioCtxRef.current || audioChunksRef.current.length === 0) return;
+    
+    try {
+      const audioCtx = audioCtxRef.current;
+      const mergedData = new Float32Array(chunkLengthRef.current);
+      let offset = 0;
+      for (const chunk of audioChunksRef.current) {
+        mergedData.set(chunk, offset);
+        offset += chunk.length;
+      }
+      
+      audioChunksRef.current = [];
+      chunkLengthRef.current = 0;
+
+      // Backend sends 16000Hz PCM
+      const audioBuffer = audioCtx.createBuffer(1, mergedData.length, 16000);
+      audioBuffer.getChannelData(0).set(mergedData);
+      
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioCtx.destination);
+      
+      let startTime = nextPlayTimeRef.current;
+      if (startTime < audioCtx.currentTime) {
+        startTime = audioCtx.currentTime + 0.05; // Tighten jitter buffer
+      }
+      
+      source.start(startTime);
+      nextPlayTimeRef.current = startTime + audioBuffer.duration;
+    } catch (e) {
+      console.error('Playback error', e);
+    }
+  };
+
+  const isTestingRef = useRef(false);
+
+  const startTest = async () => {
+    try {
+      if (isTestingRef.current) return;
+      isTestingRef.current = true;
+      setError(null);
+      setStatus('Starting microphone...');
+
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
+        sampleRate: 16000
+      });
+      
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+      audioCtxRef.current = audioCtx;
+
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
+      streamRef.current = stream;
+
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      
+      setStatus('Connecting to AI agent...');
+      const socket = io(API_URL + '/voice-browser', {
+        reconnection: false // Don't try to reconnect automatically if it fails completely
+      });
+      socketRef.current = socket;
+
+      const testSid = 'browser-session-' + Math.random().toString(36).substring(2, 9);
+
+      socket.on('connect_error', (err) => {
+        // Socket.IO may emit connect_error during websocket upgrade attempts.
+        // We MUST ignore these if the polling connection is still active and working.
+        if (socket.connected) return;
+        setStatus('Connection Error: ' + err.message);
+        stopTest(); // Proper cleanup of microphone and locks
+      });
+
+      socket.on('connect', () => {
+        setStatus('Connected! Say hello...');
+        setIsActive(true);
+
+        socket.emit('start_session', {
+          sessionId: testSid,
+          voiceAgentId: 'default'
+        });
+
+        const source = audioCtx.createMediaStreamSource(stream);
+        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        processorRef.current = processor;
+
+        processor.onaudioprocess = (e) => {
+          // Output absolute silence to prevent microphone feedback loop
+          e.outputBuffer.getChannelData(0).fill(0);
+
+          // --- INPUT (Microphone) ---
+          if (socket.connected) {
+            const inputData = e.inputBuffer.getChannelData(0);
+            
+            // Downsample to 16000Hz PCM
+            const inputSampleRate = audioCtx.sampleRate;
+            const ratio = inputSampleRate / 16000;
+            const newLength = Math.round(inputData.length / ratio);
+            
+            const pcm16 = new Int16Array(newLength);
+            for (let i = 0; i < newLength; i++) {
+              let sample = inputData[Math.floor(i * ratio)];
+              // Prevent clipping
+              sample = Math.max(-1, Math.min(1, sample));
+              pcm16[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+            }
+            
+            // Emit raw PCM 16-bit Int16Array
+            socket.emit('audio_stream', {
+              sessionId: testSid,
+              audio: pcm16.buffer
+            });
+          }
+        };
+
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+      });
+
+      socket.on('audio_playback', (data: { audio: ArrayBuffer }) => {
+        processIncomingPCM(data.audio);
+      });
+
+      socket.on('disconnect', () => {
+        stopTest();
+      });
+    } catch (err: any) {
+      setStatus('Error: ' + err.message);
+      setIsActive(false);
     }
   };
 

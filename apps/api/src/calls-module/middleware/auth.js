@@ -30,36 +30,69 @@ export async function softAuth(req, _res, next) {
     const token = extractBearer(req);
     if (!token) return next();
     
-    // First try to decode as a regular Calls token
+    // Step 1: Try as a regular Calls-module JWT token
     try {
       const payload = verifyToken(token);
       const { rows: agents } = await query('SELECT id, name, email, role, status, twilio_identity, twilio_phone_number FROM agents WHERE id = $1', [payload.sub]);
       const user = agents[0];
       if (user && user.status !== 'suspended') {
         req.user = user;
+        return next();
       }
-      return next();
-    } catch (e) {
-      // If it fails, try to decode as an Enrichment token
+    } catch (_callsTokenErr) {
+      // Not a calls token — try enrichment token next
+    }
+
+    // Step 2: Try as an Enrichment platform JWT token (manager login)
+    try {
       const { AuthManager } = await import('@enrichment-saas/auth');
-      const authManager = new AuthManager(process.env.JWT_PRIVATE_KEY || '', process.env.JWT_PUBLIC_KEY || '');
+      const authManager = new AuthManager(
+        process.env.JWT_PRIVATE_KEY || '',
+        process.env.JWT_PUBLIC_KEY || ''
+      );
       const enrichmentPayload = authManager.verifyUserToken(token);
 
-      // If valid, map the enrichment user to a Calls Agent by email
       if (enrichmentPayload) {
         const userEmail = enrichmentPayload.email || null;
-        const { rows: agents } = await query('SELECT id, name, email, role, status FROM agents WHERE email = $1', [userEmail]);
-        const agent = agents[0] || { id: 1 }; // fallback to agent 1 if not found
+        const { rows: agents } = await query(
+          'SELECT id, name, email, role, status FROM agents WHERE LOWER(email) = LOWER($1)',
+          [userEmail]
+        );
+        const agent = agents[0] || {};
         req.user = {
-          id: agent.id, 
+          id: agent.id || 0,
           email: userEmail || 'admin@jentoai.com',
           role: 'manager',
           status: 'active'
         };
+        return next();
       }
+    } catch (_enrichmentErr) {
+      // Not an enrichment token either — try raw JWT decode as last resort
     }
+
+    // Step 3: Last resort — try direct JWT decode with PRIVATE_KEY (symmetric)
+    try {
+      const privateKey = process.env.JWT_PRIVATE_KEY || '';
+      if (privateKey) {
+        const decoded = jwt.verify(token, privateKey);
+        if (decoded) {
+          const userEmail = decoded.email || null;
+          req.user = {
+            id: decoded.user_id || decoded.sub || 0,
+            email: userEmail || 'admin@jentoai.com',
+            role: 'manager',
+            status: 'active'
+          };
+          return next();
+        }
+      }
+    } catch (_lastResortErr) {
+      // All verification methods failed — req.user stays undefined
+    }
+
   } catch {
-    /* ignore */
+    /* ignore all errors — unauthenticated request proceeds without req.user */
   }
   next();
 }

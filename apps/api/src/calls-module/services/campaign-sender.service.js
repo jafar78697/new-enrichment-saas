@@ -11,6 +11,8 @@
 import nodemailer from 'nodemailer';
 import OpenAI from 'openai';
 import { query } from '../db/index.js';
+import { resolvePrompt, getPromptForContact } from './template-resolver.service.js';
+import { processPrompt, trackUsage } from './token-control.service.js';
 
 const API_BASE = process.env.API_URL || 'https://api.jentoai.pro';
 
@@ -19,17 +21,14 @@ const openai = new OpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY || 'dummy_key_to_prevent_crash'
 });
 
-async function generateEmailWithAI(prompt, contact, senderName) {
+async function generateEmailWithAI(prompt, contact, senderName, nicheName) {
   try {
-    const systemPrompt = prompt
-      .replace(/\{\{contact_name\}\}/gi, contact.name || 'there')
-      .replace(/\{\{company_name\}\}/gi, contact.company || contact.name || 'your company')
-      .replace(/\{\{sender_name\}\}/gi, senderName || 'Jento AI')
-      .replace(/\{\{website\}\}/gi, contact.website || '')
-      .replace(/\{\{location\}\}/gi, contact.location || '')
-      .replace(/\{\{services\}\}/gi, contact.niche || '')
-      .replace(/\{\{company_description\}\}/gi, contact.company_description || '')
-      .replace(/\{\{research_data\}\}/gi, contact.notes || '');
+    const rawSystemPrompt = resolvePrompt(prompt, contact, senderName, nicheName);
+    
+    // Apply centralized token control — truncates oversized prompts + tracks daily usage
+    const { prompt: systemPrompt, estimatedTokens: inputTokens } = processPrompt(rawSystemPrompt, {
+      label: `email:${contact.email || contact.id}`,
+    });
 
     const chatCompletion = await openai.chat.completions.create({
       messages: [
@@ -40,7 +39,13 @@ async function generateEmailWithAI(prompt, contact, senderName) {
       ],
       model: "deepseek-chat",
       temperature: 0.7,
+      max_tokens: 1024,
     });
+    
+    // Track actual token usage from API response
+    if (chatCompletion.usage) {
+      trackUsage(chatCompletion.usage, `email:${contact.email || contact.id}`);
+    }
     
     if (chatCompletion.choices && chatCompletion.choices.length > 0) {
       const generatedText = chatCompletion.choices[0].message?.content;
@@ -154,10 +159,6 @@ async function processAutomatedEmails() {
 
     // Bypassing stage updates - sending directly to anyone with an email
 
-    // Ensure schema updates for Stickiness & Threading
-    await query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS sender_account_id INTEGER;`);
-    await query(`ALTER TABLE contact_emails_history ADD COLUMN IF NOT EXISTS message_id TEXT;`);
-    
     // Ensure system_alerts table exists
     await query(`
       CREATE TABLE IF NOT EXISTS system_alerts (
@@ -170,18 +171,25 @@ async function processAutomatedEmails() {
       );
     `);
 
-    // Fetch contacts for INITIAL SEND (emails_sent = 0) OR FOLLOW-UP (emails_sent = 1 and 3 days passed)
+    // Fetch contacts for INITIAL SEND (emails_sent = 0) OR FOLLOW-UP (up to 3 follow-ups, 3 days apart)
     const { rows: contacts } = await query(
-      `SELECT c.*, camp.base_template as custom_prompt 
+      `SELECT c.*, camp.base_template as campaign_prompt,
+              n.custom_prompt as niche_prompt, n.name as niche_name
        FROM contacts c
        LEFT JOIN campaigns camp ON c.campaign_id = camp.id
+       LEFT JOIN niches n ON c.niche_id = n.id
        WHERE (c.unsubscribed IS NULL OR c.unsubscribed = FALSE)
          AND c.stage NOT IN ('bounced', 'replied')
          AND c.email IS NOT NULL AND c.email != ''
+         AND c.email NOT LIKE '%25%'
+         AND c.email NOT LIKE '%40%'
+         AND c.email NOT LIKE '% %'
+         AND c.email NOT LIKE '%<%'
+         AND c.email NOT LIKE '%>%'
          AND (
            (c.emails_sent IS NULL OR c.emails_sent = 0) 
            OR 
-           (c.emails_sent = 1 AND c.last_email_sent_at < NOW() - INTERVAL '3 days')
+           (c.emails_sent BETWEEN 1 AND 3 AND c.last_email_sent_at < NOW() - INTERVAL '3 days')
          )
        ORDER BY c.emails_sent ASC, c.id ASC
        LIMIT 50`
@@ -220,7 +228,7 @@ Do NOT use placeholder names like [Your Name].
       const senderDisplayName = sender.display_name || 'Jento AI';
 
       try {
-        const userPrompt = contact.custom_prompt ? contact.custom_prompt : fallbackPrompt;
+        const userPrompt = getPromptForContact(contact, fallbackPrompt);
         
         let finalPrompt = '';
         if (isFollowUp) {
@@ -247,19 +255,23 @@ Here is the user's base template or instructions for the email:
 ${userPrompt}
 """
 
-Contact Details: Name: {{contact_name}}, Company: {{company_name}}, Website: {{website}}, Research: {{research_data}}
+Contact Details: Name: {{contact_name}}, Company: {{company_name}}, Website: {{website}}, Location: {{location}}, Services: {{services}}, Niche: {{niche_name}}
+Website Data: {{website_data}}
+Headline: {{headline}}
+Research Notes: {{research_data}}
 Sender Name: {{sender_name}}
 
 INSTRUCTIONS:
 1. Write a highly personalized email using the base template/instructions above and the contact's details.
-2. Sign off the email with the Sender Name provided above. NEVER use placeholders like [Your Name].
-3. Output ONLY the email body in HTML format (using <p> and <br> tags).
-4. Subject line MUST be included at the very beginning in the exact format: "Subject: <your subject here>\\n\\n".
-5. Keep the call to action soft and open-ended.
+2. Use the website_data and headline to reference specific details about their business.
+3. Sign off the email with the Sender Name provided above. NEVER use placeholders like [Your Name].
+4. Output ONLY the email body in HTML format (using <p> and <br> tags).
+5. Subject line MUST be included at the very beginning in the exact format: "Subject: <your subject here>\\n\\n".
+6. Keep the call to action soft and open-ended.
 `;
         }
 
-        const rawText = await generateEmailWithAI(finalPrompt, contact, senderDisplayName);
+        const rawText = await generateEmailWithAI(finalPrompt, contact, senderDisplayName, contact.niche_name);
         let parsed = parseEmailContent(rawText, contact);
 
         if (!parsed || !parsed.body || parsed.body.includes('You are an expert B2B sales copywriter')) {

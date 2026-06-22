@@ -71,14 +71,16 @@ router.get(
               COALESCE(stats.recordings_count, 0) AS recordings_count,
               COALESCE(today_calls_stats.today_calls, 0) AS today_calls,
               COALESCE(today_leads_stats.today_leads, 0) AS today_leads,
-              GROUP_CONCAT(DISTINCT n.id) as niche_ids,
-              GROUP_CONCAT(DISTINCT n.name) as niche_names,
+              STRING_AGG(DISTINCT n.id::text, ',') as niche_ids,
+              STRING_AGG(DISTINCT n.name, ',') as niche_names,
+              STRING_AGG(DISTINCT am.module, ',') as assigned_modules,
               a.team_id,
               t.name as team_name
          FROM agents a
          LEFT JOIN teams t ON a.team_id = t.id
          LEFT JOIN employee_niches en ON en.agent_id = a.id
          LEFT JOIN niches n ON n.id = en.niche_id
+         LEFT JOIN agent_modules am ON am.agent_id = a.id
          LEFT JOIN (
            SELECT agent_id,
                   COUNT(*) AS total_calls,
@@ -91,17 +93,22 @@ router.get(
          LEFT JOIN (
            SELECT agent_id, COUNT(*) AS today_calls
              FROM calls
-            WHERE date(started_at, 'localtime') = date('now', 'localtime')
+            WHERE DATE(started_at AT TIME ZONE 'UTC') = CURRENT_DATE
             GROUP BY agent_id
          ) today_calls_stats ON today_calls_stats.agent_id = a.id
          LEFT JOIN (
            SELECT assigned_agent_id, COUNT(*) AS today_leads
              FROM contacts
-            WHERE date(created_at, 'localtime') = date('now', 'localtime')
+            WHERE DATE(created_at AT TIME ZONE 'UTC') = CURRENT_DATE
             GROUP BY assigned_agent_id
          ) today_leads_stats ON today_leads_stats.assigned_agent_id = a.id
         WHERE a.role IN ('employee', 'team_leader')
-        GROUP BY a.id
+        GROUP BY a.id, a.name, a.email, a.username, a.role, a.status, a.twilio_identity,
+                 a.twilio_phone_number, a.twilio_phone_sid, a.twilio_phone_area_code,
+                 a.twilio_phone_purchased_at, a.is_available, a.last_login_at,
+                 a.invite_accepted_at, a.created_at, a.team_id, t.name,
+                 stats.total_calls, stats.connected_calls, stats.total_seconds, stats.recordings_count,
+                 today_calls_stats.today_calls, today_leads_stats.today_leads
         ORDER BY a.created_at DESC`,
       []
     );
@@ -124,9 +131,11 @@ router.get(
           niches.push({ id, name: names[i] });
         });
       }
+      const modules = row.assigned_modules ? row.assigned_modules.split(',') : [];
       return {
         ...row,
         assigned_niches: niches,
+        assigned_modules: modules,
         niche_ids: undefined,
         niche_names: undefined,
       };
@@ -209,7 +218,7 @@ router.post(
       `INSERT INTO agents
         (name, username, email, twilio_identity, role, status, password_hash,
          is_available, invite_accepted_at, team_id)
-       VALUES ($1, $2, $3, $4, 'employee', 'active', $5, 0, CURRENT_TIMESTAMP, $6)
+       VALUES ($1, $2, $3, $4, 'employee', 'active', $5, false, CURRENT_TIMESTAMP, $6)
        RETURNING id`,
       [payload.name, payload.username, dummyEmail, identity, hash, payload.team_id || null]
     );
@@ -242,6 +251,7 @@ router.post(
       employee: {
         ...fresh[0],
         assigned_niches: assignedNiches,
+        assigned_modules: [],
       },
       generatedPassword: tempPassword,
     });
@@ -346,7 +356,7 @@ router.post(
       `UPDATE agents
           SET twilio_phone_number = $1, twilio_phone_sid = $2,
               twilio_phone_area_code = $3, twilio_phone_purchased_at = CURRENT_TIMESTAMP,
-              is_available = 1, updated_at = CURRENT_TIMESTAMP
+              is_available = true, updated_at = CURRENT_TIMESTAMP
         WHERE id = $4`,
       [chosen.phoneNumber, chosen.sid, chosen.areaCode, id]
     );
@@ -487,6 +497,86 @@ router.get(
     
     res.json({ employees: summary });
   }),
+);
+
+// ─── Get assigned modules for an employee ──────────────────────────────
+router.get(
+  '/employees/:id/modules',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const { rows } = await query(
+      'SELECT module FROM agent_modules WHERE agent_id = $1',
+      [id]
+    );
+    res.json({ modules: rows.map(r => r.module) });
+  })
+);
+
+// ─── Assign modules for an employee ────────────────────────────────────
+router.post(
+  '/employees/:id/modules',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const { modules } = z.object({ modules: z.array(z.string()) }).parse(req.body);
+
+    // Verify employee exists
+    const { rows: emp } = await query('SELECT id FROM agents WHERE id = $1 AND role = $2', [id, 'employee']);
+    if (emp.length === 0) throw new AppError('Employee not found', 404);
+
+    // Simple transaction-like series of queries
+    await query('DELETE FROM agent_modules WHERE agent_id = $1', [id]);
+    for (const mod of modules) {
+      await query(
+        'INSERT INTO agent_modules (agent_id, module) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [id, mod]
+      );
+    }
+
+    res.json({ ok: true, modules });
+  })
+);
+
+// ─── Delete a module for an employee ───────────────────────────────────
+router.delete(
+  '/employees/:id/modules/:module',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const module = req.params.module;
+
+    await query(
+      'DELETE FROM agent_modules WHERE agent_id = $1 AND module = $2',
+      [id, module]
+    );
+
+    res.json({ ok: true });
+  })
+);
+
+// ─── Assign niches for an employee ────────────────────────────────────
+router.post(
+  '/employees/:id/niches',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const { nicheIds } = z.object({ nicheIds: z.array(z.number()) }).parse(req.body);
+
+    // Verify employee exists
+    const { rows: emp } = await query('SELECT id FROM agents WHERE id = $1 AND role = $2', [id, 'employee']);
+    if (emp.length === 0) throw new AppError('Employee not found', 404);
+
+    await query('DELETE FROM employee_niches WHERE agent_id = $1', [id]);
+    for (const nicheId of nicheIds) {
+      await query(
+        'INSERT INTO employee_niches (agent_id, niche_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [id, nicheId]
+      );
+    }
+
+    res.json({ ok: true, nicheIds });
+  })
 );
 
 export default router;

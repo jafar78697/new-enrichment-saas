@@ -76,10 +76,14 @@ router.get(
           contacts.name AS contact_name,
           contacts.phone_number AS contact_phone_number,
           contacts.company AS contact_company,
-          agents.name AS agent_name
+          agents.name AS agent_name,
+          vcs.transcript,
+          vcs.summary,
+          vcs.metadata
         FROM calls c
         LEFT JOIN contacts ON contacts.id = c.contact_id
         LEFT JOIN agents ON agents.id = c.agent_id
+        LEFT JOIN voice_call_sessions vcs ON vcs.call_sid = c.call_sid OR vcs.call_sid = c.child_call_sid
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY
           CASE WHEN c.started_at IS NULL THEN 1 ELSE 0 END ASC,

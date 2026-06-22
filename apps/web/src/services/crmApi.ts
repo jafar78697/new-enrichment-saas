@@ -11,7 +11,7 @@ api.interceptors.request.use((config) => {
 // Pipeline stages — keep in sync with apps/api/src/routes/crm.ts
 export const PIPELINE_STAGES = [
   'new', 'scraped', 'enriched', 'qualified', 'assigned',
-  'called', 'no_answer', 'followup', 'interested',
+  'calling', 'called', 'no_answer', 'followup', 'interested',
   'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost',
 ] as const;
 export type Stage = (typeof PIPELINE_STAGES)[number];
@@ -22,6 +22,7 @@ export const STAGE_LABELS: Record<Stage, string> = {
   enriched: 'Enriched',
   qualified: 'Qualified',
   assigned: 'Assigned',
+  calling: 'Calling...',
   called: 'Called',
   no_answer: 'No Answer',
   followup: 'Follow-up',
@@ -38,8 +39,9 @@ export const STAGE_COLORS: Record<Stage, string> = {
   enriched: '#0369a1',
   qualified: '#0891b2',
   assigned: '#7c3aed',
+  calling: '#d97706',
   called: '#6366f1',
-  no_answer: '#d97706',
+  no_answer: '#ea580c',
   followup: '#ca8a04',
   interested: '#059669',
   demo_scheduled: '#10b981',
@@ -68,6 +70,7 @@ export interface Lead {
   saas_signal: boolean;
   lead_stage: Stage;
   lead_owner_id: string | null;
+  assigned_to_ai: boolean;
   lead_priority: string | null;
   lead_notes: string | null;
   last_contacted_at: string | null;
@@ -96,9 +99,10 @@ export interface Task {
 export interface StageCount { stage: Stage; count: number; }
 
 export const leadsApi = {
-  list: (params?: { stage?: Stage; owner?: string; q?: string; page?: number; limit?: number }) =>
+  list: (params?: { stage?: Stage; owner?: string; q?: string; page?: number; limit?: number; assigned_to_ai?: boolean }) =>
     api.get<{ leads: Lead[]; total: number; page: number; limit: number }>('/leads', { params }).then((r) => r.data),
   pipeline: () => api.get<{ stages: StageCount[] }>('/leads/pipeline').then((r) => r.data),
+  activeCalls: () => api.get<{ activeCalls: Record<string, string> }>('/leads/active-calls').then((r) => r.data),
   get: (id: string) =>
     api
       .get<{ lead: Lead; history: any[]; tasks: Task[] }>(`/leads/${id}`)

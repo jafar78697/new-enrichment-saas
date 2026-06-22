@@ -61,6 +61,7 @@ export interface Contact {
   campaign_id?: number | null;
   niche_id?: number | null;
   niche_name?: string | null;
+  assigned_agent_id?: number | null;
   website?: string | null;
   linkedin?: string | null;
   reddit_url?: string | null;
@@ -132,6 +133,12 @@ export const callsApi = {
     }),
 
   listContacts: () => request<{ contacts: Contact[] }>(`/contacts`),
+
+  claimContacts: (contactIds: number[]) =>
+    request<{ ok: boolean; claimedIds: number[] }>(`/contacts/claim`, {
+      method: 'POST',
+      body: JSON.stringify({ contactIds }),
+    }),
 
   createContact: (payload: {
     name: string;

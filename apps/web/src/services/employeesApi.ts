@@ -57,6 +57,7 @@ export interface Employee {
   today_calls?: number;
   today_leads?: number;
   assigned_niches?: { id: number; name: string }[]; // NEW
+  assigned_modules?: string[]; // NEW
 }
 
 export interface TwilioAvailableNumber {
@@ -78,6 +79,7 @@ export interface AuthUser {
   status: EmployeeStatus;
   twilio_identity?: string | null;
   twilio_phone_number?: string | null;
+  assigned_modules?: string[]; // NEW
 }
 
 export interface CreateEmployeePayload {
@@ -188,6 +190,27 @@ export const employeesApi = {
     request<{ success: boolean; leads: any[] }>('/v1/google-maps/scrape', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  // NEW: Modules Assignment
+  getModules: (id: number) =>
+    request<{ modules: string[] }>(`/employees/${id}/modules`),
+
+  assignModules: (id: number, modules: string[]) =>
+    request<{ ok: boolean; modules: string[] }>(`/employees/${id}/modules`, {
+      method: 'POST',
+      body: JSON.stringify({ modules }),
+    }),
+
+  removeModule: (id: number, module: string) =>
+    request<{ ok: boolean }>(`/employees/${id}/modules/${module}`, {
+      method: 'DELETE',
+    }),
+
+  assignNiches: (id: number, nicheIds: number[]) =>
+    request<{ ok: boolean; nicheIds: number[] }>(`/employees/${id}/niches`, {
+      method: 'POST',
+      body: JSON.stringify({ nicheIds }),
     }),
 };
 

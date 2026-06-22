@@ -2,120 +2,351 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>JentoAI Outreach</title>
+  <title>JentoAI Setter Dashboard</title>
   <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      width: 320px;
-      margin: 0;
-      padding: 16px;
-      background: #f9fafb;
-      color: #111827;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      width: 420px;
+      background: #0a0a14;
+      color: #e2e8f0;
     }
-    h2 {
-      font-size: 18px;
-      margin-top: 0;
-      margin-bottom: 16px;
+    
+    /* ── HEADER ── */
+    .app-header {
+      background: linear-gradient(135deg, #0f0f1a, #1a1a2e);
+      color: white;
+      padding: 20px 18px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(99,102,241,0.15);
     }
-    .badge {
+    .app-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .app-logo-icon {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      box-shadow: 0 2px 12px rgba(99,102,241,0.4);
+    }
+    .app-logo-text {
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.3px;
+    }
+    .app-logo-sub {
       font-size: 10px;
-      background: #e0e7ff;
-      color: #4f46e5;
-      padding: 2px 6px;
-      border-radius: 10px;
+      opacity: 0.5;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
     }
-    .input-group {
-      margin-bottom: 12px;
+    .app-badge {
+      background: rgba(99,102,241,0.15);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 600;
+      border: 1px solid rgba(99,102,241,0.2);
+      color: #a5b4fc;
     }
+    
+    /* ── CONTENT ── */
+    .content {
+      padding: 18px;
+    }
+    
+    /* ── INPUTS ── */
+    .input-group { margin-bottom: 14px; }
     label {
       display: block;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
-      margin-bottom: 4px;
-      color: #374151;
+      margin-bottom: 5px;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
-    input {
+    input, select {
       width: 100%;
-      box-sizing: border-box;
-      padding: 8px;
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
-      font-size: 14px;
+      padding: 11px 14px;
+      border: 1.5px solid #1e293b;
+      border-radius: 10px;
+      font-size: 13px;
+      outline: none;
+      transition: all 0.2s;
+      background: #0f0f1a;
+      color: #e2e8f0;
     }
-    button {
+    input:focus, select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+    }
+    select option {
+      background: #0f0f1a;
+      color: #e2e8f0;
+    }
+    .btn {
       width: 100%;
-      padding: 10px;
-      background: #4f46e5;
-      color: white;
+      padding: 12px;
       border: none;
-      border-radius: 6px;
+      border-radius: 10px;
       font-weight: 600;
+      font-size: 13px;
       cursor: pointer;
-      margin-top: 8px;
+      transition: all 0.25s ease;
+      letter-spacing: 0.3px;
     }
-    button:hover {
-      background: #4338ca;
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white;
     }
-    .hidden {
-      display: none;
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(99,102,241,0.4);
     }
+    .btn-secondary {
+      background: #1a1a2e;
+      color: #94a3b8;
+      border: 1px solid #1e293b;
+    }
+    .btn-secondary:hover {
+      background: #1e1b4b;
+      color: #e2e8f0;
+      border-color: #6366f1;
+    }
+    
+    /* ── STATUS ── */
     #status {
       font-size: 12px;
       margin-top: 12px;
       text-align: center;
-      color: #10b981;
+      font-weight: 500;
+      min-height: 18px;
+      color: #64748b;
     }
-    .error {
-      color: #ef4444 !important;
+    .status-success { color: #34d399 !important; }
+    .status-error { color: #f87171 !important; }
+    
+    /* ── DASHBOARD STATS ── */
+    .dash-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 18px;
     }
-    .info {
+    .dash-stat {
+      background: linear-gradient(135deg, #0f0f1a, #1a1a2e);
+      border: 1px solid #1e293b;
+      border-radius: 14px;
+      padding: 18px 12px;
+      text-align: center;
+      transition: all 0.3s ease;
+    }
+    .dash-stat:hover {
+      border-color: #6366f1;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(99,102,241,0.1);
+    }
+    .dash-stat-value {
+      font-size: 28px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #818cf8, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .dash-stat-label {
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    /* ── PROFILES LIST ── */
+    .profiles-section {
+      margin-bottom: 18px;
+    }
+    .profiles-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+    .profile-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      background: #0f0f1a;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      margin-bottom: 8px;
+      transition: all 0.2s ease;
+      animation: slideIn 0.3s ease;
+    }
+    .profile-item:hover {
+      border-color: #6366f1;
+      background: #1a1a2e;
+      box-shadow: 0 2px 12px rgba(99,102,241,0.08);
+    }
+    .profile-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+      box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+    }
+    .profile-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .profile-email {
+      font-size: 12px;
+      font-weight: 600;
+      color: #e2e8f0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .profile-pct {
       font-size: 13px;
-      color: #6b7280;
-      line-height: 1.4;
-      margin-bottom: 16px;
+      font-weight: 700;
+      color: #818cf8;
+      min-width: 36px;
+      text-align: right;
+    }
+    .profile-bar {
+      width: 70px;
+      height: 4px;
+      background: #1e293b;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .profile-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #6366f1, #a855f7);
+      border-radius: 4px;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    hr {
+      border: none;
+      border-top: 1px solid #1e293b;
+      margin: 18px 0;
+    }
+    
+    .info-text {
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.6;
+      margin-bottom: 10px;
+    }
+    
+    /* ── ANIMATIONS ── */
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    @keyframes glow {
+      0%, 100% { box-shadow: 0 0 8px rgba(99,102,241,0.2); }
+      50% { box-shadow: 0 0 20px rgba(99,102,241,0.4); }
+    }
+    .pulse {
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .fade-in {
+      animation: slideIn 0.4s ease;
+    }
+    .glow-border {
+      animation: glow 3s ease-in-out infinite;
     }
   </style>
 </head>
 <body>
-  <h2>JentoAI <span class="badge">PRO</span></h2>
-  
-  <div id="login-section">
-    <div class="info">Log in to sync leads directly to your JentoAI CRM and automate DMs.</div>
-    <div class="input-group">
-      <label>Email</label>
-      <input type="email" id="email" placeholder="agent@jentoai.pro">
+  <!-- HEADER -->
+  <div class="app-header">
+    <div class="app-logo">
+      <div class="app-logo-icon">J</div>
+      <div>
+        <div class="app-logo-text">JentoAI Setter</div>
+        <div class="app-logo-sub">Outreach Dashboard</div>
+      </div>
     </div>
-    <div class="input-group">
-      <label>Password</label>
-      <input type="password" id="password" placeholder="••••••••">
-    </div>
-    <button id="login-btn">Log In</button>
+    <span class="app-badge">v2.0</span>
   </div>
 
-  <div id="main-section" class="hidden">
-    <div class="info">Connected! Open a Facebook or Instagram profile to capture the lead and send an automated DM.</div>
-    
-    <div class="input-group">
-      <label>Active Campaign (Templates)</label>
-      <select id="campaign-select" style="width:100%; padding: 8px; border-radius: 6px; border: 1px solid #d1d5db;">
-        <option value="">Loading...</option>
-      </select>
+  <div class="content">
+    <!-- MAIN DASHBOARD (no login required) -->
+    <div id="main-section">
+      <!-- Stats Overview -->
+      <div class="dash-stats">
+        <div class="dash-stat">
+          <div class="dash-stat-value" id="stat-profiles">0</div>
+          <div class="dash-stat-label">Active Profiles</div>
+        </div>
+        <div class="dash-stat">
+          <div class="dash-stat-value" id="stat-today">0%</div>
+          <div class="dash-stat-label">Today's Progress</div>
+        </div>
+      </div>
+
+      <!-- Profiles Progress -->
+      <div class="profiles-section">
+        <div class="profiles-title">Profile Progress Today</div>
+        <div id="profiles-list">
+          <div class="info-text" style="text-align:center; padding: 10px;">Open Facebook or Instagram profiles to see progress</div>
+        </div>
+      </div>
+
+      <hr>
+
+      <!-- Campaign Select -->
+      <div class="input-group">
+        <label>Active Campaign</label>
+        <select id="campaign-select">
+          <option value="">Select a Campaign</option>
+        </select>
+      </div>
+
+      <!-- Actions -->
+      <button class="btn btn-primary" id="start-auto-btn" style="margin-bottom: 8px;">
+        <span style="margin-right: 6px;">&#9654;</span> Start Background Worker
+      </button>
+      <button class="btn btn-secondary" id="launch-profiles-btn">
+        <span style="margin-right: 6px;">&#9889;</span> Launch All Profiles
+      </button>
+      <div style="font-size: 10px; color: #4b5563; text-align: center; margin-top: 10px; letter-spacing: 0.3px;">
+        Connected to JentoAI CRM
+      </div>
+      
+      <div id="status"></div>
     </div>
-
-    <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 16px 0;">
-
-    <div class="info" style="margin-bottom: 8px;"><strong>LinkedIn Auto-Pilot</strong></div>
-    <div class="info" style="font-size: 11px;">Settings and limits are managed from your CRM Dashboard. The extension runs in the background.</div>
-
-    <button id="start-auto-btn" style="background: #10b981; margin-bottom: 12px;">Start Background Worker</button>
-    
-    <button id="logout-btn" style="background: #f3f4f6; color: #374151; border: 1px solid #d1d5db;">Log Out</button>
   </div>
-
-  <div id="status"></div>
 
   <script src="popup.js"></script>
 </body>

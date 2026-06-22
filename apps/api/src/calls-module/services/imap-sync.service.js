@@ -78,8 +78,11 @@ async function processEmailAccount(account) {
     connection = await imaps.connect(config);
     await connection.openBox('INBOX');
 
-    const searchCriteria = ['UNSEEN'];
-    const fetchOptions = { bodies: [''], markSeen: true };
+    // Check UNSEEN emails + last 3 days (to catch replies already marked as seen)
+    const since = new Date();
+    since.setDate(since.getDate() - 3);
+    const searchCriteria = [['OR', 'UNSEEN', ['SINCE', since.toDateString()]]];
+    const fetchOptions = { bodies: [''], markSeen: false };
     const messages = await connection.search(searchCriteria, fetchOptions);
 
     if (messages.length > 0) {
@@ -122,7 +125,7 @@ async function processEmailAccount(account) {
           }
         } else if (!isAutoReply) {
           if (fromEmail) {
-            await query("ALTER TABLE contact_emails_history ADD COLUMN IF NOT EXISTS is_inbound BOOLEAN DEFAULT FALSE;");
+            // NOTE: ALTER TABLE migration removed from loop — run once at startup only
             
             const { rows: contactRows } = await query(
               "SELECT id, stage FROM contacts WHERE LOWER(email) = $1 AND emails_sent > 0 LIMIT 1",

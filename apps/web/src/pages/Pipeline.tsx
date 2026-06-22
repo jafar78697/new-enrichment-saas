@@ -52,6 +52,18 @@ export default function PipelinePage() {
     }
   };
 
+  const assignToAi = async (e: React.MouseEvent, lead: Lead) => {
+    e.stopPropagation();
+    // optimistic update
+    setLeads((cur) => cur.filter((l) => l.id !== lead.id));
+    try {
+      await leadsApi.patch(lead.id, { assigned_to_ai: true });
+    } catch (err: any) {
+      setErr(err?.response?.data?.error || 'Failed to assign to AI');
+      void load();
+    }
+  };
+
   return (
     <div style={{ fontFamily: 'Manrope, sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -148,11 +160,21 @@ export default function PipelinePage() {
                     <div style={{ fontSize: 10, color: '#7B8794', fontFamily: 'JetBrains Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
                       {lead.domain}
                     </div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                      {lead.primary_email && <Pill color="#059669">email</Pill>}
-                      {lead.primary_phone && <Pill color="#0369a1">phone</Pill>}
-                      {lead.linkedin_url && <Pill color="#0a66c2">in</Pill>}
-                      {lead.ai_score != null && <Pill color="#7c3aed">AI {lead.ai_score}</Pill>}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {lead.primary_email && <Pill color="#059669">email</Pill>}
+                        {lead.primary_phone && <Pill color="#0369a1">phone</Pill>}
+                        {lead.linkedin_url && <Pill color="#0a66c2">in</Pill>}
+                        {lead.ai_score != null && <Pill color="#7c3aed">AI {lead.ai_score}</Pill>}
+                      </div>
+                      {!lead.assigned_to_ai && (
+                        <button 
+                          onClick={(e) => assignToAi(e, lead)}
+                          style={{ background: '#F59E0B', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          + AI
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}

@@ -9,7 +9,8 @@ const router = Router();
 const nicheSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional().nullable(),
-  assigned_agent_id: z.coerce.number().int().positive().optional().nullable()
+  assigned_agent_id: z.coerce.number().int().positive().optional().nullable(),
+  custom_prompt: z.string().optional().nullable()
 });
 
 // List all niches (All authenticated users)
@@ -63,11 +64,11 @@ router.post(
     const payload = nicheSchema.parse(req.body);
     const result = await query(
       `
-        INSERT INTO niches (name, description, assigned_agent_id)
-        VALUES ($1, $2, $3)
+        INSERT INTO niches (name, description, assigned_agent_id, custom_prompt)
+        VALUES ($1, $2, $3, $4)
         RETURNING *
       `,
-      [payload.name.trim(), payload.description || null, payload.assigned_agent_id || null]
+      [payload.name.trim(), payload.description || null, payload.assigned_agent_id || null, payload.custom_prompt || null]
     );
     res.status(201).json({ niche: result.rows[0] });
   })
@@ -96,6 +97,10 @@ router.patch(
     if (payload.assigned_agent_id !== undefined) {
       fields.push(`assigned_agent_id = $${fields.length + 1}`);
       values.push(payload.assigned_agent_id || null);
+    }
+    if (payload.custom_prompt !== undefined) {
+      fields.push(`custom_prompt = $${fields.length + 1}`);
+      values.push(payload.custom_prompt || null);
     }
     
     if (fields.length === 0) {

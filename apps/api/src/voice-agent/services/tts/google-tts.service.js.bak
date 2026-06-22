@@ -1,0 +1,126 @@
+import { TextToSpeechClient } from '@google-cloud/text-to-speech';
+
+// Singleton client to avoid recreating on every call
+const ttsClient = new TextToSpeechClient();
+
+export function createTTSStream({
+  streamSid,
+  callSid,
+  onAudio,
+  onReady,
+  onError,
+  onEnd,
+}) {
+  let stream = null;
+  let isActive = false;
+  let isReady = false;
+  let closed = false;
+  let totalCharacters = 0;
+  
+  function connect() {
+    if (closed) return;
+    try {
+      stream = ttsClient.streamingSynthesize();
+      
+      stream.on('data', (response) => {
+        if (response.audioContent && onAudio) {
+          // Google Cloud TTS returns a Buffer for audioContent
+          // Twilio needs base64 string
+          onAudio(response.audioContent.toString('base64'));
+        }
+      });
+      
+      stream.on('error', (err) => {
+        console.error(`[voice-agent:tts] Google TTS error for ${callSid}:`, err.message);
+        isActive = false;
+        if (onError) onError(err);
+      });
+      
+      stream.on('end', () => {
+        console.log(`[voice-agent:tts] Google TTS stream ended for ${callSid}`);
+        isActive = false;
+        isReady = false;
+        if (onEnd) onEnd();
+      });
+
+      isActive = true;
+      isReady = true;
+      
+      // Send initial configuration to Google Cloud TTS
+      stream.write({
+        streamingConfig: {
+          config: {
+            audioEncoding: 'MULAW',
+            sampleRateHertz: 8000,
+            voice: {
+              languageCode: 'en-US',
+              name: 'en-US-Journey-F' // High quality conversational voice
+            }
+          }
+        }
+      });
+      
+      console.log(`[voice-agent:tts] Google TTS connected for ${callSid}`);
+      if (onReady) onReady();
+      
+    } catch (err) {
+      console.error(`[voice-agent:tts] Failed to connect Google TTS:`, err);
+      if (onError) onError(err);
+    }
+  }
+
+  // Connect immediately
+  connect();
+
+  return {
+    send(text) {
+      if (!isActive || closed || !text.trim()) return;
+      try {
+        totalCharacters += text.length;
+        stream.write({
+          input: { text: text }
+        });
+      } catch (err) {
+        console.error(`[voice-agent:tts] Error sending text to Google:`, err.message);
+      }
+    },
+
+    clear() {
+      // Abort the current generation. 
+      // Google TTS streaming doesn't have a flush/clear command natively like ElevenLabs.
+      // To abort, we close the stream and create a new one.
+      if (!closed && stream) {
+        stream.destroy();
+        isActive = false;
+        isReady = false;
+        connect(); // Re-establish stream for the next utterance
+      }
+    },
+
+    finish() {
+      if (!isActive || closed) return;
+      try {
+        // We don't want to close the stream completely, as the call is still active.
+        // Google TTS handles chunk boundaries per `input: {text}`.
+        // There's no specific 'finish' event needed per turn unless we want to end the stream.
+      } catch (err) {
+        console.error(`[voice-agent:tts] Error finishing stream:`, err.message);
+      }
+    },
+
+    close() {
+      if (closed) return;
+      closed = true;
+      isActive = false;
+      isReady = false;
+      if (stream) {
+        stream.end();
+      }
+      console.log(`[voice-agent:tts] Google TTS stream closed for ${callSid} (${totalCharacters} chars)`);
+    },
+
+    isActive() {
+      return isActive;
+    }
+  };
+}

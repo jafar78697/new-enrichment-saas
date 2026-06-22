@@ -36,10 +36,9 @@ router.get(
     const params = [];
     const where = [];
     if (req.user.role !== 'manager' && req.user.role !== 'owner' && req.user.role !== 'admin') {
-      // For Caller role or general employee, only show contacts assigned to them.
-      // If role is marketer, maybe they can see all social leads, but let's stick to assignment for now.
+      // For Caller role or general employee, show contacts assigned to them OR unassigned contacts belonging to their niches.
       params.push(req.user.id);
-      where.push(`c.assigned_agent_id = $${params.length}`);
+      where.push(`(c.assigned_agent_id = $${params.length} OR (c.assigned_agent_id IS NULL AND c.niche_id IN (SELECT niche_id FROM employee_niches WHERE agent_id = $${params.length})))`);
     } else if (req.query.niche_id) {
       params.push(req.query.niche_id);
       where.push(`c.niche_id = $${params.length}`);
@@ -53,39 +52,19 @@ router.get(
       `
         SELECT
           c.*,
-          (
-            SELECT status
-            FROM calls
-            WHERE contact_id = c.id
-            ORDER BY
-              CASE WHEN started_at IS NULL THEN 1 ELSE 0 END ASC,
-              started_at DESC,
-              id DESC
-            LIMIT 1
-          ) AS last_call_status,
-          (
-            SELECT outcome
-            FROM calls
-            WHERE contact_id = c.id
-            ORDER BY
-              CASE WHEN started_at IS NULL THEN 1 ELSE 0 END ASC,
-              started_at DESC,
-              id DESC
-            LIMIT 1
-          ) AS last_call_outcome,
-          (
-            SELECT started_at
-            FROM calls
-            WHERE contact_id = c.id
-            ORDER BY
-              CASE WHEN started_at IS NULL THEN 1 ELSE 0 END ASC,
-              started_at DESC,
-              id DESC
-            LIMIT 1
-          ) AS last_called_at,
+          last_call.status AS last_call_status,
+          last_call.outcome AS last_call_outcome,
+          last_call.started_at AS last_called_at,
           n.name as niche_name
         FROM contacts c
         LEFT JOIN niches n ON c.niche_id = n.id
+        LEFT JOIN LATERAL (
+          SELECT status, outcome, started_at
+          FROM calls
+          WHERE contact_id = c.id
+          ORDER BY started_at DESC NULLS LAST, id DESC
+          LIMIT 1
+        ) last_call ON true
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY c.created_at DESC, c.id DESC
       `,
@@ -243,6 +222,43 @@ router.post(
       duplicates: duplicates.length,
       contacts: inserted
     });
+  })
+);
+
+router.post(
+  '/claim',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { contactIds } = z.object({ contactIds: z.array(z.number()) }).parse(req.body);
+    if (!contactIds.length) {
+      return res.json({ ok: true, claimedIds: [] });
+    }
+
+    const agentId = req.user.id;
+    const isManager = ['manager', 'owner', 'admin'].includes(req.user.role);
+
+    let result;
+    if (isManager) {
+      result = await query(
+        `UPDATE contacts 
+            SET assigned_agent_id = $1, updated_at = CURRENT_TIMESTAMP 
+          WHERE id = ANY($2) 
+          RETURNING id`,
+        [agentId, contactIds]
+      );
+    } else {
+      result = await query(
+        `UPDATE contacts 
+            SET assigned_agent_id = $1, updated_at = CURRENT_TIMESTAMP 
+          WHERE id = ANY($2) 
+            AND assigned_agent_id IS NULL
+            AND niche_id IN (SELECT niche_id FROM employee_niches WHERE agent_id = $1)
+          RETURNING id`,
+        [agentId, contactIds]
+      );
+    }
+
+    res.json({ ok: true, claimedIds: result.rows.map(r => r.id) });
   })
 );
 
@@ -499,6 +515,7 @@ router.post(
 );
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { resolvePrompt, getPromptForContact } from '../services/template-resolver.service.js';
 
 router.post(
   '/:id/outreach',
@@ -514,7 +531,15 @@ router.post(
     // Parse safely in case body is empty
     const body = req.body ? bodySchema.parse(req.body) : { template: '' };
 
-    const contactRes = await query('SELECT * FROM contacts WHERE id = $1 AND user_id = $2', [params.id, req.user.id]);
+    const contactRes = await query(
+      `SELECT c.*, n.custom_prompt as niche_prompt, n.name as niche_name,
+              camp.base_template as campaign_prompt
+       FROM contacts c
+       LEFT JOIN niches n ON c.niche_id = n.id
+       LEFT JOIN campaigns camp ON c.campaign_id = camp.id
+       WHERE c.id = $1`,
+      [params.id]
+    );
     if (contactRes.rowCount === 0) throw new AppError('Contact not found', 404);
     const contact = contactRes.rows[0];
 
@@ -546,19 +571,30 @@ router.post(
     // 2. Success Logic: Email Sent -> Wait for reply
     let generatedEmailHtml = '';
 
-    if (contact.website_data && body.template && process.env.GEMINI_API_KEY) {
+    // Resolve the prompt using niche-first chain
+    const fallbackManualPrompt = `You are an expert B2B sales representative writing a personalized cold email.
+Write a highly personalized, professional, and concise cold email.
+The goal is to start a conversation about optimizing business sales funnels and conversion rates.`;
+    
+    const basePrompt = body.template || getPromptForContact(contact, fallbackManualPrompt);
+    
+    if (process.env.GEMINI_API_KEY) {
       try {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        
+        // Resolve the base template with all contact variables
+        const resolvedBase = resolvePrompt(basePrompt, contact, 'Jento AI', contact.niche_name);
+        
         const prompt = `You are an expert sales representative writing a personalized cold email. 
         Here is the base template to follow:
         """
-        ${body.template}
+        ${resolvedBase}
         """
 
         Here is the introduction/website data of the prospect's company:
         """
-        ${contact.website_data}
+        ${contact.website_data || ''}
         """
 
         Rewrite the base template to make it highly personalized to their company using the website data. Keep the tone professional, concise, and conversational. Output ONLY the email body in HTML format (using <p> and <br> tags). Do NOT include any signature at the end. Replace any placeholder like [Name] with ${contact.name}.`;
@@ -568,16 +604,18 @@ router.post(
       } catch (err) {
         console.error("Gemini Generation Error:", err);
         // Fallback to basic template if generation fails
+        const resolvedFallback = resolvePrompt(basePrompt, contact, 'Jento AI', contact.niche_name);
         generatedEmailHtml = `
           <p>Hi ${contact.name},</p>
-          <p>${body.template.replace(/\n/g, '<br/>')}</p>
+          <p>${resolvedFallback.replace(/\n/g, '<br/>')}</p>
         `;
       }
     } else {
-      // Basic fallback
+      // Basic fallback using resolved prompt
+      const resolvedFallback = resolvePrompt(basePrompt, contact, 'Jento AI', contact.niche_name);
       generatedEmailHtml = `
         <p>Hi ${contact.name},</p>
-        <p>${body.template ? body.template.replace(/\n/g, '<br/>') : 'I noticed your real estate listings and wanted to reach out regarding a potential collaboration. Would you have time for a quick chat next week?'}</p>
+        <p>${resolvedFallback.replace(/\n/g, '<br/>')}</p>
       `;
     }
 

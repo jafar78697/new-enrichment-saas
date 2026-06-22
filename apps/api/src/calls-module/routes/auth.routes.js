@@ -49,6 +49,8 @@ router.post(
 
     await query('UPDATE agents SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1', [row.id]);
     const token = signToken(row);
+    const { rows: modulesRows } = await query('SELECT module FROM agent_modules WHERE agent_id = $1', [row.id]);
+    const assignedModules = modulesRows.map(r => r.module);
     res.json({
       token,
       user: {
@@ -60,6 +62,7 @@ router.post(
         status: row.status,
         twilio_identity: row.twilio_identity,
         twilio_phone_number: row.twilio_phone_number,
+        assigned_modules: assignedModules,
       },
     });
   }),
@@ -101,7 +104,13 @@ router.post(
     );
     const fresh = freshRows[0];
     const jwtToken = signToken(fresh);
-    res.json({ token: jwtToken, user: fresh });
+    res.json({
+      token: jwtToken,
+      user: {
+        ...fresh,
+        assigned_modules: [],
+      }
+    });
   }),
 );
 
@@ -109,7 +118,17 @@ router.get(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    res.json({ user: req.user });
+    let assignedModules = [];
+    if (req.user && (req.user.role === 'employee' || req.user.role === 'team_leader')) {
+      const { rows: modulesRows } = await query('SELECT module FROM agent_modules WHERE agent_id = $1', [req.user.id]);
+      assignedModules = modulesRows.map(r => r.module);
+    }
+    res.json({
+      user: {
+        ...req.user,
+        assigned_modules: assignedModules,
+      }
+    });
   }),
 );
 
