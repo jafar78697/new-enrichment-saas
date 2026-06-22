@@ -10,18 +10,14 @@ api.interceptors.request.use((config) => {
 
 // Pipeline stages — keep in sync with apps/api/src/routes/crm.ts
 export const PIPELINE_STAGES = [
-  'new', 'scraped', 'enriched', 'qualified', 'assigned',
+  'new',
   'calling', 'called', 'no_answer', 'followup', 'interested',
   'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost',
 ] as const;
 export type Stage = (typeof PIPELINE_STAGES)[number];
 
 export const STAGE_LABELS: Record<Stage, string> = {
-  new: 'New',
-  scraped: 'Scraped',
-  enriched: 'Enriched',
-  qualified: 'Qualified',
-  assigned: 'Assigned',
+  new: 'New Leads',
   calling: 'Calling...',
   called: 'Called',
   no_answer: 'No Answer',
@@ -35,10 +31,6 @@ export const STAGE_LABELS: Record<Stage, string> = {
 
 export const STAGE_COLORS: Record<Stage, string> = {
   new: '#64748b',
-  scraped: '#475569',
-  enriched: '#0369a1',
-  qualified: '#0891b2',
-  assigned: '#7c3aed',
   calling: '#d97706',
   called: '#6366f1',
   no_answer: '#ea580c',

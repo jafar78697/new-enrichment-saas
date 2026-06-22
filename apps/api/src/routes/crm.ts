@@ -3,10 +3,6 @@ import { FastifyInstance } from 'fastify';
 // Canonical pipeline stages. Frontend renders columns in this exact order.
 export const PIPELINE_STAGES = [
   'new',
-  'scraped',
-  'enriched',
-  'qualified',
-  'assigned',
   'calling',
   'called',
   'no_answer',
