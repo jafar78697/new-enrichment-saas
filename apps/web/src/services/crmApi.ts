@@ -95,6 +95,11 @@ export const leadsApi = {
     api.get<{ leads: Lead[]; total: number; page: number; limit: number }>('/leads', { params }).then((r) => r.data),
   pipeline: () => api.get<{ stages: StageCount[] }>('/leads/pipeline').then((r) => r.data),
   activeCalls: () => api.get<{ activeCalls: Record<string, string> }>('/leads/active-calls').then((r) => r.data),
+  queueAi: (body: { lead_ids?: string[]; niche_id?: number; limit?: number }) =>
+    api.post<{ ok: boolean; queuedExisting: number; createdFromContacts: number; totalQueued: number }>(
+      '/leads/queue-ai',
+      body,
+    ).then((r) => r.data),
   get: (id: string) =>
     api
       .get<{ lead: Lead; history: any[]; tasks: Task[] }>(`/leads/${id}`)

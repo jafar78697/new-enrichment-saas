@@ -49,10 +49,12 @@ export function attachMediaServer(httpServer) {
     console.log(`[voice-agent:ws] New media stream connection from ${clientIp} on ${req.url}`);
 
     let contactId = null;
+    let tenantId = null;
     try {
-      // req.url is like /api/voice/media?contactId=123
+      // req.url is like /api/voice/media?contactId=123&tenantId=...
       const urlParams = new URL(req.url, `http://localhost`).searchParams;
       contactId = urlParams.get('contactId');
+      tenantId = urlParams.get('tenantId');
     } catch (e) {}
 
     let streamSid = null;
@@ -92,7 +94,7 @@ export function attachMediaServer(httpServer) {
           streamSid = msg.streamSid;
           callSid = msg.start?.callSid || 'unknown';
           streamActive = true;
-          console.log(`[voice-agent:ws] Stream started: streamSid=${streamSid}, callSid=${callSid}, contactId=${contactId}`);
+          console.log(`[voice-agent:ws] Stream started: streamSid=${streamSid}, callSid=${callSid}, contactId=${contactId}, tenantId=${tenantId}`);
 
           // Store stream reference
           activeStreams.set(streamSid, {
@@ -102,6 +104,7 @@ export function attachMediaServer(httpServer) {
             startedAt: new Date(),
             customParams: msg.start?.customParameters || {},
             contactId,
+            tenantId,
           });
 
           // Notify orchestrator of new stream
@@ -111,6 +114,7 @@ export function attachMediaServer(httpServer) {
             ws,
             customParams: msg.start?.customParameters || {},
             contactId,
+            tenantId,
           });
           break;
 

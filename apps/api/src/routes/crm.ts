@@ -92,6 +92,133 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     return { leads: rows, total: parseInt(countRows[0].count), page, limit };
   });
 
+  // POST /v1/leads/queue-ai
+  // Queues enrichment leads directly, or promotes calls-module contacts from a niche
+  // into enrichment_results so the AI voice worker can call them one by one.
+  fastify.post('/v1/leads/queue-ai', { preHandler: [fastify.authenticate as any] }, async (request: any, reply) => {
+    const { tenantId, userId } = request.tenant;
+    const body = request.body || {};
+    const leadIds = Array.isArray(body.lead_ids) ? body.lead_ids.filter(Boolean) : [];
+    const nicheId = body.niche_id ? Number(body.niche_id) : null;
+    const limit = Math.max(1, Math.min(500, Number(body.limit || 100)));
+
+    if (!leadIds.length && !nicheId) {
+      return reply.code(400).send({ error: 'Provide lead_ids or niche_id' });
+    }
+
+    let queuedExisting = 0;
+    let createdFromContacts = 0;
+
+    if (leadIds.length) {
+      const { rowCount } = await fastify.db.query(
+        `UPDATE enrichment_results
+         SET assigned_to_ai = true,
+             lead_stage = CASE
+               WHEN lead_stage IN ('calling', 'interested', 'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost')
+                 THEN lead_stage
+               ELSE 'new'
+             END
+         WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
+        [tenantId, leadIds],
+      );
+      queuedExisting += rowCount || 0;
+    }
+
+    if (nicheId) {
+      const { rows: jobRows } = await fastify.db.query(
+        `INSERT INTO enrichment_jobs (tenant_id, mode, status, source_type, total_items)
+         VALUES ($1, 'ai_voice_queue', 'completed', 'crm_niche', 0)
+         RETURNING id`,
+        [tenantId],
+      );
+      const jobId = jobRows[0].id;
+
+      const { rowCount: updatedExisting } = await fastify.db.query(
+        `UPDATE enrichment_results er
+         SET assigned_to_ai = true,
+             lead_stage = CASE
+               WHEN er.lead_stage IN ('calling', 'interested', 'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost')
+                 THEN er.lead_stage
+               ELSE 'new'
+             END
+         FROM contacts c
+         WHERE er.tenant_id = $1
+           AND er.raw_data->>'source_contact_id' = c.id::text
+           AND c.niche_id = $2
+           AND c.phone_number IS NOT NULL
+           AND c.phone_number <> ''`,
+        [tenantId, nicheId],
+      );
+      queuedExisting += updatedExisting || 0;
+
+      const { rows: insertedRows } = await fastify.db.query(
+        `INSERT INTO enrichment_results (
+           job_id, tenant_id, domain, primary_email, primary_phone, company_name,
+           industry_guess, one_line_pitch, confidence_level, raw_data,
+           lead_stage, assigned_to_ai, lead_priority
+         )
+         SELECT
+           $1,
+           $2,
+           COALESCE(
+             NULLIF(regexp_replace(COALESCE(c.website, ''), '^https?://(www\\.)?([^/]+).*$', '\\2'), ''),
+             'contact-' || c.id || '.local'
+           ) AS domain,
+           c.email,
+           c.phone_number,
+           COALESCE(NULLIF(c.company, ''), c.name),
+           n.name,
+           'CRM niche lead queued for AI voice outreach: ' || n.name,
+           'crm',
+           jsonb_build_object(
+             'source', 'contacts',
+             'source_contact_id', c.id::text,
+             'niche_id', n.id,
+             'niche_name', n.name,
+             'website', c.website,
+             'notes', c.notes
+           ),
+           'new',
+           true,
+           CASE WHEN COALESCE(c.score, 0) >= 70 THEN 'high' ELSE 'medium' END
+         FROM contacts c
+         JOIN niches n ON n.id = c.niche_id
+         WHERE c.niche_id = $3
+           AND c.phone_number IS NOT NULL
+           AND c.phone_number <> ''
+           AND NOT EXISTS (
+             SELECT 1 FROM enrichment_results er
+             WHERE er.tenant_id = $2
+               AND er.raw_data->>'source_contact_id' = c.id::text
+           )
+         ORDER BY c.updated_at DESC, c.created_at DESC
+         LIMIT $4
+         RETURNING id`,
+        [jobId, tenantId, nicheId, limit],
+      );
+      createdFromContacts = insertedRows.length;
+
+      await fastify.db.query(
+        `UPDATE enrichment_jobs SET total_items = $1, completed_items = $1, updated_at = NOW() WHERE id = $2`,
+        [createdFromContacts, jobId],
+      );
+    }
+
+    await writeAudit(fastify, tenantId, userId, 'lead.ai_queued', 'lead', 'bulk', {
+      leadIds,
+      nicheId,
+      queuedExisting,
+      createdFromContacts,
+    });
+
+    return {
+      ok: true,
+      queuedExisting,
+      createdFromContacts,
+      totalQueued: queuedExisting + createdFromContacts,
+    };
+  });
+
   // GET /v1/leads/active-calls -> Returns mapping of contactId -> callSid for live monitoring
   fastify.get('/v1/leads/active-calls', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
     try {

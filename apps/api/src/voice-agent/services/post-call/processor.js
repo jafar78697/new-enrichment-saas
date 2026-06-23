@@ -146,12 +146,35 @@ export async function processPostCall(callSid) {
             nextStage = 'interested';
           } else if (leadQualification.outcome === 'callback_requested') {
             nextStage = 'followup';
+          } else if (leadQualification.outcome === 'voicemail' || leadQualification.outcome === 'no_answer') {
+            nextStage = 'no_answer';
           } else if (leadQualification.outcome === 'not_interested') {
             nextStage = 'closed_lost';
           }
           await callsQuery(
-            `UPDATE enrichment_results SET lead_stage = $1 WHERE id = $2`,
-            [nextStage, session.metadata.contactId]
+            `UPDATE enrichment_results
+             SET lead_stage = $1,
+                 ai_summary = $2,
+                 ai_score = $3,
+                 ai_updated_at = NOW(),
+                 lead_notes = CONCAT_WS(E'\n\n',
+                   NULLIF(lead_notes, ''),
+                   $4
+                 ),
+                 next_followup_at = CASE
+                   WHEN $5::text IN ('callback_requested', 'interested', 'meeting_booked')
+                     THEN COALESCE(next_followup_at, NOW() + INTERVAL '1 day')
+                   ELSE next_followup_at
+                 END
+             WHERE id = $6`,
+            [
+              nextStage,
+              summary.text,
+              leadQualification.score || null,
+              formatLeadNote(callSid, leadQualification, summary.text),
+              leadQualification.outcome,
+              session.metadata.contactId,
+            ]
           );
         } catch (crmErr) {
           console.warn(`[voice-agent:post-call] Could not update enrichment_results stage for ${callSid}:`, crmErr.message);
@@ -358,26 +381,45 @@ async function createCRMFollowUp(session, leadQualification, summary) {
   if (!contactId) return;
 
   try {
-    // Add follow-up note to the contact
+    const tenantId = session.metadata?.tenantId || 'c1f6f7a0-f75d-46a2-afc7-810bde42c467';
+    const title = leadQualification.outcome === 'meeting_booked'
+      ? 'AI voice meeting booked'
+      : 'AI voice follow-up needed';
+
     await callsQuery(
-      `UPDATE contacts 
-       SET notes = COALESCE(notes, '') || $1,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2`,
+      `INSERT INTO tasks (tenant_id, lead_id, title, description, task_type, due_at, priority)
+       VALUES ($1, $2, $3, $4, 'followup', NOW() + INTERVAL '1 day', $5)`,
       [
-        `\n[AI Voice Call ${new Date().toISOString()}]\n` +
-        `Outcome: ${leadQualification.outcome}\n` +
-        `Lead Score: ${leadQualification.score}/100\n` +
-        `Summary: ${summary}\n` +
-        `Suggested Follow-up: ${leadQualification.suggested_follow_up || 'N/A'}`,
+        tenantId,
         contactId,
+        title,
+        formatLeadNote(session.callSid, leadQualification, summary),
+        (leadQualification.score || 0) >= 70 ? 'high' : 'medium',
       ],
     );
 
-    console.log(`[voice-agent:post-call] CRM follow-up created for contact ${contactId}`);
+    console.log(`[voice-agent:post-call] CRM follow-up task created for lead ${contactId}`);
   } catch (err) {
     console.error(`[voice-agent:post-call] CRM follow-up error:`, err.message);
   }
+}
+
+function formatLeadNote(callSid, leadQualification, summary) {
+  const details = leadQualification.client_details || {};
+  const detailLines = Object.entries(details)
+    .filter(([, value]) => value !== null && value !== undefined && `${value}`.trim() !== '')
+    .map(([key, value]) => `${key}: ${value}`);
+
+  return [
+    `[AI Voice Call ${new Date().toISOString()}]`,
+    `Call SID: ${callSid}`,
+    `Outcome: ${leadQualification.outcome || 'unknown'}`,
+    `Lead Score: ${leadQualification.score ?? 0}/100`,
+    `Decision Maker: ${leadQualification.decision_maker ? 'yes' : 'unknown/no'}`,
+    `Summary: ${summary || 'No summary available'}`,
+    `Suggested Follow-up: ${leadQualification.suggested_follow_up || 'N/A'}`,
+    detailLines.length ? `Client Details:\n${detailLines.join('\n')}` : null,
+  ].filter(Boolean).join('\n');
 }
 
 export default {

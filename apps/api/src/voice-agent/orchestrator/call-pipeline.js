@@ -20,6 +20,7 @@ import { onStreamEvent, sendMediaToTwilio, clearTwilioAudio } from '../websocket
 import { env } from '../config/env.js';
 import { processPostCall } from '../services/post-call/processor.js';
 import { query } from '../../calls-module/db/index.js';
+import twilio from 'twilio';
 
 // Active pipeline instances per streamSid
 const activePipelines = new Map();
@@ -31,10 +32,13 @@ export function initOrchestrator() {
   console.log('[voice-agent:orchestrator] Initializing Voice Architecture v3...');
 
   onStreamEvent('stream:start', (data) => {
-    const { streamSid, callSid, customParams, contactId } = data;
+    const { streamSid, callSid, customParams, contactId, tenantId } = data;
     console.log(`[voice-agent:orchestrator] New call: ${callSid} (stream: ${streamSid})`);
     if (contactId) {
       customParams.contactId = contactId;
+    }
+    if (tenantId) {
+      customParams.tenantId = tenantId;
     }
     startCallPipeline(streamSid, callSid, customParams);
   });
@@ -80,6 +84,7 @@ export async function startCallPipeline(streamSid, callSid, customParams = {}, a
       metadata: {
         agentId: customParams.voiceAgentId || 'default',
         tenantId: customParams.tenantId || 'default',
+        contactId: customParams.contactId || null,
         agentType: customParams.agentType || 'sales',
         industry: customParams.industry || null,
         voiceId: customParams.voiceId || env.ELEVENLABS_VOICE_ID,
@@ -261,10 +266,16 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
       kernel.logger.log(`[VoiceKernel] 🛑 End call triggered for ${callSid}`);
       broadcastCallAudio(callSid, 'ai', null); // clear
       
-      const delay = args?.delay_ms || 3000;
+      const delay = args?.delay_ms ?? 300;
       setTimeout(async () => {
-        await setCallStatus(callSid, 'completed');
-        activePipelines.delete(streamSid);
+        try {
+          if (env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN) {
+            const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+            await client.calls(callSid).update({ status: 'completed' });
+          }
+        } catch (err) {
+          kernel.logger.error(`[VoiceKernel] ❌ Failed to hang up ${callSid}: ${err.message}`);
+        }
         activeAdapter.clearAudio(streamSid);
       }, delay);
       
@@ -294,13 +305,15 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
             resultStr = JSON.stringify({ success: true, message: 'Simulated booking (N8N not configured)' });
           }
         } else if (name === 'press_keypad') {
-          if (env.TWILIO_ACCOUNT_SID) {
-            const twilio = (await import('twilio')).default;
+          const digit = String(args?.digit ?? args?.digits ?? '').trim();
+          if (!digit || !/^[0-9*#]$/.test(digit)) {
+            resultStr = JSON.stringify({ success: false, error: `Invalid DTMF digit: ${digit || '(empty)'}` });
+          } else if (env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN) {
             const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
-            await client.calls(callSid).update({ sendDigits: args.digits });
-            resultStr = JSON.stringify({ success: true, digits_sent: args.digits });
+            await client.calls(callSid).update({ sendDigits: digit });
+            resultStr = JSON.stringify({ success: true, digits_sent: digit });
           } else {
-            resultStr = JSON.stringify({ success: true, message: 'Simulated keypad press' });
+            resultStr = JSON.stringify({ success: true, digits_sent: digit, message: 'Simulated keypad press' });
           }
         } else {
           resultStr = JSON.stringify({ error: 'Tool not found or not executable' });
@@ -325,7 +338,8 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
     callSid,
     adapter: activeAdapter,
     kernel,
-    openaiSession
+    openaiSession,
+    contactId: customParams.contactId || null
   });
 }
 
@@ -370,7 +384,8 @@ export function getPipelineStats() {
     activeCalls: activePipelines.size,
     pipelines: Array.from(activePipelines.values()).map((p) => ({
       streamSid: p.streamSid,
-      callSid: p.callSid
+      callSid: p.callSid,
+      contactId: p.contactId
     })),
   };
 }

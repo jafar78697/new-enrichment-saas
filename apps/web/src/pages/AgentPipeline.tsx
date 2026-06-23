@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   leadsApi, Lead, PIPELINE_STAGES, STAGE_LABELS, STAGE_COLORS, Stage,
 } from '../services/crmApi';
+import { nichesApi, type Niche } from '../services/nichesApi';
 import LiveCallMonitor from '../components/LiveCallMonitor';
 import BrowserAgentTester from '../components/BrowserAgentTester';
 
@@ -15,6 +16,10 @@ export default function AgentPipelinePage() {
   const [activeCallsMap, setActiveCallsMap] = useState<Record<string, string>>({});
   const [listenCallSid, setListenCallSid] = useState<string | null>(null);
   const [isTestingBrowser, setIsTestingBrowser] = useState(false);
+  const [niches, setNiches] = useState<Niche[]>([]);
+  const [selectedNicheId, setSelectedNicheId] = useState('');
+  const [queueStatus, setQueueStatus] = useState('');
+  const [queueing, setQueueing] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -33,6 +38,12 @@ export default function AgentPipelinePage() {
 
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    nichesApi.list()
+      .then((res) => setNiches(res.niches || []))
+      .catch(() => setNiches([]));
+  }, []);
+
   // Auto-refresh every 10 seconds to show live updates from the AI agent
   useEffect(() => {
     const interval = setInterval(() => { void load(); }, 10000);
@@ -50,6 +61,21 @@ export default function AgentPipelinePage() {
     return map;
   }, [leads]);
 
+  const queueSelectedNiche = async () => {
+    if (!selectedNicheId) return;
+    setQueueing(true);
+    setQueueStatus('');
+    try {
+      const res = await leadsApi.queueAi({ niche_id: Number(selectedNicheId), limit: 100 });
+      setQueueStatus(`Queued ${res.totalQueued} lead${res.totalQueued === 1 ? '' : 's'} for AI calling`);
+      await load();
+    } catch (e: any) {
+      setQueueStatus(e?.response?.data?.error || e?.message || 'Failed to queue niche');
+    } finally {
+      setQueueing(false);
+    }
+  };
+
   return (
     <div style={{ fontFamily: 'Manrope, sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -60,6 +86,34 @@ export default function AgentPipelinePage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <select
+            value={selectedNicheId}
+            onChange={(e) => setSelectedNicheId(e.target.value)}
+            style={{ width: 220, padding: '8px 10px', border: '1px solid #D8E1D7', borderRadius: 8, fontSize: 13, background: '#fff' }}
+          >
+            <option value="">Select niche...</option>
+            {niches.map((niche) => (
+              <option key={niche.id} value={niche.id}>
+                {niche.name} ({niche.contact_count || 0})
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={queueSelectedNiche}
+            disabled={!selectedNicheId || queueing}
+            style={{
+              padding: '8px 14px',
+              background: !selectedNicheId || queueing ? '#94A3B8' : '#0F766E',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: !selectedNicheId || queueing ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {queueing ? 'Queueing...' : 'Queue Niche'}
+          </button>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -93,6 +147,11 @@ export default function AgentPipelinePage() {
       {err && (
         <div style={{ padding: 12, marginBottom: 12, background: '#FEE2E2', border: '1px solid #FCA5A5', color: '#991B1B', borderRadius: 8, fontSize: 13 }}>
           {err}
+        </div>
+      )}
+      {queueStatus && (
+        <div style={{ padding: 10, marginBottom: 12, background: queueStatus.startsWith('Failed') ? '#FEE2E2' : '#ECFDF5', border: `1px solid ${queueStatus.startsWith('Failed') ? '#FCA5A5' : '#A7F3D0'}`, color: queueStatus.startsWith('Failed') ? '#991B1B' : '#047857', borderRadius: 8, fontSize: 13 }}>
+          {queueStatus}
         </div>
       )}
       {loading && <div style={{ padding: 20, color: '#7B8794' }}>Loading AI pipeline…</div>}

@@ -28,13 +28,19 @@ export async function runOutboundCallerLoop() {
   // Simple loop: every 30 seconds
   setInterval(async () => {
     try {
-      // Find one lead that is 'enriched', assigned to AI, and has a phone number
+      // Find one queued AI lead with a phone number.
+      // CRM stages use "new"; older enrichment imports may still use "enriched".
       const { rows } = await query(`
-        SELECT id, primary_phone, company_name, domain, ai_summary, ai_pain_points 
+        SELECT id, tenant_id, primary_phone, company_name, domain, ai_summary, ai_pain_points 
         FROM enrichment_results 
-        WHERE lead_stage = 'enriched' 
-          AND assigned_to_ai = true
+        WHERE assigned_to_ai = true
+          AND lead_stage IN ('new', 'enriched', 'followup')
           AND primary_phone IS NOT NULL
+          AND primary_phone <> ''
+          AND (next_followup_at IS NULL OR next_followup_at <= NOW())
+        ORDER BY
+          CASE lead_stage WHEN 'followup' THEN 0 WHEN 'new' THEN 1 ELSE 2 END,
+          created_at ASC
         LIMIT 1
       `);
 
@@ -43,22 +49,28 @@ export async function runOutboundCallerLoop() {
       const lead = rows[0];
 
       // Mark as calling to prevent duplicate calls
-      await query(`UPDATE enrichment_results SET lead_stage = 'calling' WHERE id = $1`, [lead.id]);
+      await query(
+        `UPDATE enrichment_results
+         SET lead_stage = 'calling',
+             last_contacted_at = NOW()
+         WHERE id = $1`,
+        [lead.id]
+      );
       
       console.log(`[outbound-caller] Initiating call to lead: ${lead.company_name || lead.domain} (${lead.primary_phone})`);
 
       // We append contactId to the URL so Twilio passes it back to our twiml endpoint
       // Ensure the endpoint is publicly accessible
-      const webhookUrl = `${PUBLIC_BASE_URL}/api/voice/twiml/outbound?contactId=${lead.id}`;
+      const webhookUrl = `${PUBLIC_BASE_URL}/api/voice/twiml/outbound?contactId=${lead.id}&tenantId=${lead.tenant_id}`;
 
-      await twilioClient.calls.create({
+      const call = await twilioClient.calls.create({
         url: webhookUrl,
         to: lead.primary_phone,
         from: fromPhone,
         method: 'POST'
       });
 
-      console.log(`[outbound-caller] Twilio call created for lead ${lead.id}.`);
+      console.log(`[outbound-caller] Twilio call created for lead ${lead.id}: ${call.sid}.`);
 
     } catch (err) {
       console.error('[outbound-caller] Error during outbound call loop:', err);

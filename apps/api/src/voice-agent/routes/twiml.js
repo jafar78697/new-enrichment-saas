@@ -43,6 +43,7 @@ router.post(
       From: z.string().optional(),
       voiceAgentId: z.string().optional(),
       contactId: z.string().optional(),
+      tenantId: z.string().optional(),
       record: z.string().optional(),
     }).parse({ ...req.body, ...req.query });
 
@@ -63,6 +64,9 @@ router.post(
     let streamUrl = wsUrl(req, '/api/voice/media');
     if (payload.contactId) {
       streamUrl += `?contactId=${payload.contactId}`;
+    }
+    if (payload.tenantId) {
+      streamUrl += `${streamUrl.includes('?') ? '&' : '?'}tenantId=${payload.tenantId}`;
     }
 
     response.connect().stream({
