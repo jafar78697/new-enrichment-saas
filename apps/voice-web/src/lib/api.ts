@@ -29,7 +29,7 @@ export const voiceApi = {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
     return apiFetch(`/api/calls${qs}`);
   },
-  triggerCall: (to: string) => apiFetch('/api/voice/campaigns/call', { method: 'POST', body: JSON.stringify({ to }) }),
+  triggerCall: (to: string) => apiFetch('/api/voice/outbound/call', { method: 'POST', body: JSON.stringify({ to }) }),
 };
 
 // Socket.io connection for real-time updates

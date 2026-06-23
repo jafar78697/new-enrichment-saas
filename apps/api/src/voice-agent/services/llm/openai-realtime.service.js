@@ -1,42 +1,60 @@
 import WebSocket from 'ws';
 import { env } from '../../config/env.js';
 
-/**
- * Create an OpenAI Realtime API session via WebSockets.
- * This completely replaces STT, LLM, and TTS with a single sub-300ms latency stream.
- *
- * @param {Object} config
- * @param {string} config.systemPrompt - The AI persona instructions
- * @param {Array} config.tools - Array of tool definitions (e.g. book_meeting, press_keypad)
- * @param {Function} config.onAudioDelta - Called when OpenAI sends audio to play
- * @param {Function} config.onTranscription - Called when the user's speech is transcribed
- * @param {Function} config.onAssistantText - Called when the assistant speaks text
- * @param {Function} config.onToolCall - Called when the AI requests a tool
- * @param {Function} config.onUsage - Called when usage metrics are received
- * @param {Function} config.onReady - Called when the session is successfully configured
- * @param {Function} config.onError - Called on errors
- * @param {Function} config.onClose - Called when the socket closes
- */
+class AudioBufferEngine {
+  constructor(onFlush) {
+    this.onFlush = onFlush;
+  }
+
+  push(chunk) {
+    // Direct pass-through for lowest latency
+    this.onFlush(chunk);
+  }
+
+  clear() {
+    // No-op
+  }
+}
+
 export function createOpenAISession(config) {
+  const realtimeModel = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime';
+  const wsUrl = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(realtimeModel)}`;
   const apiKey = env.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is missing. Cannot start OpenAI Realtime session.');
   }
 
-  // Use the latest realtime model
-  const wsUrl = 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17';
-  
   const ws = new WebSocket(wsUrl, {
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'OpenAI-Beta': 'realtime=v1',
+      Authorization: `Bearer ${apiKey}`
     },
   });
 
-  let isReady = false;
-  let activeResponseId = null;
+  ws.on('unexpected-response', (req, res) => {
+    console.error(`[voice-agent:openai] ❌ Unexpected server response: ${res.statusCode}`);
+    if (config.onError) config.onError(new Error(`OpenAI WS error: ${res.statusCode}`));
+  });
 
-  // We map standard JSON Schema tools to OpenAI Realtime tool format
+  const state = {
+    sessionReady: false,
+  };
+
+  const audioBuffer = new AudioBufferEngine((base64Payload) => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    
+    // Backpressure control
+    if (ws.bufferedAmount > 1_500_000) {
+      console.warn('[voice-agent:openai] ⚠️ WS backpressure high. Dropping audio frames.');
+      return; 
+    }
+
+    ws.send(JSON.stringify({
+      type: 'input_audio_buffer.append',
+      audio: base64Payload,
+    }));
+  });
+
   const mappedTools = (config.tools || []).map(t => ({
     type: 'function',
     name: t.name,
@@ -44,128 +62,150 @@ export function createOpenAISession(config) {
     parameters: t.parameters
   }));
 
+  function toRealtimeAudioFormat(format) {
+    if (format === 'g711_ulaw') return { type: 'audio/pcmu' };
+    if (format === 'g711_alaw') return { type: 'audio/pcma' };
+    return { type: 'audio/pcm', rate: 24000 };
+  }
+
+  const audioFormat = toRealtimeAudioFormat(config.audioFormat);
+
+  const sessionUpdate = {
+    type: 'session.update',
+    session: {
+      type: 'realtime',
+      model: realtimeModel,
+      output_modalities: ['audio'],
+      instructions: config.systemPrompt || 'You are a helpful voice assistant.',
+      tools: mappedTools,
+      tool_choice: 'auto',
+      audio: {
+        input: {
+          format: audioFormat,
+          turn_detection: {
+            type: 'server_vad',
+            create_response: true,
+            interrupt_response: true
+          },
+          transcription: {
+            model: 'whisper-1'
+          }
+        },
+        output: {
+          format: audioFormat
+        }
+      },
+    },
+  };
+
   ws.on('open', () => {
-    console.log('[voice-agent:openai] Connected to OpenAI Realtime API');
-    
-    // Initialize session with Twilio-compatible ulaw audio
-    const sessionUpdate = {
-      type: 'session.update',
-      session: {
-        modalities: ['audio', 'text'],
-        instructions: config.systemPrompt,
-        voice: 'alloy', // Can be alloy, ash, ballad, coral, echo, sage, shimmer, or verse
-        input_audio_format: 'g711_ulaw',
-        output_audio_format: 'g711_ulaw',
-        input_audio_transcription: {
-          model: 'whisper-1',
-        },
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 1000,
-        },
-        tools: mappedTools,
-        tool_choice: 'auto',
-      }
-    };
-    
+    console.log('[voice-agent:openai] ✅ WebSocket OPEN — sending session.update');
     ws.send(JSON.stringify(sessionUpdate));
-    isReady = true;
-    if (config.onReady) config.onReady();
   });
 
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
       
-      switch (msg.type) {
-        // AI generated audio to play to the user
-        case 'response.audio.delta':
-          if (config.onAudioDelta && msg.delta) {
-            config.onAudioDelta(msg.delta); // base64 mulaw
-          }
-          break;
-
-        // User transcription (what the user said)
-        case 'conversation.item.input_audio_transcription.completed':
-          if (config.onTranscription && msg.transcript) {
-            config.onTranscription(msg.transcript);
-          }
-          break;
-
-        // AI text (what the AI said, for logging)
-        case 'response.audio_transcript.done':
-          if (config.onAssistantText && msg.transcript) {
-            config.onAssistantText(msg.transcript);
-          }
-          break;
-
-        // Tool execution requested by AI
-        case 'response.function_call_arguments.done':
-          if (config.onToolCall) {
-            let args = {};
-            try { args = JSON.parse(msg.arguments); } catch(e) {}
-            
-            config.onToolCall({
-              call_id: msg.call_id,
-              name: msg.name,
-              args: args
-            });
-          }
-          break;
-
-        case 'error':
-          console.error('[voice-agent:openai] API Error:', msg.error);
-          if (config.onError) config.onError(new Error(msg.error.message));
-          break;
-          
-        case 'response.done':
-          if (config.onUsage && msg.response && msg.response.usage) {
-            config.onUsage(msg.response.usage);
-          }
-          break;
-          
-        case 'response.created':
-          activeResponseId = msg.response.id;
-          break;
+      // LOG EVERY MESSAGE END-TO-END EXCEPT RAW DELTAS WHICH CAN SPAM
+      if (msg.type !== 'response.audio.delta' && msg.type !== 'response.output_audio.delta') {
+        console.log(`[voice-agent:openai] 📩 RECEIVED: ${msg.type}`);
       }
+
+      if (msg.type === 'session.updated') {
+        console.log(`[voice-agent:openai] ✅ session.updated CONFIRMED.`);
+        state.sessionReady = true;
+        if (config.onSystemReady) {
+          config.onSystemReady();
+          config.onSystemReady = null; // fire once
+        }
+        if (config.onSessionUpdated) config.onSessionUpdated();
+      }
+
+      // AI audio output
+      if (msg.type === 'response.audio.delta' || msg.type === 'response.output_audio.delta') {
+        if (config.onAudioDelta && msg.delta) {
+          config.onAudioDelta(msg.delta);
+        }
+      }
+
+      // User speech started (Barge-in detection via Server VAD)
+      if (msg.type === 'input_audio_buffer.speech_started') {
+        if (config.onBargeIn) config.onBargeIn();
+      }
+
+      // User transcription
+      if (msg.type === 'conversation.item.input_audio_transcription.completed') {
+        if (config.onTranscription && msg.transcript) {
+          config.onTranscription(msg.transcript);
+        }
+      }
+
+      // AI text transcription
+      if (msg.type === 'response.audio_transcript.done' || msg.type === 'response.output_audio_transcript.done') {
+        if (config.onAssistantText && msg.transcript) {
+          config.onAssistantText(msg.transcript);
+        }
+      }
+
+      // Tool calls
+      if (msg.type === 'response.function_call_arguments.done') {
+        if (config.onToolCall) {
+          let args = {};
+          try { 
+            args = JSON.parse(msg.arguments || '{}'); 
+          } catch(e) {
+            console.error("[voice-agent:openai] ❌ Tool arg parse failed", msg.arguments);
+            args = {};
+          }
+          config.onToolCall({
+            call_id: msg.call_id,
+            name: msg.name,
+            args: args
+          });
+        }
+      }
+
+      // Errors
+      if (msg.type === 'error' || msg.type === 'session.error' || msg.type === 'response.error' || msg.error) {
+        console.error('[voice-agent:openai] ❌ OPENAI ERROR →', JSON.stringify(msg, null, 2));
+        if (config.onError) config.onError(new Error(msg.error?.message || 'OpenAI error'));
+      }
+
+      // Usage
+      if (msg.type === 'response.done') {
+        if (config.onUsage && msg.response && msg.response.usage) {
+          config.onUsage(msg.response.usage);
+        }
+      }
+
     } catch (err) {
       console.error('[voice-agent:openai] Error parsing message:', err.message);
     }
   });
 
   ws.on('error', (err) => {
-    console.error('[voice-agent:openai] WebSocket error:', err.message);
+    console.error('[voice-agent:openai] ❌ WebSocket error:', err.message);
     if (config.onError) config.onError(err);
   });
 
-  ws.on('close', (code, reason) => {
-    console.log(`[voice-agent:openai] Connection closed: ${code}`);
-    isReady = false;
+  ws.on('close', (code) => {
+    console.log(`[voice-agent:openai] 🔌 Connection closed: ${code}`);
+    state.sessionReady = false;
     if (config.onClose) config.onClose();
   });
 
-  // Public API
   return {
-    /**
-     * Feed base64 mulaw audio from Twilio into OpenAI.
-     */
-    writeAudio: (base64Payload) => {
-      if (ws.readyState === WebSocket.OPEN && isReady) {
-        ws.send(JSON.stringify({
-          type: 'input_audio_buffer.append',
-          audio: base64Payload
-        }));
-      }
+    writeAudio: (base64Audio) => {
+      if (!base64Audio) return;
+      audioBuffer.push(base64Audio);
     },
 
-    /**
-     * Trigger a response manually (e.g. for the initial greeting).
-     */
     triggerResponse: (textMessage = null) => {
       if (ws.readyState !== WebSocket.OPEN) return;
-      
+
+      console.log(`[voice-agent:openai] 🚀 Triggering response...`);
+
       if (textMessage) {
         ws.send(JSON.stringify({
           type: 'conversation.item.create',
@@ -176,52 +216,62 @@ export function createOpenAISession(config) {
           }
         }));
       }
-      
+
       ws.send(JSON.stringify({
         type: 'response.create',
-        response: {}
+        response: {
+          output_modalities: ['audio'],
+          audio: {
+            output: {
+              format: audioFormat
+            }
+          }
+        }
       }));
     },
 
-    /**
-     * Provide the tool execution result back to the AI.
-     */
-    submitToolResult: (call_id, result_string) => {
+    submitToolResult: (callId, resultStr) => {
       if (ws.readyState !== WebSocket.OPEN) return;
-      
+
+      console.log(`[voice-agent:openai] 🛠️ Submitting tool result for ${callId}...`);
+
       ws.send(JSON.stringify({
         type: 'conversation.item.create',
         item: {
           type: 'function_call_output',
-          call_id: call_id,
-          output: result_string
+          call_id: callId,
+          output: resultStr
         }
       }));
-      
-      // Tell AI to continue processing based on the tool result
+
       ws.send(JSON.stringify({
         type: 'response.create',
-        response: {}
+        response: {
+          output_modalities: ['audio'],
+          audio: {
+            output: {
+              format: audioFormat
+            }
+          }
+        }
       }));
     },
 
-    /**
-     * Clear the buffer (e.g. during a barge-in).
-     */
+    cancelResponse: () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'response.cancel' }));
+      }
+    },
+
     clearBuffer: () => {
+      audioBuffer.clear();
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
-        // Also cancel any ongoing response
-        if (activeResponseId) {
-          ws.send(JSON.stringify({ type: 'response.cancel' }));
-        }
       }
     },
 
     close: () => {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close();
-      }
-    }
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+    },
   };
 }

@@ -23,11 +23,11 @@ export default function BrowserAgentTester({ voiceAgentId = '1', onClose }: Brow
     setError(null);
     setStatus('Requesting microphone...');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000 } });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 24000 } });
       mediaStreamRef.current = stream;
 
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioContextClass({ sampleRate: 16000 });
+      const ctx = new AudioContextClass({ sampleRate: 24000 });
       audioContextRef.current = ctx;
       nextStartTimeRef.current = ctx.currentTime;
 
@@ -95,7 +95,7 @@ export default function BrowserAgentTester({ voiceAgentId = '1', onClose }: Brow
         float32Array[i] = int16Array[i] / 32768.0;
       }
 
-      const audioBuffer = audioContextRef.current.createBuffer(1, float32Array.length, 16000);
+      const audioBuffer = audioContextRef.current.createBuffer(1, float32Array.length, 24000);
       audioBuffer.getChannelData(0).set(float32Array);
 
       const source = audioContextRef.current.createBufferSource();

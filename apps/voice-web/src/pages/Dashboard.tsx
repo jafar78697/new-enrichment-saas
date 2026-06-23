@@ -9,6 +9,8 @@ interface Stats {
   appointmentsBooked: number;
   sentimentDistribution: { positive: number; neutral: number; negative: number };
   costPerCall: number;
+  twilioCost?: number;
+  openaiCost?: number;
   tokenUsage: number;
 }
 
@@ -122,6 +124,21 @@ export default function Dashboard() {
             <span className="status-dot live" />
             {activeCalls}
           </div>
+        </div>
+      </div>
+
+      <div className="grid" style={{ marginBottom: 24 }}>
+        <div className="card">
+          <h3>Twilio Cost (24h)</h3>
+          <div className="value" style={{ color: '#2563EB' }}>${(stats.twilioCost || 0).toFixed(2)}</div>
+        </div>
+        <div className="card">
+          <h3>OpenAI Cost (24h)</h3>
+          <div className="value" style={{ color: '#10B981' }}>${(stats.openaiCost || 0).toFixed(2)}</div>
+        </div>
+        <div className="card">
+          <h3>Total Tokens (24h)</h3>
+          <div className="value">{(stats.tokenUsage || 0).toLocaleString()}</div>
         </div>
       </div>
 

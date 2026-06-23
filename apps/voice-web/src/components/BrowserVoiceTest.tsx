@@ -58,8 +58,8 @@ export default function BrowserVoiceTest() {
       audioChunksRef.current.push(float32Array);
       chunkLengthRef.current += float32Array.length;
 
-      // When we have enough audio (e.g. 0.1s of audio at 16kHz = 1600 samples)
-      if (chunkLengthRef.current > 1600) {
+      // When we have enough audio (e.g. 0.1s of audio at 24kHz = 2400 samples)
+      if (chunkLengthRef.current > 2400) {
         schedulePlayback();
       }
     } catch (e) {
@@ -82,8 +82,8 @@ export default function BrowserVoiceTest() {
       audioChunksRef.current = [];
       chunkLengthRef.current = 0;
 
-      // Backend sends 16000Hz PCM
-      const audioBuffer = audioCtx.createBuffer(1, mergedData.length, 16000);
+      // Backend sends 24000Hz PCM
+      const audioBuffer = audioCtx.createBuffer(1, mergedData.length, 24000);
       audioBuffer.getChannelData(0).set(mergedData);
       
       const source = audioCtx.createBufferSource();
@@ -112,7 +112,7 @@ export default function BrowserVoiceTest() {
       setStatus('Starting microphone...');
 
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
-        sampleRate: 16000
+        sampleRate: 24000
       });
       
       if (audioCtx.state === 'suspended') {
@@ -168,9 +168,9 @@ export default function BrowserVoiceTest() {
           if (socket.connected) {
             const inputData = e.inputBuffer.getChannelData(0);
             
-            // Downsample to 16000Hz PCM
+            // Downsample to 24000Hz PCM
             const inputSampleRate = audioCtx.sampleRate;
-            const ratio = inputSampleRate / 16000;
+            const ratio = inputSampleRate / 24000;
             const newLength = Math.round(inputData.length / ratio);
             
             const pcm16 = new Int16Array(newLength);
@@ -181,10 +181,17 @@ export default function BrowserVoiceTest() {
               pcm16[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
             }
             
-            // Emit raw PCM 16-bit Int16Array
+            const uint8Array = new Uint8Array(pcm16.buffer);
+            let binaryString = '';
+            for (let i = 0; i < uint8Array.byteLength; i++) {
+              binaryString += String.fromCharCode(uint8Array[i]);
+            }
+            const base64Audio = btoa(binaryString);
+            
+            // Emit base64 audio
             socket.emit('audio_stream', {
               sessionId: testSid,
-              audio: pcm16.buffer
+              audio: base64Audio
             });
           }
         };

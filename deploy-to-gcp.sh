@@ -21,6 +21,10 @@ cd apps/web
 pnpm run build
 cd ../..
 
+cd apps/voice-web
+pnpm run build
+cd ../..
+
 echo "→ Syncing local files directly to server (skipping node_modules, .git, etc.)..."
 rsync -avz --delete \
   --exclude 'node_modules' \
@@ -47,6 +51,10 @@ ssh -i "$PEM_KEY" -o StrictHostKeyChecking=no "$EC2_USER@$EC2_IP" << 'ENDSSH'
 set -e
 
 cd /home/ubuntu/enrichment-saas
+
+  cat >> ~/enrichment-saas/apps/api/.env << 'EOF'
+PUBLIC_BASE_URL="https://api.jentoai.pro"
+EOF
 
 echo "→ Installing dependencies..."
 CI=true pnpm install --no-frozen-lockfile

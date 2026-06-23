@@ -40,7 +40,7 @@ export function createVoiceAgentApp() {
   app.use('/api/voice/prompts', promptsRoutes);
   app.use('/api/voice/analytics', analyticsRoutes);
   app.use('/api/voice/knowledge', knowledgeBaseRoutes);
-  app.use('/api/voice/campaigns', campaignsRoutes);
+  app.use('/api/voice/outbound', campaignsRoutes);
 
   // 404 + error tail
   app.use('/api/voice', notFoundHandler);

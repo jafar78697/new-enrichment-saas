@@ -65,12 +65,6 @@ router.post(
       streamUrl += `?contactId=${payload.contactId}`;
     }
 
-    // Greeting message before connecting to AI
-    response.say(
-      { voice: 'alice' },
-      'Hi, this is Alex from Jento AI. How are you doing today?',
-    );
-
     response.connect().stream({
       url: streamUrl,
       track: 'inbound_track',
@@ -106,11 +100,6 @@ router.post(
     console.log(`[voice-agent] Inbound call from: ${payload.From} (CallSid: ${payload.CallSid})`);
 
     const response = new twilio.twiml.VoiceResponse();
-
-    response.say(
-      { voice: 'alice' },
-      'Hello, thanks for calling Jento AI. How can I help you today?',
-    );
 
     const streamUrl = wsUrl(req, '/api/voice/media');
 

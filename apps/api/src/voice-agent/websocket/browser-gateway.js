@@ -23,9 +23,10 @@ export function initBrowserVoiceSocket(io) {
       
       const adapter = {
         type: 'browser',
+        audioFormat: 'pcm16',
         sendAudio: (sid, payload) => {
-          // Payload is 16kHz PCM Buffer from TTS
-          socket.emit('audio_playback', { audio: payload });
+          const audioBuffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, 'base64');
+          socket.emit('audio_playback', { audio: audioBuffer });
         },
         clearAudio: (sid) => {
           socket.emit('clear_playback');
@@ -40,8 +41,11 @@ export function initBrowserVoiceSocket(io) {
 
     socket.on('audio_stream', (data) => {
       const { sessionId, audio } = data;
-      // audio is a binary Buffer (Int16 PCM)
-      handleIncomingAudio(sessionId, audio);
+      if (!audio) {
+         console.error(`[voice-agent:browser-gateway] Received empty audio for ${sessionId}! data:`, data);
+      }
+      // handleIncomingAudio requires 3 args: (streamSid, callSid, payload)
+      handleIncomingAudio(sessionId, sessionId, audio);
     });
 
     socket.on('disconnect', () => {

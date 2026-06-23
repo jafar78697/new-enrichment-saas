@@ -1,50 +1,34 @@
 /**
- * Call Orchestrator — Voice AI Pipeline (OpenAI Realtime V2 with Hybrid Smart Routing)
- *
- * Implements a hybrid routing approach:
- * 1. Uses Google STT to listen to the first utterance.
- * 2. Uses Vertex AI (Gemini) to classify the contact (Owner vs Gatekeeper/Voicemail).
- * 3. Routes to OpenAI Realtime for Owners, or Cheap Engine for others.
+ * Call Orchestrator — Voice Architecture v3 (Event-Driven Voice Kernel)
  */
 
 import { createOpenAISession } from '../services/llm/openai-realtime.service.js';
 import { getSystemPrompt } from '../services/llm/prompts/system-prompts.js';
-import { createSTTSession } from '../services/stt/google-stt.service.js';
-import { generateCompletion } from '../services/llm/vertex-ai.service.js';
-import { CLASSIFIER_SYSTEM_PROMPT } from '../services/llm/prompts/classifier-prompts.js';
-import { handleCheapEngineFlow } from './cheap-engine.js';
 import { broadcastCallAudio, broadcastCallTranscript } from '../websocket/call-monitor.js';
+import { VoiceKernel } from './voice.kernel.js';
 
 import {
   createSession,
   getSession,
   updateSession,
   addConversationTurn,
-  getAIConversation,
   setState,
   incrementInterruptions,
-  addSilenceDuration,
   deleteSession,
 } from '../services/session/session-store.js';
 import { onStreamEvent, sendMediaToTwilio, clearTwilioAudio } from '../websocket/media-server.js';
 import { env } from '../config/env.js';
 import { processPostCall } from '../services/post-call/processor.js';
-import { DTMF_TONES } from '../utils/dtmf.js';
-
 import { query } from '../../calls-module/db/index.js';
 
 // Active pipeline instances per streamSid
 const activePipelines = new Map();
 
-// Configuration
-const SILENCE_TIMEOUT_MS = env.VOICE_SILENCE_TIMEOUT_MS;
-const MAX_CONVERSATION_TURNS = env.VOICE_MAX_CONVERSATION_TURNS;
-
 /**
  * Initialize the orchestrator — listen for new media stream events.
  */
 export function initOrchestrator() {
-  console.log('[voice-agent:orchestrator] Initializing Hybrid Smart Routing Pipeline...');
+  console.log('[voice-agent:orchestrator] Initializing Voice Architecture v3...');
 
   onStreamEvent('stream:start', (data) => {
     const { streamSid, callSid, customParams, contactId } = data;
@@ -57,7 +41,14 @@ export function initOrchestrator() {
 
   onStreamEvent('stream:audio', (data) => {
     const { streamSid, callSid, payload } = data;
-    handleIncomingAudio(streamSid, callSid, payload);
+    const pipeline = activePipelines.get(streamSid);
+    if (!pipeline || !pipeline.kernel) return;
+
+    if (callSid) {
+      broadcastCallAudio(callSid, 'prospect', payload);
+    }
+    
+    pipeline.kernel.emit('audio.in', { base64Audio: payload });
   });
 
   onStreamEvent('stream:stop', (data) => {
@@ -66,37 +57,18 @@ export function initOrchestrator() {
     endCallPipeline(streamSid, callSid);
   });
 
-  console.log('[voice-agent:orchestrator] Ready');
+  console.log('[voice-agent:orchestrator] v3 Ready');
 }
 
 /**
- * Handle incoming audio buffer from Twilio.
- */
-export function handleIncomingAudio(streamSid, callSid, payload) {
-  const pipeline = activePipelines.get(streamSid);
-  if (!pipeline) return;
-
-  // Broadcast prospect audio to live listeners
-  if (callSid) {
-    broadcastCallAudio(callSid, 'prospect', payload);
-  }
-
-  if (pipeline.phase === 'classifier' && pipeline.sttSession) {
-    pipeline.sttSession.write(payload);
-  } else if (pipeline.phase === 'openai' && pipeline.openaiSession) {
-    // Pipe raw audio directly to OpenAI!
-    pipeline.openaiSession.writeAudio(payload);
-  }
-}
-
-/**
- * Start the voice pipeline for a new call (Classifier Phase).
+ * Start the voice pipeline using Voice Kernel.
  */
 export async function startCallPipeline(streamSid, callSid, customParams = {}, adapter = null) {
   const activeAdapter = adapter || {
     type: 'twilio',
     sendAudio: sendMediaToTwilio,
-    clearAudio: clearTwilioAudio
+    clearAudio: clearTwilioAudio,
+    audioFormat: 'g711_ulaw'
   };
 
   try {
@@ -119,7 +91,6 @@ export async function startCallPipeline(streamSid, callSid, customParams = {}, a
       industry: session.metadata.industry,
     });
 
-    // Inject Lead Context if this is an outbound call to an enriched lead
     if (customParams.contactId) {
       try {
         const { rows } = await query('SELECT company_name, industry_guess, one_line_pitch, ai_pain_points FROM enrichment_results WHERE id = $1', [customParams.contactId]);
@@ -138,106 +109,7 @@ Use this context subtly to personalize the conversation. Do not sound like you a
 
     await setState(callSid, 'listening');
 
-    // START CLASSIFIER PHASE
-    let hasClassified = false;
-
-    const setupClassifierSTT = () => {
-      return createSTTSession({
-        streamSid,
-        callSid,
-        contactId: customParams.contactId,
-        onTranscription: async ({ text, isFinal }) => {
-          if (isFinal && !hasClassified) {
-            hasClassified = true;
-            console.log(`[voice-agent:classifier] Initial contact utterance: "${text}"`);
-            
-            const pipeline = activePipelines.get(streamSid);
-            if (pipeline && pipeline.sttSession) {
-               pipeline.sttSession.close();
-            }
-
-            try {
-              // Classify with Vertex AI / Gemini
-              const classificationResult = await generateCompletion({
-                systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
-                userPrompt: text
-              });
-              
-              let parsed = { intent: 'OWNER_PROBABLE', digit: null };
-              try {
-                const jsonStr = classificationResult.text.replace(/```json/gi, '').replace(/```/g, '').trim();
-                parsed = JSON.parse(jsonStr);
-              } catch (e) {
-                console.error(`[voice-agent:classifier] Failed to parse JSON:`, classificationResult.text);
-              }
-
-              const label = parsed.intent;
-              console.log(`[voice-agent:classifier] Classified as: ${label}`, parsed);
-
-              if (label === 'IVR_SYSTEM') {
-                const digit = parsed.digit || '0';
-                if (DTMF_TONES[digit]) {
-                  console.log(`[voice-agent:classifier] Sending DTMF tone for digit: ${digit}`);
-                  activeAdapter.sendAudio(streamSid, DTMF_TONES[digit]);
-                  await addConversationTurn(callSid, 'assistant', `(Pressed DTMF: ${digit})`);
-                }
-                
-                // Allow classification again for the next utterance
-                hasClassified = false;
-                
-                // Wait briefly for DTMF to play, then restart STT
-                setTimeout(() => {
-                  const currentPipeline = activePipelines.get(streamSid);
-                  if (currentPipeline && currentPipeline.phase === 'classifier') {
-                    currentPipeline.sttSession = setupClassifierSTT();
-                  }
-                }, 1000);
-              }
-              else if (label === 'OWNER_PROBABLE') {
-                // Transition to OpenAI Realtime
-                startOpenAIPipeline(streamSid, callSid, customParams, activeAdapter, systemPrompt, text);
-              } else {
-                // Non-Owner Flow
-                await handleCheapEngineFlow(streamSid, callSid, label);
-                endCallPipeline(streamSid, callSid); // Hang up
-              }
-            } catch (err) {
-              console.error('[voice-agent:classifier] Classification error:', err.message);
-              // Fallback to OpenAI Realtime if classification fails
-              startOpenAIPipeline(streamSid, callSid, customParams, activeAdapter, systemPrompt, text);
-            }
-          }
-        },
-        onBargeIn: () => {},
-        onError: (err) => {
-          console.error('[voice-agent:classifier] STT Error:', err.message);
-        }
-      });
-    };
-
-    const sttSession = setupClassifierSTT();
-
-    activePipelines.set(streamSid, {
-      phase: 'classifier',
-      streamSid,
-      callSid,
-      adapter: activeAdapter,
-      sttSession,
-      systemPrompt, // Store for later
-      contactId: customParams.contactId
-    });
-
-    // Fallback: If no speech detected in 15 seconds, assume Voicemail/No Answer and trigger cheap flow
-    setTimeout(async () => {
-      const pipeline = activePipelines.get(streamSid);
-      if (pipeline && pipeline.phase === 'classifier' && !hasClassified) {
-        hasClassified = true;
-        console.log(`[voice-agent:classifier] Timeout reached, assuming VOICEMAIL/NO_ANSWER`);
-        if (pipeline.sttSession) pipeline.sttSession.close();
-        await handleCheapEngineFlow(streamSid, callSid, 'VOICEMAIL');
-        endCallPipeline(streamSid, callSid);
-      }
-    }, 15000);
+    startOpenAIPipeline(streamSid, callSid, customParams, activeAdapter, systemPrompt, null);
 
   } catch (err) {
     console.error(`[voice-agent:orchestrator] Failed to start pipeline for ${callSid}:`, err.message);
@@ -245,46 +117,56 @@ Use this context subtly to personalize the conversation. Do not sound like you a
 }
 
 /**
- * Start the OpenAI Realtime pipeline (Phase 2).
+ * Start the OpenAI Realtime pipeline using VoiceKernel
  */
 export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdapter, systemPrompt, initialUtterance) {
-  console.log(`[voice-agent:orchestrator] Bridging ${callSid} to OpenAI Realtime`);
+  console.log(`[voice-agent:orchestrator] Bridging ${callSid} to OpenAI Realtime via VoiceKernel`);
   
-  const pipeline = activePipelines.get(streamSid);
-  if (!pipeline) return;
-
   const tools = [
     {
       name: 'book_meeting',
-      description: 'Schedules a meeting and sends a calendar invite to the prospect.',
+      description: 'Schedules a meeting and sends a calendar invite.',
       parameters: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'The name of the prospect.' },
-          email: { type: 'string', description: 'The email address of the prospect to send the invite to.' },
-          meeting_time: { type: 'string', description: 'The agreed upon meeting date and time (e.g., "Thursday at 3 PM").' },
+          name: { type: 'string' },
+          email: { type: 'string' },
+          meeting_time: { type: 'string' },
         },
         required: ['email', 'meeting_time']
       }
     },
     {
       name: 'press_keypad',
-      description: 'Sends a DTMF tone (keypad press) into the call. Use this ONLY to navigate automated IVR menus (e.g. "Press 1 for Sales").',
+      description: 'Sends a DTMF tone.',
       parameters: {
         type: 'object',
         properties: {
-          digit: { type: 'string', description: 'The single digit to press (e.g., "1", "2", "*", "#").' }
+          digit: { type: 'string' }
         },
         required: ['digit']
+      }
+    },
+    {
+      name: 'end_call',
+      description: 'Hangs up the call immediately.',
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: { type: 'string' }
+        },
+        required: ['reason']
       }
     }
   ];
 
+  let kernel;
+
   const openaiSession = createOpenAISession({
     systemPrompt,
     tools,
+    audioFormat: activeAdapter.audioFormat || 'g711_ulaw',
     
-    // Track OpenAI Realtime API usage
     onUsage: (usage) => {
       import('../services/session/session-store.js').then(async ({ getSession, updateSession }) => {
         const session = await getSession(callSid);
@@ -299,87 +181,43 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
             }
           });
         }
-      }).catch(e => console.error('[voice-agent:orchestrator] Error tracking usage:', e.message));
+      }).catch(e => console.error(e.message));
     },
 
-    // OpenAI sending audio to play to the user
     onAudioDelta: (base64Audio) => {
-      activeAdapter.sendAudio(streamSid, base64Audio);
-      broadcastCallAudio(callSid, 'ai', base64Audio);
+      if (kernel) kernel.emit('ai.response', { delta: base64Audio, adapter: activeAdapter });
     },
     
-    // OpenAI completed transcribing what the user said
     onTranscription: async (text) => {
       console.log(`[voice-agent:orchestrator] User said (${callSid}): "${text}"`);
       await addConversationTurn(callSid, 'user', text);
       broadcastCallTranscript(callSid, 'prospect', text);
     },
     
-    // OpenAI completed its own text response
     onAssistantText: async (text) => {
       console.log(`[voice-agent:orchestrator] AI responded (${callSid}): "${text}"`);
       await addConversationTurn(callSid, 'assistant', text);
       broadcastCallTranscript(callSid, 'ai', text);
     },
     
-    // AI wants to call a tool
     onToolCall: async (toolCall) => {
-      console.log(`[voice-agent:orchestrator] Tool call requested: ${toolCall.name}`, toolCall.args);
-      
-      if (toolCall.name === 'book_meeting') {
-        if (env.N8N_WEBHOOK_URL) {
-          import('axios').then(({ default: axios }) => {
-            axios.post(env.N8N_WEBHOOK_URL, {
-              event: 'meeting_booked',
-              callSid,
-              contact: toolCall.args
-            }).catch(e => console.error('[voice-agent:orchestrator] Webhook error:', e.message));
-          });
-        }
-
-        const resultStr = `Successfully booked meeting for ${toolCall.args.meeting_time} and sent invite to ${toolCall.args.email}.`;
-        
-        await addConversationTurn(callSid, 'assistant', null, { 
-          tool_calls: [{ id: toolCall.call_id, type: 'function', function: { name: toolCall.name, arguments: JSON.stringify(toolCall.args) } }] 
-        });
-        await addConversationTurn(callSid, 'tool', resultStr, { 
-          tool_call_id: toolCall.call_id,
-          name: toolCall.name
-        });
-
-        openaiSession.submitToolResult(toolCall.call_id, resultStr);
-      }
-      else if (toolCall.name === 'press_keypad') {
-        const digit = toolCall.args?.digit?.toString().trim();
-        if (digit && DTMF_TONES[digit]) {
-          console.log(`[voice-agent:orchestrator] Sending DTMF tone for digit: ${digit}`);
-          activeAdapter.sendAudio(streamSid, DTMF_TONES[digit]);
-          
-          const resultStr = `Successfully pressed keypad digit: ${digit}`;
-          await addConversationTurn(callSid, 'assistant', null, { 
-            tool_calls: [{ id: toolCall.call_id, type: 'function', function: { name: toolCall.name, arguments: JSON.stringify(toolCall.args) } }] 
-          });
-          await addConversationTurn(callSid, 'tool', resultStr, { 
-            tool_call_id: toolCall.call_id,
-            name: toolCall.name
-          });
-
-          openaiSession.submitToolResult(toolCall.call_id, resultStr);
-        } else {
-          console.error(`[voice-agent:orchestrator] Invalid or missing DTMF digit: ${digit}`);
-          openaiSession.submitToolResult(toolCall.call_id, `Error: Invalid DTMF digit ${digit}`);
-        }
-      }
+      if (kernel) kernel.emit('tool.call', { call_id: toolCall.call_id, name: toolCall.name, args: toolCall.args });
     },
     
-    onReady: async () => {
-      console.log(`[voice-agent:orchestrator] OpenAI Pipeline ready for ${callSid}`);
+    // Server VAD detected speech -> hard interrupt Twilio
+    onBargeIn: () => {
+      if (kernel) kernel.emit('barge.in', {});
+    },
+    
+    // NEW v3 READY SIGNAL: Clean, deterministic, and event-driven!
+    onSystemReady: async () => {
+      console.log(`[voice-agent:orchestrator] 🚀 OpenAI System Ready for ${callSid}. Triggering greeting.`);
       await setState(callSid, 'listening');
 
       if (initialUtterance) {
-        // Feed the initial utterance to OpenAI so it knows what the user just said
-        await addConversationTurn(callSid, 'user', initialUtterance);
-        openaiSession.triggerResponse(`The user just answered the phone and said: "${initialUtterance}". Please respond to them naturally.`);
+        openaiSession.triggerResponse(`User said: "${initialUtterance}". Respond naturally.`);
+      } else {
+        openaiSession.triggerResponse('The phone call has just connected. Greet the caller warmly, introduce yourself as the Jento AI assistant, and ask one short opening question.');
       }
     },
     
@@ -388,9 +226,107 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
     }
   });
 
-  pipeline.phase = 'openai';
-  pipeline.openaiSession = openaiSession;
-  pipeline.sttSession = null;
+  kernel = new VoiceKernel(callSid, streamSid, openaiSession);
+
+  // Override handlers using kernel.on() so the event bus map is properly updated
+  kernel.on('ai.response', (event, state) => {
+    const { delta, adapter } = event.payload;
+    if (state.bargeInActive) return;
+    adapter.sendAudio(streamSid, delta);
+    broadcastCallAudio(callSid, 'ai', delta);
+  });
+
+  // Override handleBargeIn adapter logic
+  kernel.on('barge.in', (event, state) => {
+    kernel.logger.log(`[VoiceKernel] 🛑 BARGE-IN DETECTED for ${kernel.callSid}`);
+    state.bargeInActive = true;
+    
+    if (kernel.openaiSession) {
+      kernel.openaiSession.cancelResponse();
+      kernel.openaiSession.clearBuffer();
+    }
+    
+    activeAdapter.clearAudio(streamSid);
+
+    setTimeout(() => {
+      state.bargeInActive = false;
+    }, 500);
+  });
+  
+  // Custom tool call override for end_call delay etc
+  kernel.on('tool.call', async (event, state) => {
+    const { call_id, name, args } = event.payload;
+    
+    if (name === 'end_call') {
+      kernel.logger.log(`[VoiceKernel] 🛑 End call triggered for ${callSid}`);
+      broadcastCallAudio(callSid, 'ai', null); // clear
+      
+      const delay = args?.delay_ms || 3000;
+      setTimeout(async () => {
+        await setCallStatus(callSid, 'completed');
+        activePipelines.delete(streamSid);
+        activeAdapter.clearAudio(streamSid);
+      }, delay);
+      
+      if (kernel.openaiSession) {
+        kernel.openaiSession.submitToolResult(call_id, JSON.stringify({ success: true, action: 'ending_call' }));
+      }
+      return;
+    }
+    
+    // Fallback to kernel queue
+    kernel.logger.log(`[VoiceKernel] 🛠️ Queuing Tool: ${name} (${call_id})`);
+    
+    kernel.toolQueue.push(async () => {
+      try {
+        let resultStr = '';
+        
+        if (name === 'book_meeting') {
+          if (env.N8N_WEBHOOK_URL) {
+            const axios = (await import('axios')).default;
+            await axios.post(env.N8N_WEBHOOK_URL, {
+              event: 'book_meeting',
+              callSid,
+              ...args
+            });
+            resultStr = JSON.stringify({ success: true, message: 'Meeting workflow triggered' });
+          } else {
+            resultStr = JSON.stringify({ success: true, message: 'Simulated booking (N8N not configured)' });
+          }
+        } else if (name === 'press_keypad') {
+          if (env.TWILIO_ACCOUNT_SID) {
+            const twilio = (await import('twilio')).default;
+            const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+            await client.calls(callSid).update({ sendDigits: args.digits });
+            resultStr = JSON.stringify({ success: true, digits_sent: args.digits });
+          } else {
+            resultStr = JSON.stringify({ success: true, message: 'Simulated keypad press' });
+          }
+        } else {
+          resultStr = JSON.stringify({ error: 'Tool not found or not executable' });
+        }
+
+        if (kernel.openaiSession) {
+          kernel.openaiSession.submitToolResult(call_id, resultStr);
+        }
+      } catch (err) {
+        kernel.logger.error(`[VoiceKernel] ❌ Tool execution error: ${err.message}`);
+        if (kernel.openaiSession) {
+          kernel.openaiSession.submitToolResult(call_id, JSON.stringify({ error: err.message }));
+        }
+      }
+    });
+    
+    kernel.processToolQueue();
+  });
+
+  activePipelines.set(streamSid, {
+    streamSid,
+    callSid,
+    adapter: activeAdapter,
+    kernel,
+    openaiSession
+  });
 }
 
 /**
@@ -398,14 +334,9 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
  */
 export async function handleBargeIn(streamSid, callSid) {
   const pipeline = activePipelines.get(streamSid);
-  if (!pipeline) return;
+  if (!pipeline || !pipeline.kernel) return;
 
-  if (pipeline.adapter) pipeline.adapter.clearAudio(streamSid);
-  
-  if (pipeline.phase === 'openai' && pipeline.openaiSession) {
-    pipeline.openaiSession.clearBuffer();
-  }
-  
+  pipeline.kernel.emit('barge.in', {});
   await incrementInterruptions(callSid);
 }
 
@@ -417,7 +348,6 @@ export async function endCallPipeline(streamSid, callSid) {
   if (!pipeline) return;
 
   try {
-    if (pipeline.sttSession) pipeline.sttSession.close();
     if (pipeline.openaiSession) pipeline.openaiSession.close();
     
     activePipelines.delete(streamSid);
@@ -440,9 +370,7 @@ export function getPipelineStats() {
     activeCalls: activePipelines.size,
     pipelines: Array.from(activePipelines.values()).map((p) => ({
       streamSid: p.streamSid,
-      callSid: p.callSid,
-      phase: p.phase,
-      contactId: p.contactId
+      callSid: p.callSid
     })),
   };
 }
