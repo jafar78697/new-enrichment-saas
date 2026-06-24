@@ -77,6 +77,13 @@ pm2 start "npx tsx src/index.ts" \
   --restart-delay 3000 \
   --max-restarts 10
 
+pm2 delete ai-outbound-caller 2>/dev/null || true
+pm2 start "node src/workers/outbound-caller-runner.js" \
+  --name ai-outbound-caller \
+  --env production \
+  --restart-delay 3000 \
+  --max-restarts 20
+
 pm2 delete browser-enrichment 2>/dev/null || true
 pm2 start "node src/calls-module/scripts/browser-enrichment.js" \
   --name browser-enrichment \

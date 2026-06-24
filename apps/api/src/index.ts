@@ -319,15 +319,6 @@ const start = async () => {
     // Start Email Warmup Scheduler
     startWarmupScheduler();
 
-    // Start Outbound Caller Worker
-    try {
-      const { runOutboundCallerLoop } = await import('./workers/outbound-caller.js');
-      runOutboundCallerLoop();
-      console.log('[startup] Outbound caller worker started.');
-    } catch (err) {
-      console.warn('[startup] Outbound caller worker could not be started:', err.message);
-    }
-
     const port = parseInt(process.env.PORT || '3000');
     await fastify.listen({ port, host: '0.0.0.0' });
     console.log(`🚀 API Server running on port ${port}`);
