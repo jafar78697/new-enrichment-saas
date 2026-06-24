@@ -284,6 +284,15 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       });
       callSid = call.sid;
+
+      // Update lead raw_data with active_call_sid
+      await fastify.db.query(
+        `UPDATE enrichment_results 
+         SET raw_data = jsonb_set(COALESCE(raw_data, '{}'::jsonb), '{active_call_sid}', concat('"', $1::text, '"')::jsonb)
+         WHERE id = $2`,
+        [callSid, leadId],
+      );
+
       fastify.log.info({ leadId, callSid }, 'Manual outbound call created');
     } catch (err: any) {
       // Roll back stage so the worker can retry
@@ -298,8 +307,62 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     return { ok: true, callSid };
   });
 
+  // POST /v1/leads/:id/end-call → Manually terminate an active AI call
+  fastify.post('/v1/leads/:id/end-call', { preHandler: [fastify.authenticate as any] }, async (request: any, reply) => {
+    const { tenantId } = request.tenant;
+    const leadId = request.params.id;
+    const { callSid } = request.body as any;
+
+    // Fetch the lead to verify ownership
+    const { rows } = await fastify.db.query(
+      `SELECT id, lead_stage, raw_data->>'active_call_sid' AS db_call_sid
+       FROM enrichment_results WHERE id = $1 AND tenant_id = $2`,
+      [leadId, tenantId],
+    );
+    const lead = rows[0];
+    if (!lead) return reply.code(404).send({ error: 'Lead not found' });
+
+    const activeCallSid = callSid || lead.db_call_sid;
+    if (!activeCallSid) {
+      // Revert stage just in case
+      await fastify.db.query(
+        `UPDATE enrichment_results SET lead_stage = 'assigned' WHERE id = $1`,
+        [leadId],
+      );
+      return { ok: true, message: 'No active call SID found, stage reset to assigned' };
+    }
+
+    // Terminate call in Twilio
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    if (!accountSid || !authToken) {
+      return reply.code(503).send({ error: 'Twilio is not configured' });
+    }
+
+    try {
+      const twilio = (await import('twilio')).default;
+      const client = twilio(accountSid, authToken);
+      await client.calls(activeCallSid).update({ status: 'completed' });
+      fastify.log.info({ leadId, activeCallSid }, 'Manual outbound call terminated via API');
+    } catch (err: any) {
+      fastify.log.warn({ leadId, activeCallSid, error: err.message }, 'Failed to terminate call in Twilio');
+    }
+
+    // Reset lead stage back to assigned and remove call sid from raw_data
+    await fastify.db.query(
+      `UPDATE enrichment_results 
+       SET lead_stage = 'assigned',
+           raw_data = raw_data - 'active_call_sid'
+       WHERE id = $1`,
+      [leadId],
+    );
+
+    return { ok: true };
+  });
+
   // GET /v1/leads/active-calls -> Returns mapping of contactId -> callSid for live monitoring
   fastify.get('/v1/leads/active-calls', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
+    const { tenantId } = request.tenant;
     try {
       // @ts-ignore
       const { getPipelineStats } = await import('../voice-agent/orchestrator/call-pipeline.js');
@@ -310,6 +373,20 @@ export default async function crmRoutes(fastify: FastifyInstance) {
           activeCalls[p.contactId] = p.callSid;
         }
       });
+
+      // Also query the DB for leads in 'calling' stage for this tenant to get their active_call_sid
+      const { rows } = await fastify.db.query(
+        `SELECT id, raw_data->>'active_call_sid' AS active_call_sid
+         FROM enrichment_results
+         WHERE tenant_id = $1 AND lead_stage = 'calling'`,
+        [tenantId]
+      );
+      rows.forEach((row: any) => {
+        if (row.active_call_sid) {
+          activeCalls[row.id] = row.active_call_sid;
+        }
+      });
+
       return { activeCalls };
     } catch (err) {
       return { activeCalls: {} };

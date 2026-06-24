@@ -110,6 +110,8 @@ export const leadsApi = {
     ).then((r) => r.data),
   startCall: (id: string) =>
     api.post<{ ok: boolean; callSid: string }>(`/leads/${id}/start-call`).then((r) => r.data),
+  endCall: (id: string, callSid: string) =>
+    api.post<{ ok: boolean }>(`/leads/${id}/end-call`, { callSid }).then((r) => r.data),
   get: (id: string) =>
     api
       .get<{ lead: Lead; history: any[]; tasks: Task[] }>(`/leads/${id}`)

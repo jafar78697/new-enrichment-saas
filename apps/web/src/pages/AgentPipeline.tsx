@@ -28,6 +28,16 @@ function getMeetingTime(lead: Lead) {
   return typeof value === 'string' ? value : null;
 }
 
+function getCallSidFromMessage(text: string) {
+  const match = text.match(/CA[a-f0-9]{32}/i);
+  return match?.[0] || null;
+}
+
+function getLeadActiveCallSid(lead: Lead) {
+  const value = lead.raw_data?.active_call_sid;
+  return typeof value === 'string' && value.startsWith('CA') ? value : null;
+}
+
 export default function AgentPipelinePage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [niches, setNiches] = useState<Niche[]>([]);
@@ -172,6 +182,9 @@ export default function AgentPipelinePage() {
     won: leads.filter((lead) => lead.lead_stage === 'closed_won').length,
   }), [leads]);
 
+  const latestStartedCallSid = useMemo(() => getCallSidFromMessage(message), [message]);
+  const fallbackCallSid = latestStartedCallSid || Object.values(activeCallsMap)[0] || null;
+
   return (
     <div style={{ fontFamily: 'Manrope, sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
@@ -239,7 +252,16 @@ export default function AgentPipelinePage() {
       {listenCallSid && <LiveCallMonitor callSid={listenCallSid} onClose={() => setListenCallSid(null)} />}
       {isTestingBrowser && <BrowserAgentTester onClose={() => setIsTestingBrowser(false)} />}
       {error && <Alert text={error} danger />}
-      {message && <Alert text={message} />}
+      {message && (
+        <Alert
+          text={message}
+          action={latestStartedCallSid ? (
+            <button onClick={() => setListenCallSid(latestStartedCallSid)} style={alertListenButton}>
+              <Headphones size={15} /> Listen Live
+            </button>
+          ) : null}
+        />
+      )}
 
       {activeTab === 'leads' ? (
         <AvailableLeadList
@@ -260,6 +282,7 @@ export default function AgentPipelinePage() {
           leads={visibleLeads}
           loading={loading}
           activeCallsMap={activeCallsMap}
+          fallbackCallSid={fallbackCallSid}
           onListen={setListenCallSid}
           callingLeadId={callingLeadId}
           onStartCall={handleStartCall}
@@ -327,6 +350,7 @@ function PipelineLeadList({
   leads,
   loading,
   activeCallsMap,
+  fallbackCallSid,
   onListen,
   callingLeadId,
   onStartCall,
@@ -334,6 +358,7 @@ function PipelineLeadList({
   leads: Lead[];
   loading: boolean;
   activeCallsMap: Record<string, string>;
+  fallbackCallSid: string | null;
   onListen: (callSid: string) => void;
   callingLeadId: string | null;
   onStartCall: (leadId: string) => void;
@@ -344,7 +369,9 @@ function PipelineLeadList({
   return (
     <div style={{ overflowX: 'auto' }}>
       <div style={{ minWidth: 900, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {leads.map((lead) => (
+        {leads.map((lead) => {
+          const liveCallSid = activeCallsMap[lead.id] || getLeadActiveCallSid(lead) || (lead.lead_stage === 'calling' ? fallbackCallSid : null);
+          return (
           <div key={lead.id} style={leadRow(lead.lead_stage === 'calling')}>
           <LeadIdentity name={lead.company_name || lead.domain} niche={lead.raw_data?.niche_name || lead.industry_guess} detail={lead.primary_email || lead.domain} />
           <Score value={lead.ai_score || 0} />
@@ -355,8 +382,8 @@ function PipelineLeadList({
               ? `Meeting: ${new Date(getMeetingTime(lead) as string).toLocaleString()}`
               : lead.ai_summary || lead.lead_notes || 'No notes yet'}
           </span>
-          {lead.lead_stage === 'calling' && activeCallsMap[lead.id] ? (
-            <button onClick={() => onListen(activeCallsMap[lead.id])} style={{ ...actionButton('#DC2626'), justifySelf: 'end' }}>
+          {lead.lead_stage === 'calling' && liveCallSid ? (
+            <button onClick={() => onListen(liveCallSid)} style={{ ...actionButton('#DC2626'), justifySelf: 'end', minWidth: 122 }}>
               <Headphones size={15} /> Listen Live
             </button>
           ) : lead.lead_stage === 'assigned' ? (
@@ -377,7 +404,8 @@ function PipelineLeadList({
             <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'end' }}>{STAGE_LABELS[lead.lead_stage]}</span>
           )}
           </div>
-        ))}
+        );
+        })}
       </div>
     </div>
   );
@@ -412,8 +440,13 @@ function Stat({ label, value, color, background }: { label: string; value: numbe
   );
 }
 
-function Alert({ text, danger = false }: { text: string; danger?: boolean }) {
-  return <div style={{ marginBottom: 14, padding: '10px 12px', border: `1px solid ${danger ? '#FCA5A5' : '#A7F3D0'}`, borderRadius: 8, background: danger ? '#FEF2F2' : '#ECFDF5', color: danger ? '#991B1B' : '#047857', fontSize: 13 }}>{text}</div>;
+function Alert({ text, danger = false, action = null }: { text: string; danger?: boolean; action?: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 14, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, border: `1px solid ${danger ? '#FCA5A5' : '#A7F3D0'}`, borderRadius: 8, background: danger ? '#FEF2F2' : '#ECFDF5', color: danger ? '#991B1B' : '#047857', fontSize: 13 }}>
+      <span>{text}</span>
+      {action}
+    </div>
+  );
 }
 
 function Empty({ text }: { text: string }) {
@@ -462,6 +495,23 @@ const actionButton = (background: string): React.CSSProperties => ({
   fontWeight: 700,
   cursor: 'pointer',
 });
+
+const alertListenButton: React.CSSProperties = {
+  minHeight: 32,
+  padding: '0 12px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 7,
+  border: 0,
+  borderRadius: 8,
+  background: '#DC2626',
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: 800,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+};
 
 const secondaryButton: React.CSSProperties = {
   minHeight: 38,
