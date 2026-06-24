@@ -108,6 +108,8 @@ export const leadsApi = {
       '/leads/queue-ai',
       body,
     ).then((r) => r.data),
+  startCall: (id: string) =>
+    api.post<{ ok: boolean; callSid: string }>(`/leads/${id}/start-call`).then((r) => r.data),
   get: (id: string) =>
     api
       .get<{ lead: Lead; history: any[]; tasks: Task[] }>(`/leads/${id}`)

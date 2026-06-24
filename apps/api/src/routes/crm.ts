@@ -236,6 +236,68 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     };
   });
 
+  // POST /v1/leads/:id/start-call → Manually trigger an outbound AI call to a specific lead
+  fastify.post('/v1/leads/:id/start-call', { preHandler: [fastify.authenticate as any] }, async (request: any, reply) => {
+    const { tenantId, userId } = request.tenant;
+    const leadId = request.params.id;
+
+    // Fetch the lead
+    const { rows } = await fastify.db.query(
+      `SELECT id, tenant_id, primary_phone, company_name, domain, lead_stage, assigned_to_ai
+       FROM enrichment_results WHERE id = $1 AND tenant_id = $2`,
+      [leadId, tenantId],
+    );
+    const lead = rows[0];
+    if (!lead) return reply.code(404).send({ error: 'Lead not found' });
+    if (!lead.primary_phone) return reply.code(400).send({ error: 'Lead has no phone number' });
+    if (!lead.assigned_to_ai) return reply.code(400).send({ error: 'Lead is not assigned to AI' });
+    if (lead.lead_stage === 'calling') return reply.code(409).send({ error: 'Call already in progress for this lead' });
+
+    // Check Twilio config
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const fromPhone = process.env.TWILIO_PHONE_NUMBER;
+    const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000';
+
+    if (!accountSid || !authToken || !fromPhone) {
+      return reply.code(503).send({ error: 'Twilio is not configured on this server' });
+    }
+
+    // Mark lead as calling
+    await fastify.db.query(
+      `UPDATE enrichment_results SET lead_stage = 'calling', last_contacted_at = NOW() WHERE id = $1`,
+      [leadId],
+    );
+
+    let callSid: string | null = null;
+    try {
+      const twilio = (await import('twilio')).default;
+      const client = twilio(accountSid, authToken);
+      const webhookUrl = `${publicBaseUrl}/api/voice/twiml/outbound?contactId=${leadId}&tenantId=${tenantId}`;
+      const call = await client.calls.create({
+        url: webhookUrl,
+        to: lead.primary_phone,
+        from: fromPhone,
+        method: 'POST',
+        statusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
+        statusCallbackMethod: 'POST',
+        statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+      });
+      callSid = call.sid;
+      fastify.log.info({ leadId, callSid }, 'Manual outbound call created');
+    } catch (err: any) {
+      // Roll back stage so the worker can retry
+      await fastify.db.query(
+        `UPDATE enrichment_results SET lead_stage = 'assigned' WHERE id = $1 AND lead_stage = 'calling'`,
+        [leadId],
+      );
+      return reply.code(502).send({ error: `Twilio call failed: ${err.message}` });
+    }
+
+    await writeAudit(fastify, tenantId, userId, 'lead.call_started', 'lead', leadId, { callSid });
+    return { ok: true, callSid };
+  });
+
   // GET /v1/leads/active-calls -> Returns mapping of contactId -> callSid for live monitoring
   fastify.get('/v1/leads/active-calls', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
     try {

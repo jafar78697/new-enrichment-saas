@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Headphones, Mic, Phone, RefreshCw, Search, UserPlus } from 'lucide-react';
+import { Bot, Headphones, Mic, Phone, PhoneCall, RefreshCw, Search, UserPlus } from 'lucide-react';
 import { leadsApi, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
@@ -44,6 +44,7 @@ export default function AgentPipelinePage() {
   const [activeCallsMap, setActiveCallsMap] = useState<Record<string, string>>({});
   const [listenCallSid, setListenCallSid] = useState<string | null>(null);
   const [isTestingBrowser, setIsTestingBrowser] = useState(false);
+  const [callingLeadId, setCallingLeadId] = useState<string | null>(null);
 
   const loadPipeline = async () => {
     try {
@@ -148,6 +149,22 @@ export default function AgentPipelinePage() {
       : [...current, id]);
   };
 
+  const handleStartCall = async (leadId: string) => {
+    setCallingLeadId(leadId);
+    setMessage('');
+    setError('');
+    try {
+      const result = await leadsApi.startCall(leadId);
+      setMessage(`✅ Call started! SID: ${result.callSid}`);
+      await loadPipeline();
+      setActiveTab('calling');
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'Failed to start call');
+    } finally {
+      setCallingLeadId(null);
+    }
+  };
+
   const stats = useMemo(() => ({
     total: leads.length,
     calling: leads.filter((lead) => lead.lead_stage === 'calling').length,
@@ -244,6 +261,8 @@ export default function AgentPipelinePage() {
           loading={loading}
           activeCallsMap={activeCallsMap}
           onListen={setListenCallSid}
+          callingLeadId={callingLeadId}
+          onStartCall={handleStartCall}
         />
       )}
     </div>
@@ -309,11 +328,15 @@ function PipelineLeadList({
   loading,
   activeCallsMap,
   onListen,
+  callingLeadId,
+  onStartCall,
 }: {
   leads: Lead[];
   loading: boolean;
   activeCallsMap: Record<string, string>;
   onListen: (callSid: string) => void;
+  callingLeadId: string | null;
+  onStartCall: (leadId: string) => void;
 }) {
   if (loading) return <Empty text="Loading pipeline..." />;
   if (!leads.length) return <Empty text="No leads in this stage" />;
@@ -335,6 +358,20 @@ function PipelineLeadList({
           {lead.lead_stage === 'calling' && activeCallsMap[lead.id] ? (
             <button onClick={() => onListen(activeCallsMap[lead.id])} style={{ ...actionButton('#DC2626'), justifySelf: 'end' }}>
               <Headphones size={15} /> Listen Live
+            </button>
+          ) : lead.lead_stage === 'assigned' ? (
+            <button
+              disabled={callingLeadId === lead.id}
+              onClick={() => onStartCall(lead.id)}
+              style={{
+                ...actionButton(callingLeadId === lead.id ? '#94A3B8' : '#0F766E'),
+                justifySelf: 'end',
+                minWidth: 120,
+                animation: callingLeadId === lead.id ? 'none' : undefined,
+              }}
+            >
+              <PhoneCall size={15} />
+              {callingLeadId === lead.id ? 'Calling...' : 'Start Call'}
             </button>
           ) : (
             <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'end' }}>{STAGE_LABELS[lead.lead_stage]}</span>
