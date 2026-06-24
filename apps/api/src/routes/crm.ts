@@ -3,6 +3,7 @@ import { FastifyInstance } from 'fastify';
 // Canonical pipeline stages. Frontend renders columns in this exact order.
 export const PIPELINE_STAGES = [
   'new',
+  'assigned',
   'calling',
   'called',
   'no_answer',
@@ -40,6 +41,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
   // Ensure assigned_to_ai exists (runs once on boot)
   try {
     await fastify.db.query('ALTER TABLE enrichment_results ADD COLUMN IF NOT EXISTS assigned_to_ai BOOLEAN DEFAULT false;');
+    await fastify.db.query(`UPDATE enrichment_results SET lead_stage = 'assigned' WHERE assigned_to_ai = true AND lead_stage IN ('new', 'enriched');`);
   } catch (err) {
     console.error('Failed to alter enrichment_results for assigned_to_ai:', err);
   }
@@ -119,7 +121,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
              lead_stage = CASE
                WHEN lead_stage IN ('calling', 'interested', 'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost')
                  THEN lead_stage
-               ELSE 'new'
+               ELSE 'assigned'
              END
          WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
         [tenantId, leadIds],
@@ -146,7 +148,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
              lead_stage = CASE
                WHEN er.lead_stage IN ('calling', 'interested', 'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost')
                  THEN er.lead_stage
-               ELSE 'new'
+               ELSE 'assigned'
              END
          FROM contacts c
          WHERE er.tenant_id = $1
@@ -191,7 +193,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
              'website', c.website,
              'notes', c.notes
            ),
-           'new',
+           'assigned',
            true,
            CASE WHEN COALESCE(c.score, 0) >= 70 THEN 'high' ELSE 'medium' END
          FROM contacts c

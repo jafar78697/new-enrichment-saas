@@ -37,17 +37,17 @@ export async function runOutboundCallerLoop() {
       if ((activeRows[0]?.count || 0) > 0) return;
 
       // Find one queued AI lead with a phone number.
-      // CRM stages use "new"; older enrichment imports may still use "enriched".
+      // Assigned leads are called one by one; follow-ups re-enter the same queue.
       const { rows } = await query(`
         SELECT id, tenant_id, primary_phone, company_name, domain, ai_summary, ai_pain_points 
         FROM enrichment_results 
         WHERE assigned_to_ai = true
-          AND lead_stage IN ('new', 'enriched', 'followup')
+          AND lead_stage IN ('assigned', 'followup')
           AND primary_phone IS NOT NULL
           AND primary_phone <> ''
           AND (next_followup_at IS NULL OR next_followup_at <= NOW())
         ORDER BY
-          CASE lead_stage WHEN 'followup' THEN 0 WHEN 'new' THEN 1 ELSE 2 END,
+          CASE lead_stage WHEN 'followup' THEN 0 ELSE 1 END,
           created_at ASC
         LIMIT 1
       `);

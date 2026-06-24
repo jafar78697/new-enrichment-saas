@@ -1,52 +1,67 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  leadsApi, Lead, PIPELINE_STAGES, STAGE_LABELS, STAGE_COLORS, Stage,
-} from '../services/crmApi';
+import { Bot, Headphones, Mic, Phone, RefreshCw, Search, UserPlus } from 'lucide-react';
+import { leadsApi, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
-import { Headphones, Mic, RefreshCw, UserPlus, Users } from 'lucide-react';
 import LiveCallMonitor from '../components/LiveCallMonitor';
 import BrowserAgentTester from '../components/BrowserAgentTester';
 
+const AGENT_TABS = [
+  { key: 'leads', label: 'Leads' },
+  { key: 'assigned', label: 'Assigned Leads' },
+  { key: 'calling', label: 'Calling' },
+  { key: 'called', label: 'Called' },
+  { key: 'no_answer', label: 'No Answer' },
+  { key: 'followup', label: 'Follow-up' },
+  { key: 'interested', label: 'Interested' },
+  { key: 'proposal_sent', label: 'Proposal Sent' },
+  { key: 'closed_won', label: 'Closed Won' },
+  { key: 'closed_lost', label: 'Closed Lost' },
+] as const;
+
+type AgentTab = (typeof AGENT_TABS)[number]['key'];
+
 export default function AgentPipelinePage() {
-  const nav = useNavigate();
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState('');
+  const [niches, setNiches] = useState<Niche[]>([]);
+  const [nicheContacts, setNicheContacts] = useState<Contact[]>([]);
+  const [selectedNicheId, setSelectedNicheId] = useState('');
+  const [selectedContactIds, setSelectedContactIds] = useState<number[]>([]);
+  const [activeTab, setActiveTab] = useState<AgentTab>('leads');
   const [q, setQ] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [queueing, setQueueing] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
   const [activeCallsMap, setActiveCallsMap] = useState<Record<string, string>>({});
   const [listenCallSid, setListenCallSid] = useState<string | null>(null);
   const [isTestingBrowser, setIsTestingBrowser] = useState(false);
-  const [niches, setNiches] = useState<Niche[]>([]);
-  const [selectedNicheId, setSelectedNicheId] = useState('');
-  const [queueStatus, setQueueStatus] = useState('');
-  const [queueing, setQueueing] = useState(false);
-  const [nicheContacts, setNicheContacts] = useState<Contact[]>([]);
-  const [selectedContactIds, setSelectedContactIds] = useState<number[]>([]);
-  const [contactsLoading, setContactsLoading] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
+  const loadPipeline = async () => {
     try {
-      const res = await leadsApi.list({ limit: 500, q: q || undefined, assigned_to_ai: true });
-      setLeads(res.leads);
-      const activeRes = await leadsApi.activeCalls();
-      setActiveCallsMap(activeRes.activeCalls);
-      setErr('');
+      const [leadResult, activeResult] = await Promise.all([
+        leadsApi.list({ limit: 500, assigned_to_ai: true }),
+        leadsApi.activeCalls(),
+      ]);
+      setLeads(leadResult.leads || []);
+      setActiveCallsMap(activeResult.activeCalls || {});
+      setError('');
     } catch (e: any) {
-      setErr(e?.response?.data?.error || e?.message || 'Failed to load AI agent leads');
+      setError(e?.response?.data?.error || e?.message || 'Failed to load AI agent pipeline');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void loadPipeline();
+    nichesApi.list().then((res) => setNiches(res.niches || [])).catch(() => setNiches([]));
+  }, []);
 
   useEffect(() => {
-    nichesApi.list()
-      .then((res) => setNiches(res.niches || []))
-      .catch(() => setNiches([]));
+    const timer = window.setInterval(() => void loadPipeline(), 10000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -58,26 +73,9 @@ export default function AgentPipelinePage() {
     setContactsLoading(true);
     callsApi.listContactsByNiche(Number(selectedNicheId))
       .then((res) => setNicheContacts(res.contacts || []))
-      .catch((e: any) => setErr(e?.message || 'Failed to load niche leads'))
+      .catch((e: any) => setError(e?.message || 'Failed to load niche leads'))
       .finally(() => setContactsLoading(false));
   }, [selectedNicheId]);
-
-  // Auto-refresh every 10 seconds to show live updates from the AI agent
-  useEffect(() => {
-    const interval = setInterval(() => { void load(); }, 10000);
-    return () => clearInterval(interval);
-  }, [q]);
-
-  const byStage = useMemo(() => {
-    const map: Record<Stage, Lead[]> = Object.fromEntries(
-      PIPELINE_STAGES.map((s) => [s, []]),
-    ) as Record<Stage, Lead[]>;
-    for (const l of leads) {
-      const key = (PIPELINE_STAGES.includes(l.lead_stage) ? l.lead_stage : 'new') as Stage;
-      map[key].push(l);
-    }
-    return map;
-  }, [leads]);
 
   const assignedContactIds = useMemo(() => new Set(
     leads
@@ -85,31 +83,53 @@ export default function AgentPipelinePage() {
       .filter((id) => Number.isInteger(id) && id > 0),
   ), [leads]);
 
-  const availableContacts = useMemo(
-    () => nicheContacts.filter((contact) => contact.phone_number && !assignedContactIds.has(contact.id)),
-    [nicheContacts, assignedContactIds],
-  );
+  const availableContacts = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return nicheContacts.filter((contact) => {
+      if (!contact.phone_number || assignedContactIds.has(contact.id)) return false;
+      if (!term) return true;
+      return [contact.name, contact.company, contact.email, contact.phone_number]
+        .some((value) => value?.toLowerCase().includes(term));
+    });
+  }, [nicheContacts, assignedContactIds, q]);
 
-  const assignedNicheLeads = useMemo(
-    () => leads.filter((lead) => String(lead.raw_data?.niche_id || '') === selectedNicheId),
-    [leads, selectedNicheId],
-  );
+  const visibleLeads = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return leads.filter((lead) => {
+      if (lead.lead_stage !== activeTab) return false;
+      if (selectedNicheId && String(lead.raw_data?.niche_id || '') !== selectedNicheId) return false;
+      if (!term) return true;
+      return [lead.company_name, lead.domain, lead.primary_email, lead.primary_phone]
+        .some((value) => value?.toLowerCase().includes(term));
+    });
+  }, [leads, activeTab, selectedNicheId, q]);
+
+  const tabCount = (tab: AgentTab) => {
+    if (tab === 'leads') return availableContacts.length;
+    return leads.filter((lead) => (
+      lead.lead_stage === tab
+      && (!selectedNicheId || String(lead.raw_data?.niche_id || '') === selectedNicheId)
+    )).length;
+  };
 
   const queueContacts = async (contactIds: number[]) => {
     if (!selectedNicheId || !contactIds.length) return;
     setQueueing(true);
-    setQueueStatus('');
+    setMessage('');
     try {
-      const res = await leadsApi.queueAi({
+      const result = await leadsApi.queueAi({
         niche_id: Number(selectedNicheId),
         contact_ids: contactIds,
         limit: contactIds.length,
       });
-      setQueueStatus(`Queued ${res.totalQueued} lead${res.totalQueued === 1 ? '' : 's'} for AI calling`);
+      setMessage(`${result.totalQueued} lead${result.totalQueued === 1 ? '' : 's'} assigned to AI`);
       setSelectedContactIds([]);
-      await load();
+      await loadPipeline();
+      const contacts = await callsApi.listContactsByNiche(Number(selectedNicheId));
+      setNicheContacts(contacts.contacts || []);
+      setActiveTab('assigned');
     } catch (e: any) {
-      setQueueStatus(e?.response?.data?.error || e?.message || 'Failed to queue niche');
+      setError(e?.response?.data?.error || e?.message || 'Failed to assign leads');
     } finally {
       setQueueing(false);
     }
@@ -121,265 +141,300 @@ export default function AgentPipelinePage() {
       : [...current, id]);
   };
 
+  const stats = useMemo(() => ({
+    total: leads.length,
+    calling: leads.filter((lead) => lead.lead_stage === 'calling').length,
+    interested: leads.filter((lead) => lead.lead_stage === 'interested').length,
+    won: leads.filter((lead) => lead.lead_stage === 'closed_won').length,
+  }), [leads]);
+
   return (
     <div style={{ fontFamily: 'Manrope, sans-serif' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#14202B', margin: 0 }}>AI Agent Pipeline</h1>
-          <p style={{ fontSize: 13, color: '#52606D', margin: '4px 0 0' }}>
-            {leads.length} assigned leads
-          </p>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, margin: 0, fontSize: 27, color: '#14202B' }}>
+            <Bot size={27} color="#0F766E" /> AI Agent Pipeline
+          </h1>
+          <p style={{ margin: '5px 0 0', color: '#52606D', fontSize: 14 }}>Automated calling pipeline</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <select
             value={selectedNicheId}
-            onChange={(e) => setSelectedNicheId(e.target.value)}
+            onChange={(event) => setSelectedNicheId(event.target.value)}
             aria-label="Select niche"
-            style={{ width: 230, padding: '8px 10px', border: '1px solid #D8E1D7', borderRadius: 8, fontSize: 13, background: '#fff' }}
+            style={{ width: 235, height: 40, padding: '0 11px', border: '1px solid #D8E1D7', borderRadius: 8, background: '#fff', color: '#14202B', fontSize: 13 }}
           >
-            <option value="">Choose a niche</option>
+            <option value="">All niches</option>
             {niches.map((niche) => (
-              <option key={niche.id} value={niche.id}>
-                {niche.name} ({niche.contact_count || 0})
-              </option>
+              <option key={niche.id} value={niche.id}>{niche.name} ({niche.contact_count || 0})</option>
             ))}
           </select>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void load(); }}
-            placeholder="Search domain / company / email"
-            style={{ width: 300, padding: '8px 10px', border: '1px solid #D8E1D7', borderRadius: 8, fontSize: 13, background: '#fff' }}
-          />
-          <button
-            onClick={() => setIsTestingBrowser(true)}
-            style={{ padding: '8px 14px', background: '#3B82F6', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <Mic size={15} /> Test in Browser
+          <button onClick={() => setIsTestingBrowser(true)} style={actionButton('#2563EB')}>
+            <Mic size={15} /> Test Agent
           </button>
-          <button
-            onClick={() => void load()}
-            title="Refresh"
-            style={{ width: 36, height: 36, display: 'grid', placeItems: 'center', background: '#0F766E', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}
-          >
+          <button onClick={() => void loadPipeline()} title="Refresh" style={iconButton}>
             <RefreshCw size={16} />
           </button>
         </div>
       </div>
 
-      {listenCallSid && (
-        <LiveCallMonitor callSid={listenCallSid} onClose={() => setListenCallSid(null)} />
-      )}
-
-      {isTestingBrowser && (
-        <BrowserAgentTester onClose={() => setIsTestingBrowser(false)} />
-      )}
-
-      {err && (
-        <div style={{ padding: 12, marginBottom: 12, background: '#FEE2E2', border: '1px solid #FCA5A5', color: '#991B1B', borderRadius: 8, fontSize: 13 }}>
-          {err}
-        </div>
-      )}
-      {queueStatus && (
-        <div style={{ padding: 10, marginBottom: 12, background: queueStatus.startsWith('Failed') ? '#FEE2E2' : '#ECFDF5', border: `1px solid ${queueStatus.startsWith('Failed') ? '#FCA5A5' : '#A7F3D0'}`, color: queueStatus.startsWith('Failed') ? '#991B1B' : '#047857', borderRadius: 8, fontSize: 13 }}>
-          {queueStatus}
-        </div>
-      )}
-
-      <section style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Users size={17} color="#0F766E" />
-            <h2 style={{ margin: 0, fontSize: 16, color: '#14202B' }}>Available Leads</h2>
-            <span style={{ fontSize: 12, color: '#64748B' }}>{selectedNicheId ? availableContacts.length : 0}</span>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button
-              onClick={() => setSelectedContactIds(
-                selectedContactIds.length === availableContacts.length
-                  ? []
-                  : availableContacts.map((contact) => contact.id),
-              )}
-              disabled={!availableContacts.length}
-              style={{ padding: '7px 11px', border: '1px solid #CBD5E1', background: '#fff', color: '#334155', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: availableContacts.length ? 'pointer' : 'not-allowed' }}
-            >
-              {selectedContactIds.length === availableContacts.length && availableContacts.length ? 'Clear selection' : 'Select all'}
-            </button>
-            <button
-              onClick={() => void queueContacts(selectedContactIds)}
-              disabled={!selectedContactIds.length || queueing}
-              style={{ padding: '7px 12px', border: 'none', background: selectedContactIds.length && !queueing ? '#0F766E' : '#94A3B8', color: '#fff', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: selectedContactIds.length && !queueing ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <UserPlus size={14} /> {queueing ? 'Assigning...' : `Assign Selected (${selectedContactIds.length})`}
-            </button>
-            <button
-              onClick={() => void queueContacts(availableContacts.map((contact) => contact.id))}
-              disabled={!availableContacts.length || queueing}
-              style={{ padding: '7px 12px', border: '1px solid #0F766E', background: '#fff', color: '#0F766E', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: availableContacts.length && !queueing ? 'pointer' : 'not-allowed' }}
-            >
-              Assign All
-            </button>
-          </div>
-        </div>
-
-        <div style={{ border: '1px solid #D8E1D7', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
-          {!selectedNicheId ? (
-            <div style={{ padding: 24, textAlign: 'center', color: '#64748B', fontSize: 13 }}>Choose a niche</div>
-          ) : contactsLoading ? (
-            <div style={{ padding: 24, textAlign: 'center', color: '#64748B', fontSize: 13 }}>Loading leads...</div>
-          ) : availableContacts.length === 0 ? (
-            <div style={{ padding: 24, textAlign: 'center', color: '#64748B', fontSize: 13 }}>No available leads</div>
-          ) : (
-            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-              {availableContacts.map((contact) => (
-                <label key={contact.id} style={{ minHeight: 52, padding: '9px 12px', display: 'grid', gridTemplateColumns: '24px minmax(160px, 1.4fr) minmax(130px, 1fr) minmax(120px, 0.8fr)', gap: 10, alignItems: 'center', borderBottom: '1px solid #EEF2F0', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedContactIds.includes(contact.id)}
-                    onChange={() => toggleContact(contact.id)}
-                    style={{ width: 16, height: 16, accentColor: '#0F766E' }}
-                  />
-                  <span style={{ minWidth: 0 }}>
-                    <strong style={{ display: 'block', fontSize: 13, color: '#14202B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.company || contact.name}</strong>
-                    <span style={{ display: 'block', fontSize: 11, color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.name}</span>
-                  </span>
-                  <span style={{ fontSize: 12, color: '#334155' }}>{contact.phone_number}</span>
-                  <span style={{ fontSize: 11, color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.email || 'No email'}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <UserPlus size={17} color="#6366F1" />
-          <h2 style={{ margin: 0, fontSize: 16, color: '#14202B' }}>Assigned Leads</h2>
-          <span style={{ fontSize: 12, color: '#64748B' }}>{selectedNicheId ? assignedNicheLeads.length : leads.length}</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8 }}>
-          {(selectedNicheId ? assignedNicheLeads : leads).length === 0 ? (
-            <div style={{ gridColumn: '1 / -1', padding: 22, border: '1px solid #D8E1D7', borderRadius: 8, background: '#fff', textAlign: 'center', color: '#64748B', fontSize: 13 }}>No assigned leads</div>
-          ) : (selectedNicheId ? assignedNicheLeads : leads).map((lead) => (
-            <div key={lead.id} style={{ padding: 11, border: lead.lead_stage === 'calling' ? '1px solid #F59E0B' : '1px solid #D8E1D7', borderRadius: 8, background: lead.lead_stage === 'calling' ? '#FFFBEB' : '#fff' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <strong style={{ fontSize: 13, color: '#14202B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.company_name || lead.domain}</strong>
-                <Pill color={STAGE_COLORS[lead.lead_stage] || '#64748B'}>{STAGE_LABELS[lead.lead_stage] || lead.lead_stage}</Pill>
-              </div>
-              <div style={{ marginTop: 6, fontSize: 12, color: '#475569' }}>{lead.primary_phone || 'No phone'}</div>
-              {lead.lead_stage === 'calling' && activeCallsMap[lead.id] && (
-                <button
-                  onClick={() => setListenCallSid(activeCallsMap[lead.id])}
-                  style={{ marginTop: 9, width: '100%', padding: '7px 9px', border: 'none', borderRadius: 7, background: '#DC2626', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                >
-                  <Headphones size={14} /> Listen Live
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {loading && <div style={{ padding: 20, color: '#7B8794' }}>Loading AI pipeline…</div>}
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <Headphones size={17} color="#D97706" />
-        <h2 style={{ margin: 0, fontSize: 16, color: '#14202B' }}>Call Progress</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(150px, 1fr))', gap: 14, marginBottom: 28 }}>
+        <Stat label="Assigned Leads" value={stats.total} color="#14202B" background="#FFFFFF" />
+        <Stat label="Active Calls" value={stats.calling} color="#1D4ED8" background="#EFF6FF" />
+        <Stat label="Interested" value={stats.interested} color="#047857" background="#ECFDF5" />
+        <Stat label="Closed Won" value={stats.won} color="#4D7C0F" background="#F7FEE7" />
       </div>
-      <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 16 }}>
-        {PIPELINE_STAGES.map((stage) => {
-          const stageLeads = byStage[stage];
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <div style={{ position: 'relative', width: 300, maxWidth: '100%' }}>
+          <Search size={15} style={{ position: 'absolute', left: 11, top: 12, color: '#94A3B8' }} />
+          <input
+            value={q}
+            onChange={(event) => setQ(event.target.value)}
+            placeholder="Search leads"
+            style={{ width: '100%', height: 40, boxSizing: 'border-box', padding: '0 12px 0 34px', border: '1px solid #D8E1D7', borderRadius: 8, background: '#fff', fontSize: 13 }}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 22, overflowX: 'auto', borderBottom: '1px solid #D8E1D7', marginBottom: 24 }}>
+        {AGENT_TABS.map((tab) => {
+          const selected = activeTab === tab.key;
           return (
-            <div
-              key={stage}
-              style={{
-                minWidth: 260,
-                maxWidth: 260,
-                background: '#fff',
-                border: '1px solid #D8E1D7',
-                borderRadius: 10,
-                padding: 10,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-                flexShrink: 0,
-              }}
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              style={{ flexShrink: 0, padding: '10px 0 11px', border: 0, borderBottom: selected ? '2px solid #0F766E' : '2px solid transparent', background: 'transparent', color: selected ? '#0F766E' : '#52606D', fontSize: 13, fontWeight: selected ? 700 : 600, cursor: 'pointer' }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{
-                    width: 8, height: 8, borderRadius: '50%', background: STAGE_COLORS[stage],
-                  }} />
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#14202B', letterSpacing: 0.3 }}>
-                    {STAGE_LABELS[stage].toUpperCase()}
-                  </span>
-                </div>
-                <span style={{ fontSize: 11, color: '#7B8794', fontWeight: 600 }}>{stageLeads.length}</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' }}>
-                {stageLeads.length === 0 && (
-                  <div style={{ fontSize: 11, color: '#B0BEC5', textAlign: 'center', padding: 8 }}>Empty</div>
-                )}
-                {stageLeads.map((lead) => (
-                  <div
-                    key={lead.id}
-                    onClick={() => nav(`/pipeline/${lead.id}`)}
-                    style={{
-                      background: stage === 'calling' ? '#FEF3C7' : '#F8FAF7',
-                      border: stage === 'calling' ? '1px solid #F59E0B' : '1px solid #D8E1D7',
-                      borderRadius: 8,
-                      padding: '8px 10px',
-                      cursor: 'pointer',
-                      transition: 'all 0.3s',
-                    }}
-                  >
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#14202B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {lead.company_name || lead.domain}
-                    </div>
-                    <div style={{ fontSize: 10, color: '#7B8794', fontFamily: 'JetBrains Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
-                      {lead.domain}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                      {lead.primary_phone && <Pill color="#0369a1">{lead.primary_phone}</Pill>}
-                      {stage === 'calling' && <Pill color="#D97706">Calling...</Pill>}
-                    </div>
-                    {stage === 'calling' && activeCallsMap[lead.id] && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setListenCallSid(activeCallsMap[lead.id]); }}
-                        style={{
-                          marginTop: 8, width: '100%', padding: '6px', background: '#EF4444', 
-                          color: 'white', border: 'none', borderRadius: 6, fontSize: 11, 
-                          fontWeight: 'bold', cursor: 'pointer', display: 'flex', 
-                          alignItems: 'center', justifyContent: 'center', gap: 4
-                        }}
-                      >
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'white' }} />
-                        Listen Live
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+              {tab.label} <span style={{ marginLeft: 4, color: selected ? '#0F766E' : '#94A3B8' }}>{tabCount(tab.key)}</span>
+            </button>
           );
         })}
+      </div>
+
+      {listenCallSid && <LiveCallMonitor callSid={listenCallSid} onClose={() => setListenCallSid(null)} />}
+      {isTestingBrowser && <BrowserAgentTester onClose={() => setIsTestingBrowser(false)} />}
+      {error && <Alert text={error} danger />}
+      {message && <Alert text={message} />}
+
+      {activeTab === 'leads' ? (
+        <AvailableLeadList
+          selectedNicheId={selectedNicheId}
+          contacts={availableContacts}
+          loading={contactsLoading}
+          selectedIds={selectedContactIds}
+          queueing={queueing}
+          onToggle={toggleContact}
+          onSelectAll={() => setSelectedContactIds(
+            selectedContactIds.length === availableContacts.length ? [] : availableContacts.map((contact) => contact.id),
+          )}
+          onAssign={() => void queueContacts(selectedContactIds)}
+          onAssignAll={() => void queueContacts(availableContacts.map((contact) => contact.id))}
+        />
+      ) : (
+        <PipelineLeadList
+          leads={visibleLeads}
+          loading={loading}
+          activeCallsMap={activeCallsMap}
+          onListen={setListenCallSid}
+        />
+      )}
+    </div>
+  );
+}
+
+function AvailableLeadList({
+  selectedNicheId,
+  contacts,
+  loading,
+  selectedIds,
+  queueing,
+  onToggle,
+  onSelectAll,
+  onAssign,
+  onAssignAll,
+}: {
+  selectedNicheId: string;
+  contacts: Contact[];
+  loading: boolean;
+  selectedIds: number[];
+  queueing: boolean;
+  onToggle: (id: number) => void;
+  onSelectAll: () => void;
+  onAssign: () => void;
+  onAssignAll: () => void;
+}) {
+  if (!selectedNicheId) return <Empty text="Select a niche to view leads" />;
+  if (loading) return <Empty text="Loading leads..." />;
+  if (!contacts.length) return <Empty text="No available leads in this niche" />;
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <button onClick={onSelectAll} style={secondaryButton}>
+          {selectedIds.length === contacts.length ? 'Clear Selection' : 'Select All'}
+        </button>
+        <button disabled={!selectedIds.length || queueing} onClick={onAssign} style={actionButton(selectedIds.length && !queueing ? '#0F766E' : '#94A3B8')}>
+          <UserPlus size={15} /> {queueing ? 'Assigning...' : `Assign Selected (${selectedIds.length})`}
+        </button>
+        <button disabled={queueing} onClick={onAssignAll} style={secondaryButton}>Assign All</button>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <div style={{ minWidth: 900, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {contacts.map((contact) => (
+            <label key={contact.id} style={leadRow(false)}>
+            <input type="checkbox" checked={selectedIds.includes(contact.id)} onChange={() => onToggle(contact.id)} style={{ width: 18, height: 18, accentColor: '#0F766E', cursor: 'pointer' }} />
+            <LeadIdentity name={contact.company || contact.name} niche={contact.niche_name} detail={contact.name} />
+            <Score value={contact.score || 0} />
+            <PhoneValue value={contact.phone_number} />
+            <span style={mutedText}>{contact.email || 'No email'}</span>
+            <span style={{ ...badge('#0F766E'), justifySelf: 'end' }}>Ready</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function PipelineLeadList({
+  leads,
+  loading,
+  activeCallsMap,
+  onListen,
+}: {
+  leads: Lead[];
+  loading: boolean;
+  activeCallsMap: Record<string, string>;
+  onListen: (callSid: string) => void;
+}) {
+  if (loading) return <Empty text="Loading pipeline..." />;
+  if (!leads.length) return <Empty text="No leads in this stage" />;
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div style={{ minWidth: 900, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {leads.map((lead) => (
+          <div key={lead.id} style={leadRow(lead.lead_stage === 'calling')}>
+          <LeadIdentity name={lead.company_name || lead.domain} niche={lead.raw_data?.niche_name || lead.industry_guess} detail={lead.primary_email || lead.domain} />
+          <Score value={lead.ai_score || 0} />
+          <PhoneValue value={lead.primary_phone || 'No phone'} />
+          <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'start' }}>{STAGE_LABELS[lead.lead_stage]}</span>
+          <span style={{ ...mutedText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.ai_summary || lead.lead_notes || 'No notes yet'}</span>
+          {lead.lead_stage === 'calling' && activeCallsMap[lead.id] ? (
+            <button onClick={() => onListen(activeCallsMap[lead.id])} style={{ ...actionButton('#DC2626'), justifySelf: 'end' }}>
+              <Headphones size={15} /> Listen Live
+            </button>
+          ) : (
+            <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'end' }}>{STAGE_LABELS[lead.lead_stage]}</span>
+          )}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function Pill({ children, color }: { children: React.ReactNode; color: string }) {
+function LeadIdentity({ name, niche, detail }: { name: string; niche?: string | null; detail?: string | null }) {
   return (
-    <span style={{
-      fontSize: 9,
-      fontWeight: 700,
-      padding: '2px 6px',
-      borderRadius: 999,
-      background: color + '22',
-      color,
-      letterSpacing: 0.3,
-      textTransform: 'uppercase',
-    }}>{children}</span>
+    <div style={{ minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <strong style={{ color: '#14202B', fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</strong>
+        {niche && <span style={badge('#7E22CE')}>{niche}</span>}
+      </div>
+      <div style={{ ...mutedText, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail || 'No details'}</div>
+    </div>
   );
 }
+
+function Score({ value }: { value: number }) {
+  return <span style={{ width: 40, height: 40, display: 'grid', placeItems: 'center', borderRadius: '50%', background: '#FEF3C7', color: '#B45309', fontSize: 13, fontWeight: 800 }}>{value}</span>;
+}
+
+function PhoneValue({ value }: { value: string }) {
+  return <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#14202B', fontSize: 13, fontWeight: 600 }}><Phone size={14} color="#0F766E" /> {value}</span>;
+}
+
+function Stat({ label, value, color, background }: { label: string; value: number; color: string; background: string }) {
+  return (
+    <div style={{ minHeight: 82, padding: '15px 18px', border: '1px solid #D8E1D7', borderRadius: 8, background }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color, textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ marginTop: 8, fontSize: 23, fontWeight: 700, color }}>{value}</div>
+    </div>
+  );
+}
+
+function Alert({ text, danger = false }: { text: string; danger?: boolean }) {
+  return <div style={{ marginBottom: 14, padding: '10px 12px', border: `1px solid ${danger ? '#FCA5A5' : '#A7F3D0'}`, borderRadius: 8, background: danger ? '#FEF2F2' : '#ECFDF5', color: danger ? '#991B1B' : '#047857', fontSize: 13 }}>{text}</div>;
+}
+
+function Empty({ text }: { text: string }) {
+  return <div style={{ padding: 42, border: '1px solid #D8E1D7', borderRadius: 8, background: '#fff', textAlign: 'center', color: '#64748B', fontSize: 13 }}>{text}</div>;
+}
+
+const mutedText: React.CSSProperties = { color: '#64748B', fontSize: 12 };
+
+const leadRow = (calling: boolean): React.CSSProperties => ({
+  minHeight: 74,
+  padding: '12px 18px',
+  display: 'grid',
+  gridTemplateColumns: 'minmax(220px, 1.6fr) 48px minmax(150px, 0.8fr) minmax(105px, 0.65fr) minmax(170px, 1fr) auto',
+  gap: 16,
+  alignItems: 'center',
+  border: calling ? '1px solid #F59E0B' : '1px solid #D8E1D7',
+  borderRadius: 8,
+  background: calling ? '#FFFBEB' : '#fff',
+  boxShadow: '0 2px 4px rgba(15, 23, 42, 0.04)',
+});
+
+const badge = (color: string): React.CSSProperties => ({
+  width: 'fit-content',
+  padding: '3px 8px',
+  borderRadius: 999,
+  background: `${color}18`,
+  color,
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  whiteSpace: 'nowrap',
+});
+
+const actionButton = (background: string): React.CSSProperties => ({
+  minHeight: 38,
+  padding: '0 14px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 7,
+  border: 0,
+  borderRadius: 8,
+  background,
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: 'pointer',
+});
+
+const secondaryButton: React.CSSProperties = {
+  minHeight: 38,
+  padding: '0 13px',
+  border: '1px solid #CBD5E1',
+  borderRadius: 8,
+  background: '#fff',
+  color: '#334155',
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: 'pointer',
+};
+
+const iconButton: React.CSSProperties = {
+  width: 40,
+  height: 40,
+  display: 'grid',
+  placeItems: 'center',
+  border: 0,
+  borderRadius: 8,
+  background: '#0F766E',
+  color: '#fff',
+  cursor: 'pointer',
+};
