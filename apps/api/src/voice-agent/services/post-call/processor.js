@@ -11,7 +11,7 @@
  */
 
 import { getSession } from '../session/session-store.js';
-import { generateCompletion } from '../llm/deepseek.service.js';
+import { generateCompletion } from '../llm/openai-analysis.service.js';
 import { trackCallCost } from '../cost/cost-tracker.js';
 
 // Lazy imports from calls-module — initialized on first use
@@ -57,12 +57,9 @@ export async function processPostCall(callSid) {
     const transcript = formatTranscript(session.conversation);
     const duration = computeDuration(session);
 
-    // 2. Generate AI analysis (parallel calls)
-    const [summary, sentiment, leadQualification] = await Promise.all([
-      generateSummary(transcript, session),
-      analyzeSentiment(transcript),
-      qualifyLead(transcript, session),
-    ]);
+    // One compact request is cheaper and more reliable than three separate
+    // summary, sentiment, and qualification requests.
+    const { summary, sentiment, leadQualification } = await analyzeCall(transcript);
 
     console.log(`[voice-agent:post-call] Analysis complete for ${callSid}:`, {
       summary: summary.text?.slice(0, 100),
@@ -216,6 +213,101 @@ export async function processPostCall(callSid) {
   } catch (err) {
     console.error(`[voice-agent:post-call] Fatal error processing ${callSid}:`, err.message);
   }
+}
+
+async function analyzeCall(transcript) {
+  const transcriptText = transcript
+    .map((t) => `${t.role === 'user' ? 'Customer' : 'AI Agent'}: ${t.text}`)
+    .join('\n')
+    .slice(-6000);
+
+  if (!transcriptText.trim()) {
+    return fallbackAnalysis('No conversation was captured.');
+  }
+
+  const prompt = `Analyze this cold call and return ONLY valid JSON with this shape:
+{
+  "summary": "Two short factual sentences",
+  "sentiment": {"score": 0, "label": "neutral", "key_moments": [], "overall_tone": "brief text"},
+  "qualification": {
+    "isQualified": false,
+    "score": 0,
+    "outcome": "interested|not_interested|callback_requested|meeting_booked|voicemail|no_answer|wrong_number|unknown",
+    "reasoning": "brief text",
+    "suggested_follow_up": null,
+    "budget_mentioned": false,
+    "timeline_mentioned": false,
+    "decision_maker": false,
+    "client_details": {}
+  }
+}
+Use only facts in the transcript. Sentiment score must be between -1 and 1. Qualification score must be 0 to 100.
+
+Transcript:
+${transcriptText}`;
+
+  try {
+    const result = await generateCompletion({
+      systemPrompt: 'You analyze B2B calls accurately and return only valid JSON.',
+      userPrompt: prompt,
+      temperature: 0.1,
+      maxTokens: 700,
+    });
+    const match = result.text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Analysis response did not contain JSON');
+    const parsed = JSON.parse(match[0]);
+    return {
+      summary: {
+        text: String(parsed.summary || 'No summary available'),
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+      },
+      sentiment: {
+        score: Number(parsed.sentiment?.score) || 0,
+        label: parsed.sentiment?.label || 'neutral',
+        key_moments: Array.isArray(parsed.sentiment?.key_moments) ? parsed.sentiment.key_moments : [],
+        overall_tone: parsed.sentiment?.overall_tone || 'Neutral',
+        inputTokens: 0,
+        outputTokens: 0,
+      },
+      leadQualification: {
+        ...fallbackAnalysis('').leadQualification,
+        ...(parsed.qualification || {}),
+        inputTokens: 0,
+        outputTokens: 0,
+      },
+    };
+  } catch (err) {
+    console.warn('[voice-agent:post-call] OpenAI analysis failed; saving safe defaults:', err.message);
+    return fallbackAnalysis('Call completed; automatic analysis was unavailable.');
+  }
+}
+
+function fallbackAnalysis(summaryText) {
+  return {
+    summary: { text: summaryText, inputTokens: 0, outputTokens: 0 },
+    sentiment: {
+      score: 0,
+      label: 'neutral',
+      key_moments: [],
+      overall_tone: 'Unable to analyze',
+      inputTokens: 0,
+      outputTokens: 0,
+    },
+    leadQualification: {
+      isQualified: false,
+      score: 0,
+      outcome: 'unknown',
+      reasoning: 'Unable to analyze',
+      suggested_follow_up: null,
+      budget_mentioned: false,
+      timeline_mentioned: false,
+      decision_maker: false,
+      client_details: {},
+      inputTokens: 0,
+      outputTokens: 0,
+    },
+  };
 }
 
 /**

@@ -26,6 +26,8 @@ router.post('/call', asyncHandler(async (req, res) => {
       to,
       from: env.TWILIO_PHONE_NUMBER,
       url: `${env.PUBLIC_BASE_URL || 'https://api.jentoai.pro'}/api/voice/twiml/outbound`,
+      machineDetection: 'Enable',
+      machineDetectionTimeout: 8,
     });
 
     res.json({ success: true, callSid: call.sid, message: 'Call initiated successfully' });

@@ -53,7 +53,6 @@ export class VoiceKernel {
   // --- Handlers ---
 
   handleAudioIn(event, state) {
-    if (state.bargeInActive) return;
     const { base64Audio } = event.payload;
     if (this.openaiSession) {
       this.openaiSession.writeAudio(base64Audio);
@@ -82,11 +81,6 @@ export class VoiceKernel {
     this.logger.log(`[VoiceKernel] 🛑 BARGE-IN DETECTED for ${this.callSid}`);
     state.bargeInActive = true;
     
-    if (this.openaiSession) {
-      this.openaiSession.cancelResponse();
-      this.openaiSession.clearBuffer();
-    }
-    
     const { wsClient, adapter } = event.payload;
     if (adapter && adapter.clearAudio) {
       adapter.clearAudio(this.streamSid);
@@ -102,7 +96,7 @@ export class VoiceKernel {
     // Reset barge-in state after a brief moment to allow new turn
     setTimeout(() => {
       state.bargeInActive = false;
-    }, 500);
+    }, 250);
   }
 
   handleToolCall(event, state) {

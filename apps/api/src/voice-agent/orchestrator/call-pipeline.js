@@ -3,7 +3,7 @@
  */
 
 import { createOpenAISession } from '../services/llm/openai-realtime.service.js';
-import { getSystemPrompt } from '../services/llm/prompts/system-prompts.js';
+import { getSystemPrompt, getNicheGuidance } from '../services/llm/prompts/system-prompts.js';
 import { broadcastCallAudio, broadcastCallTranscript } from '../websocket/call-monitor.js';
 import { VoiceKernel } from './voice.kernel.js';
 
@@ -16,7 +16,7 @@ import {
   incrementInterruptions,
   deleteSession,
 } from '../services/session/session-store.js';
-import { onStreamEvent, sendMediaToTwilio, clearTwilioAudio } from '../websocket/media-server.js';
+import { onStreamEvent, sendMediaToTwilio, clearTwilioAudio, sendDtmfToTwilio } from '../websocket/media-server.js';
 import { env } from '../config/env.js';
 import { processPostCall } from '../services/post-call/processor.js';
 import { query } from '../../calls-module/db/index.js';
@@ -192,6 +192,7 @@ export async function startCallPipeline(streamSid, callSid, customParams = {}, a
     type: 'twilio',
     sendAudio: sendMediaToTwilio,
     clearAudio: clearTwilioAudio,
+    sendDtmf: sendDtmfToTwilio,
     audioFormat: 'g711_ulaw'
   };
 
@@ -218,14 +219,21 @@ export async function startCallPipeline(streamSid, callSid, customParams = {}, a
 
     if (customParams.contactId) {
       try {
-        const { rows } = await query('SELECT company_name, industry_guess, one_line_pitch, ai_pain_points FROM enrichment_results WHERE id = $1', [customParams.contactId]);
+        const { rows } = await query(
+          `SELECT company_name, industry_guess, one_line_pitch, ai_pain_points,
+                  raw_data->>'niche_name' AS niche_name
+           FROM enrichment_results WHERE id = $1`,
+          [customParams.contactId],
+        );
         if (rows.length > 0) {
           const lead = rows[0];
-          systemPrompt += `\n\nLEAD CONTEXT:\nYou are speaking with someone from ${lead.company_name || 'this company'}.
-Industry: ${lead.industry_guess || 'Unknown'}
+          const niche = lead.niche_name || lead.industry_guess || 'Unknown';
+          systemPrompt += `\n\n# Current niche and lead context\nCompany: ${lead.company_name || 'Unknown'}
+Niche: ${niche}
 What they do: ${lead.one_line_pitch || 'Unknown'}
 Pain Points: ${lead.ai_pain_points || 'None identified'}
-Use this context subtly to personalize the conversation. Do not sound like you are reading a script.`;
+Niche guidance: ${getNicheGuidance(niche)}
+Use only relevant facts from this context. Do not read this block aloud.`;
         }
       } catch (err) {
         console.error('[voice-agent:orchestrator] Error fetching lead context:', err.message);
@@ -375,16 +383,11 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
     kernel.logger.log(`[VoiceKernel] 🛑 BARGE-IN DETECTED for ${kernel.callSid}`);
     state.bargeInActive = true;
     
-    if (kernel.openaiSession) {
-      kernel.openaiSession.cancelResponse();
-      kernel.openaiSession.clearBuffer();
-    }
-    
     activeAdapter.clearAudio(streamSid);
 
     setTimeout(() => {
       state.bargeInActive = false;
-    }, 500);
+    }, 250);
   });
   
   // Custom tool call override for end_call delay etc
@@ -409,7 +412,7 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
       }, delay);
       
       if (kernel.openaiSession) {
-        kernel.openaiSession.submitToolResult(call_id, JSON.stringify({ success: true, action: 'ending_call' }));
+        kernel.openaiSession.submitToolResult(call_id, JSON.stringify({ success: true, action: 'ending_call' }), false);
       }
       return;
     }
@@ -428,10 +431,11 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
           const digit = String(args?.digit ?? args?.digits ?? '').trim();
           if (!digit || !/^[0-9*#]$/.test(digit)) {
             resultStr = JSON.stringify({ success: false, error: `Invalid DTMF digit: ${digit || '(empty)'}` });
-          } else if (env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN) {
-            const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
-            await client.calls(callSid).update({ sendDigits: digit });
-            resultStr = JSON.stringify({ success: true, digits_sent: digit });
+          } else if (activeAdapter.sendDtmf) {
+            const sent = await activeAdapter.sendDtmf(streamSid, digit);
+            resultStr = JSON.stringify(sent
+              ? { success: true, digits_sent: digit }
+              : { success: false, error: 'Active audio stream unavailable' });
           } else {
             resultStr = JSON.stringify({ success: true, digits_sent: digit, message: 'Simulated keypad press' });
           }
@@ -440,7 +444,7 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
         }
 
         if (kernel.openaiSession) {
-          kernel.openaiSession.submitToolResult(call_id, resultStr);
+          kernel.openaiSession.submitToolResult(call_id, resultStr, name !== 'press_keypad');
         }
       } catch (err) {
         kernel.logger.error(`[VoiceKernel] ❌ Tool execution error: ${err.message}`);

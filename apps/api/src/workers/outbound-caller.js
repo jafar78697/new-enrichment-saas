@@ -82,6 +82,8 @@ export async function runOutboundCallerLoop() {
             statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
             statusCallbackMethod: 'POST',
             statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+            machineDetection: 'Enable',
+            machineDetectionTimeout: 8,
           });
 
           await query(

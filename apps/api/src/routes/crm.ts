@@ -358,6 +358,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         statusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
         statusCallbackMethod: 'POST',
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+        machineDetection: 'Enable',
+        machineDetectionTimeout: 8,
       });
       callSid = call.sid;
 

@@ -40,8 +40,9 @@ const envSchema = z.object({
   // LLMs / API Keys
   OPENAI_API_KEY: z.preprocess(emptyIfPlaceholder, z.string().optional()),
   OPENAI_REALTIME_MODEL: z.string().default('gpt-realtime-mini'),
+  OPENAI_ANALYSIS_MODEL: z.string().default('gpt-4.1-mini'),
   OPENAI_TRANSCRIPTION_MODEL: z.string().default('gpt-4o-mini-transcribe'),
-  OPENAI_REALTIME_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(4096).default(300),
+  OPENAI_REALTIME_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(4096).default(160),
   ELEVENLABS_API_KEY: z.preprocess(emptyIfPlaceholder, z.string().optional()),
   ELEVENLABS_VOICE_ID: z.string().default('f0ign4OCWcX0pECFZyU2'),
 

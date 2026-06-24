@@ -38,6 +38,7 @@ export function createOpenAISession(config) {
 
   const state = {
     sessionReady: false,
+    responseActive: false,
   };
 
   const audioBuffer = new AudioBufferEngine((base64Payload) => {
@@ -83,7 +84,8 @@ export function createOpenAISession(config) {
         input: {
           format: audioFormat,
           turn_detection: {
-            type: 'server_vad',
+            type: 'semantic_vad',
+            eagerness: 'auto',
             create_response: true,
             interrupt_response: true
           },
@@ -94,6 +96,11 @@ export function createOpenAISession(config) {
         output: {
           format: audioFormat
         }
+      },
+      truncation: {
+        type: 'retention_ratio',
+        retention_ratio: 0.8,
+        token_limits: { post_instructions: 4000 }
       },
       max_output_tokens: env.OPENAI_REALTIME_MAX_OUTPUT_TOKENS,
     },
@@ -130,9 +137,12 @@ export function createOpenAISession(config) {
         }
       }
 
-      // User speech started (Barge-in detection via Server VAD)
+      if (msg.type === 'response.created') state.responseActive = true;
+
+      // Server VAD cancels the model response. Only clear playback when the
+      // customer actually interrupts active AI audio.
       if (msg.type === 'input_audio_buffer.speech_started') {
-        if (config.onBargeIn) config.onBargeIn();
+        if (state.responseActive && config.onBargeIn) config.onBargeIn();
       }
 
       // User transcription
@@ -175,6 +185,7 @@ export function createOpenAISession(config) {
 
       // Usage
       if (msg.type === 'response.done') {
+        state.responseActive = false;
         if (config.onUsage && msg.response && msg.response.usage) {
           config.onUsage(msg.response.usage);
         }
@@ -232,7 +243,7 @@ export function createOpenAISession(config) {
       }));
     },
 
-    submitToolResult: (callId, resultStr) => {
+    submitToolResult: (callId, resultStr, triggerResponse = true) => {
       if (ws.readyState !== WebSocket.OPEN) return;
 
       console.log(`[voice-agent:openai] 🛠️ Submitting tool result for ${callId}...`);
@@ -246,23 +257,26 @@ export function createOpenAISession(config) {
         }
       }));
 
-      ws.send(JSON.stringify({
-        type: 'response.create',
-        response: {
-          output_modalities: ['audio'],
-          max_output_tokens: env.OPENAI_REALTIME_MAX_OUTPUT_TOKENS,
-          audio: {
-            output: {
-              format: audioFormat
+      if (triggerResponse) {
+        ws.send(JSON.stringify({
+          type: 'response.create',
+          response: {
+            output_modalities: ['audio'],
+            max_output_tokens: env.OPENAI_REALTIME_MAX_OUTPUT_TOKENS,
+            audio: {
+              output: {
+                format: audioFormat
+              }
             }
           }
-        }
-      }));
+        }));
+      }
     },
 
     cancelResponse: () => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN && state.responseActive) {
         ws.send(JSON.stringify({ type: 'response.cancel' }));
+        state.responseActive = false;
       }
     },
 

@@ -46,6 +46,7 @@ router.post(
       contactId: z.string().optional(),
       tenantId: z.string().optional(),
       record: z.string().optional(),
+      AnsweredBy: z.string().optional(),
     }).parse({ ...req.body, ...req.query });
 
     const toStr = cleanPhoneNumber(payload.To);
@@ -61,19 +62,29 @@ router.post(
 
     const response = new twilio.twiml.VoiceResponse();
 
-    // Connect to Media Streams WebSocket for AI conversation
-    let streamUrl = wsUrl(req, '/api/voice/media');
-    if (payload.contactId) {
-      streamUrl += `?contactId=${payload.contactId}`;
-    }
-    if (payload.tenantId) {
-      streamUrl += `${streamUrl.includes('?') ? '&' : '?'}tenantId=${payload.tenantId}`;
+    if (payload.AnsweredBy?.startsWith('machine') || payload.AnsweredBy === 'fax') {
+      if (payload.contactId) {
+        await query(
+          `UPDATE enrichment_results
+           SET lead_stage = 'no_answer',
+               raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
+               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1)
+           WHERE id = $2`,
+          [`[AI Call] ${payload.AnsweredBy === 'fax' ? 'Fax' : 'Voicemail'} detected by Twilio; call ended automatically.`, payload.contactId],
+        );
+      }
+      console.log(`[voice-agent] ${payload.AnsweredBy} detected for ${payload.CallSid}; hanging up before AI stream.`);
+      response.hangup();
+      return res.type('text/xml').send(response.toString());
     }
 
-    response.connect().stream({
-      url: streamUrl,
+    // Connect to Media Streams WebSocket for AI conversation
+    const stream = response.connect().stream({
+      url: wsUrl(req, '/api/voice/media'),
       track: 'inbound_track',
     });
+    if (payload.contactId) stream.parameter({ name: 'contactId', value: payload.contactId });
+    if (payload.tenantId) stream.parameter({ name: 'tenantId', value: payload.tenantId });
 
     const twiml = response.toString();
     console.log('[voice-agent] TwiML:', twiml);

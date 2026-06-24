@@ -93,6 +93,8 @@ export function attachMediaServer(httpServer) {
         case 'start':
           streamSid = msg.streamSid;
           callSid = msg.start?.callSid || 'unknown';
+          contactId = contactId || msg.start?.customParameters?.contactId || null;
+          tenantId = tenantId || msg.start?.customParameters?.tenantId || null;
           streamActive = true;
           console.log(`[voice-agent:ws] Stream started: streamSid=${streamSid}, callSid=${callSid}, contactId=${contactId}, tenantId=${tenantId}`);
 
@@ -250,6 +252,57 @@ export function clearTwilioAudio(streamSid) {
   }
 }
 
+const DTMF_FREQUENCIES = {
+  '1': [697, 1209], '2': [697, 1336], '3': [697, 1477],
+  '4': [770, 1209], '5': [770, 1336], '6': [770, 1477],
+  '7': [852, 1209], '8': [852, 1336], '9': [852, 1477],
+  '*': [941, 1209], '0': [941, 1336], '#': [941, 1477],
+};
+
+function linearToMulaw(sample) {
+  const BIAS = 0x84;
+  const CLIP = 32635;
+  let pcm = Math.max(-CLIP, Math.min(CLIP, sample));
+  const sign = pcm < 0 ? 0x80 : 0;
+  if (pcm < 0) pcm = -pcm;
+  pcm += BIAS;
+  let exponent = 7;
+  for (let mask = 0x4000; exponent > 0 && !(pcm & mask); exponent -= 1, mask >>= 1) {}
+  const mantissa = (pcm >> (exponent + 3)) & 0x0f;
+  return (~(sign | (exponent << 4) | mantissa)) & 0xff;
+}
+
+function createDtmfFrame(digit, frameIndex, toneFrames = 6) {
+  const frequencies = DTMF_FREQUENCIES[digit];
+  if (!frequencies) return null;
+  const sampleRate = 8000;
+  const samplesPerFrame = 160;
+  const frame = Buffer.alloc(samplesPerFrame);
+  for (let i = 0; i < samplesPerFrame; i += 1) {
+    const sampleIndex = frameIndex * samplesPerFrame + i;
+    const pcm = frameIndex < toneFrames
+      ? Math.round(7000 * (Math.sin(2 * Math.PI * frequencies[0] * sampleIndex / sampleRate)
+        + Math.sin(2 * Math.PI * frequencies[1] * sampleIndex / sampleRate)))
+      : 0;
+    frame[i] = linearToMulaw(pcm);
+  }
+  return frame.toString('base64');
+}
+
+/** Send a 120ms in-band keypad tone followed by 80ms silence. */
+export async function sendDtmfToTwilio(streamSid, digit) {
+  const stream = activeStreams.get(streamSid);
+  if (!stream || stream.ws.readyState !== 1 || !DTMF_FREQUENCIES[digit]) return false;
+
+  for (let frameIndex = 0; frameIndex < 10; frameIndex += 1) {
+    const payload = createDtmfFrame(digit, frameIndex);
+    stream.ws.send(JSON.stringify({ event: 'media', streamSid, media: { payload } }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  console.log(`[voice-agent:ws] In-band DTMF ${digit} sent for stream ${streamSid}`);
+  return true;
+}
+
 /**
  * Send a mark event for synchronization.
  * @param {string} streamSid
@@ -306,6 +359,7 @@ export default {
   onStreamEvent,
   sendMediaToTwilio,
   clearTwilioAudio,
+  sendDtmfToTwilio,
   sendMark,
   getStream,
   getActiveStreamIds,
