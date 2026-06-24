@@ -175,6 +175,28 @@ export default function AgentPipelinePage() {
     }
   };
 
+  const handleListenLead = async (lead: Lead, currentCallSid: string | null) => {
+    setError('');
+    if (currentCallSid) {
+      setListenCallSid(currentCallSid);
+      return;
+    }
+
+    try {
+      const activeResult = await leadsApi.activeCalls();
+      const freshMap = activeResult.activeCalls || {};
+      setActiveCallsMap(freshMap);
+      const freshCallSid = freshMap[lead.id] || Object.values(freshMap)[0];
+      if (freshCallSid) {
+        setListenCallSid(freshCallSid);
+        return;
+      }
+      setError('Live call SID abhi load nahi hua. Refresh dabao ya 5 seconds baad Listen Live dobara click karo.');
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'Live call info load nahi ho saki');
+    }
+  };
+
   const stats = useMemo(() => ({
     total: leads.length,
     calling: leads.filter((lead) => lead.lead_stage === 'calling').length,
@@ -283,7 +305,7 @@ export default function AgentPipelinePage() {
           loading={loading}
           activeCallsMap={activeCallsMap}
           fallbackCallSid={fallbackCallSid}
-          onListen={setListenCallSid}
+          onListen={handleListenLead}
           callingLeadId={callingLeadId}
           onStartCall={handleStartCall}
         />
@@ -359,7 +381,7 @@ function PipelineLeadList({
   loading: boolean;
   activeCallsMap: Record<string, string>;
   fallbackCallSid: string | null;
-  onListen: (callSid: string) => void;
+  onListen: (lead: Lead, callSid: string | null) => void;
   callingLeadId: string | null;
   onStartCall: (leadId: string) => void;
 }) {
@@ -382,8 +404,8 @@ function PipelineLeadList({
               ? `Meeting: ${new Date(getMeetingTime(lead) as string).toLocaleString()}`
               : lead.ai_summary || lead.lead_notes || 'No notes yet'}
           </span>
-          {lead.lead_stage === 'calling' && liveCallSid ? (
-            <button onClick={() => onListen(liveCallSid)} style={{ ...actionButton('#DC2626'), justifySelf: 'end', minWidth: 122 }}>
+          {lead.lead_stage === 'calling' ? (
+            <button onClick={() => onListen(lead, liveCallSid)} style={{ ...actionButton('#DC2626'), justifySelf: 'end', minWidth: 122 }}>
               <Headphones size={15} /> Listen Live
             </button>
           ) : lead.lead_stage === 'assigned' ? (
