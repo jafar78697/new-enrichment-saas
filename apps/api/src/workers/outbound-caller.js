@@ -25,73 +25,84 @@ export async function runOutboundCallerLoop() {
 
   console.log('[outbound-caller] Started looking for leads to call...');
 
-  // Simple loop: every 30 seconds
+  await query(`
+    CREATE TABLE IF NOT EXISTS ai_calling_controls (
+      tenant_id UUID PRIMARY KEY,
+      is_running BOOLEAN NOT NULL DEFAULT false,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
   setInterval(async () => {
-    let claimedLeadId = null;
     try {
-      const { rows: activeRows } = await query(`
-        SELECT COUNT(*)::int AS count
-        FROM enrichment_results
-        WHERE assigned_to_ai = true AND lead_stage = 'calling'
-      `);
-      if ((activeRows[0]?.count || 0) > 0) return;
+      const { rows: controls } = await query('SELECT tenant_id FROM ai_calling_controls WHERE is_running = true');
+      for (const control of controls) {
+        let claimedLeadId = null;
+        try {
+          const { rows: activeRows } = await query(
+            `SELECT COUNT(*)::int AS count FROM enrichment_results
+             WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'`,
+            [control.tenant_id],
+          );
+          if ((activeRows[0]?.count || 0) > 0) continue;
 
-      // Find one queued AI lead with a phone number.
-      // Assigned leads are called one by one; follow-ups re-enter the same queue.
-      const { rows } = await query(`
-        SELECT id, tenant_id, primary_phone, company_name, domain, ai_summary, ai_pain_points 
-        FROM enrichment_results 
-        WHERE assigned_to_ai = true
-          AND lead_stage IN ('assigned', 'followup')
-          AND primary_phone IS NOT NULL
-          AND primary_phone <> ''
-          AND (next_followup_at IS NULL OR next_followup_at <= NOW())
-        ORDER BY
-          CASE lead_stage WHEN 'followup' THEN 0 ELSE 1 END,
-          created_at ASC
-        LIMIT 1
-      `);
+          const { rows } = await query(
+            `SELECT id, tenant_id, primary_phone, company_name, domain
+             FROM enrichment_results
+             WHERE tenant_id = $1 AND assigned_to_ai = true
+               AND lead_stage IN ('assigned', 'followup')
+               AND primary_phone IS NOT NULL AND primary_phone <> ''
+               AND (next_followup_at IS NULL OR next_followup_at <= NOW())
+             ORDER BY CASE lead_stage WHEN 'followup' THEN 0 ELSE 1 END, created_at ASC
+             LIMIT 1`,
+            [control.tenant_id],
+          );
+          if (rows.length === 0) continue;
 
-      if (rows.length === 0) return;
+          const lead = rows[0];
+          claimedLeadId = lead.id;
 
-      const lead = rows[0];
-      claimedLeadId = lead.id;
+          // Mark as calling before Twilio creation to prevent duplicate claims.
+          await query(
+            `UPDATE enrichment_results
+             SET lead_stage = 'calling', last_contacted_at = NOW()
+             WHERE id = $1`,
+            [lead.id],
+          );
 
-      // Mark as calling to prevent duplicate calls
-      await query(
-        `UPDATE enrichment_results
-         SET lead_stage = 'calling',
-             last_contacted_at = NOW()
-         WHERE id = $1`,
-        [lead.id]
-      );
-      
-      console.log(`[outbound-caller] Initiating call to lead: ${lead.company_name || lead.domain} (${lead.primary_phone})`);
+          console.log(`[outbound-caller] Initiating call to lead: ${lead.company_name || lead.domain} (${lead.primary_phone})`);
 
-      // We append contactId to the URL so Twilio passes it back to our twiml endpoint
-      // Ensure the endpoint is publicly accessible
-      const webhookUrl = `${PUBLIC_BASE_URL}/api/voice/twiml/outbound?contactId=${lead.id}&tenantId=${lead.tenant_id}`;
+          const webhookUrl = `${PUBLIC_BASE_URL}/api/voice/twiml/outbound?contactId=${lead.id}&tenantId=${lead.tenant_id}`;
 
-      const call = await twilioClient.calls.create({
-        url: webhookUrl,
-        to: lead.primary_phone,
-        from: fromPhone,
-        method: 'POST',
-        statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
-        statusCallbackMethod: 'POST',
-        statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-      });
+          const call = await twilioClient.calls.create({
+            url: webhookUrl,
+            to: lead.primary_phone,
+            from: fromPhone,
+            method: 'POST',
+            statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
+            statusCallbackMethod: 'POST',
+            statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+          });
 
-      console.log(`[outbound-caller] Twilio call created for lead ${lead.id}: ${call.sid}.`);
-
+          await query(
+            `UPDATE enrichment_results
+             SET raw_data = jsonb_set(COALESCE(raw_data, '{}'::jsonb), '{active_call_sid}', to_jsonb($1::text))
+             WHERE id = $2`,
+            [call.sid, lead.id],
+          );
+          console.log(`[outbound-caller] Twilio call created for lead ${lead.id}: ${call.sid}.`);
+        } catch (err) {
+          console.error('[outbound-caller] Error during tenant call loop:', err);
+          if (claimedLeadId) {
+            await query(
+              `UPDATE enrichment_results SET lead_stage = 'no_answer' WHERE id = $1 AND lead_stage = 'calling'`,
+              [claimedLeadId],
+            ).catch((resetErr) => console.error('[outbound-caller] Failed to reset lead stage:', resetErr.message));
+          }
+        }
+      }
     } catch (err) {
       console.error('[outbound-caller] Error during outbound call loop:', err);
-      if (claimedLeadId) {
-        await query(
-          `UPDATE enrichment_results SET lead_stage = 'no_answer' WHERE id = $1 AND lead_stage = 'calling'`,
-          [claimedLeadId],
-        ).catch((resetErr) => console.error('[outbound-caller] Failed to reset lead stage:', resetErr.message));
-      }
     }
-  }, 30000); // Check every 30s
+  }, 5000);
 }

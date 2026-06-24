@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 interface LiveCallMonitorProps {
   callSid: string;
   onClose: () => void;
+  autoStart?: boolean;
 }
 
 interface TranscriptEntry {
@@ -12,7 +13,7 @@ interface TranscriptEntry {
   timestamp: string;
 }
 
-export default function LiveCallMonitor({ callSid, onClose }: LiveCallMonitorProps) {
+export default function LiveCallMonitor({ callSid, onClose, autoStart = false }: LiveCallMonitorProps) {
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,10 +29,12 @@ export default function LiveCallMonitor({ callSid, onClose }: LiveCallMonitorPro
   }, [transcripts]);
 
   const startListening = async () => {
+    if (socketRef.current) return;
     try {
       // Initialize Web Audio API
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       audioContextRef.current = new AudioContextClass({ sampleRate: 8000 });
+      await audioContextRef.current.resume();
       nextStartTimeRef.current = audioContextRef.current.currentTime;
 
       // Connect to the specific namespace we created in the backend
@@ -76,10 +79,11 @@ export default function LiveCallMonitor({ callSid, onClose }: LiveCallMonitorPro
   };
 
   useEffect(() => {
+    if (autoStart) void startListening();
     return () => {
       stopListening();
     };
-  }, [callSid]);
+  }, [callSid, autoStart]);
 
   // Decode base64 16-bit PCM (8000Hz) and play it
   const playAudioChunk = (base64PCM: string) => {

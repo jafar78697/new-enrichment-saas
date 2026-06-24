@@ -41,6 +41,13 @@ export default async function crmRoutes(fastify: FastifyInstance) {
   // Ensure assigned_to_ai exists (runs once on boot)
   try {
     await fastify.db.query('ALTER TABLE enrichment_results ADD COLUMN IF NOT EXISTS assigned_to_ai BOOLEAN DEFAULT false;');
+    await fastify.db.query(`
+      CREATE TABLE IF NOT EXISTS ai_calling_controls (
+        tenant_id UUID PRIMARY KEY,
+        is_running BOOLEAN NOT NULL DEFAULT false,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
     await fastify.db.query(`UPDATE enrichment_results SET lead_stage = 'assigned' WHERE assigned_to_ai = true AND lead_stage IN ('new', 'enriched');`);
   } catch (err) {
     console.error('Failed to alter enrichment_results for assigned_to_ai:', err);
@@ -234,6 +241,75 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       createdFromContacts,
       totalQueued: queuedExisting + createdFromContacts,
     };
+  });
+
+  fastify.get('/v1/leads/ai-calling/status', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
+    const { tenantId } = request.tenant;
+    const { rows: controlRows } = await fastify.db.query(
+      'SELECT is_running FROM ai_calling_controls WHERE tenant_id = $1',
+      [tenantId],
+    );
+    const { rows: callRows } = await fastify.db.query(
+      `SELECT id, raw_data->>'active_call_sid' AS active_call_sid
+       FROM enrichment_results
+       WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'
+       ORDER BY last_contacted_at DESC NULLS LAST LIMIT 1`,
+      [tenantId],
+    );
+    return {
+      isRunning: controlRows[0]?.is_running === true,
+      activeLeadId: callRows[0]?.id || null,
+      activeCallSid: callRows[0]?.active_call_sid || null,
+    };
+  });
+
+  fastify.post('/v1/leads/ai-calling/start', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
+    const { tenantId, userId } = request.tenant;
+    await fastify.db.query(
+      `INSERT INTO ai_calling_controls (tenant_id, is_running, updated_at)
+       VALUES ($1, true, NOW())
+       ON CONFLICT (tenant_id) DO UPDATE SET is_running = true, updated_at = NOW()`,
+      [tenantId],
+    );
+    await writeAudit(fastify, tenantId, userId, 'ai_calling.started', 'tenant', tenantId);
+    return { ok: true, isRunning: true };
+  });
+
+  fastify.post('/v1/leads/ai-calling/stop', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
+    const { tenantId, userId } = request.tenant;
+    await fastify.db.query(
+      `INSERT INTO ai_calling_controls (tenant_id, is_running, updated_at)
+       VALUES ($1, false, NOW())
+       ON CONFLICT (tenant_id) DO UPDATE SET is_running = false, updated_at = NOW()`,
+      [tenantId],
+    );
+
+    const { rows: activeRows } = await fastify.db.query(
+      `SELECT id, raw_data->>'active_call_sid' AS active_call_sid
+       FROM enrichment_results
+       WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'`,
+      [tenantId],
+    );
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    if (accountSid && authToken) {
+      const twilio = (await import('twilio')).default;
+      const client = twilio(accountSid, authToken);
+      await Promise.all(activeRows
+        .filter((row: any) => row.active_call_sid)
+        .map((row: any) => client.calls(row.active_call_sid).update({ status: 'completed' }).catch((err: any) => {
+          fastify.log.warn({ callSid: row.active_call_sid, err }, 'Could not terminate AI campaign call');
+        })));
+    }
+
+    await fastify.db.query(
+      `UPDATE enrichment_results
+       SET lead_stage = 'assigned', raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid'
+       WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'`,
+      [tenantId],
+    );
+    await writeAudit(fastify, tenantId, userId, 'ai_calling.stopped', 'tenant', tenantId, { stoppedCalls: activeRows.length });
+    return { ok: true, isRunning: false, stoppedCalls: activeRows.length };
   });
 
   // POST /v1/leads/:id/start-call → Manually trigger an outbound AI call to a specific lead

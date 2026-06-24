@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Headphones, Mic, Phone, PhoneCall, RefreshCw, Search, UserPlus } from 'lucide-react';
+import { Bot, Mic, Phone, PhoneCall, RefreshCw, Search, Square, UserPlus, Volume2 } from 'lucide-react';
 import { leadsApi, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
@@ -28,16 +28,6 @@ function getMeetingTime(lead: Lead) {
   return typeof value === 'string' ? value : null;
 }
 
-function getCallSidFromMessage(text: string) {
-  const match = text.match(/CA[a-f0-9]{32}/i);
-  return match?.[0] || null;
-}
-
-function getLeadActiveCallSid(lead: Lead) {
-  const value = lead.raw_data?.active_call_sid;
-  return typeof value === 'string' && value.startsWith('CA') ? value : null;
-}
-
 export default function AgentPipelinePage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [niches, setNiches] = useState<Niche[]>([]);
@@ -51,19 +41,22 @@ export default function AgentPipelinePage() {
   const [queueing, setQueueing] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [activeCallsMap, setActiveCallsMap] = useState<Record<string, string>>({});
   const [listenCallSid, setListenCallSid] = useState<string | null>(null);
   const [isTestingBrowser, setIsTestingBrowser] = useState(false);
-  const [callingLeadId, setCallingLeadId] = useState<string | null>(null);
+  const [automationRunning, setAutomationRunning] = useState(false);
+  const [controlBusy, setControlBusy] = useState(false);
+  const [activeCallSid, setActiveCallSid] = useState<string | null>(null);
 
   const loadPipeline = async () => {
     try {
-      const [leadResult, activeResult] = await Promise.all([
+      const [leadResult, activeResult, callingStatus] = await Promise.all([
         leadsApi.list({ limit: 500, assigned_to_ai: true }),
         leadsApi.activeCalls(),
+        leadsApi.callingStatus(),
       ]);
       setLeads(leadResult.leads || []);
-      setActiveCallsMap(activeResult.activeCalls || {});
+      setAutomationRunning(callingStatus.isRunning);
+      setActiveCallSid(callingStatus.activeCallSid || Object.values(activeResult.activeCalls || {})[0] || null);
       setError('');
     } catch (e: any) {
       setError(e?.response?.data?.error || e?.message || 'Failed to load AI agent pipeline');
@@ -159,39 +152,53 @@ export default function AgentPipelinePage() {
       : [...current, id]);
   };
 
-  const handleStartCall = async (leadId: string) => {
-    setCallingLeadId(leadId);
+  const toggleCalling = async () => {
+    setControlBusy(true);
     setMessage('');
     setError('');
     try {
-      const result = await leadsApi.startCall(leadId);
-      setMessage(`✅ Call started! SID: ${result.callSid}`);
+      if (automationRunning) {
+        const result = await leadsApi.stopCalling();
+        setAutomationRunning(false);
+        setListenCallSid(null);
+        setActiveCallSid(null);
+        setMessage(`Calling stopped${result.stoppedCalls ? `; ${result.stoppedCalls} live call ended` : ''}`);
+      } else {
+        await leadsApi.startCalling();
+        setAutomationRunning(true);
+        setMessage('Automatic calling started for assigned leads');
+      }
       await loadPipeline();
       setActiveTab('calling');
     } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Failed to start call');
+      setError(e?.response?.data?.error || e?.message || 'Calling control update nahi ho saka');
     } finally {
-      setCallingLeadId(null);
+      setControlBusy(false);
     }
   };
 
-  const handleListenLead = async (lead: Lead, currentCallSid: string | null) => {
+  const toggleLiveListen = async () => {
+    if (listenCallSid) {
+      setListenCallSid(null);
+      return;
+    }
     setError('');
-    if (currentCallSid) {
-      setListenCallSid(currentCallSid);
+    if (activeCallSid) {
+      setListenCallSid(activeCallSid);
       return;
     }
 
     try {
       const activeResult = await leadsApi.activeCalls();
       const freshMap = activeResult.activeCalls || {};
-      setActiveCallsMap(freshMap);
-      const freshCallSid = freshMap[lead.id] || Object.values(freshMap)[0];
+      const status = await leadsApi.callingStatus();
+      const freshCallSid = status.activeCallSid || Object.values(freshMap)[0];
       if (freshCallSid) {
+        setActiveCallSid(freshCallSid);
         setListenCallSid(freshCallSid);
         return;
       }
-      setError('Live call SID abhi load nahi hua. Refresh dabao ya 5 seconds baad Listen Live dobara click karo.');
+      setError('Abhi koi live call nahi hai. Start Calling dabao aur call connect hone ke baad Listen Live dabao.');
     } catch (e: any) {
       setError(e?.response?.data?.error || e?.message || 'Live call info load nahi ho saki');
     }
@@ -203,9 +210,6 @@ export default function AgentPipelinePage() {
     interested: leads.filter((lead) => lead.lead_stage === 'interested').length,
     won: leads.filter((lead) => lead.lead_stage === 'closed_won').length,
   }), [leads]);
-
-  const latestStartedCallSid = useMemo(() => getCallSidFromMessage(message), [message]);
-  const fallbackCallSid = latestStartedCallSid || Object.values(activeCallsMap)[0] || null;
 
   return (
     <div style={{ fontFamily: 'Manrope, sans-serif' }}>
@@ -228,6 +232,14 @@ export default function AgentPipelinePage() {
               <option key={niche.id} value={niche.id}>{niche.name} ({niche.contact_count || 0})</option>
             ))}
           </select>
+          <button disabled={controlBusy} onClick={() => void toggleCalling()} style={actionButton(controlBusy ? '#94A3B8' : automationRunning ? '#DC2626' : '#0F766E')}>
+            {automationRunning ? <Square size={14} fill="currentColor" /> : <PhoneCall size={15} />}
+            {controlBusy ? 'Please wait...' : automationRunning ? 'Stop Calling' : 'Start Calling'}
+          </button>
+          <button onClick={() => void toggleLiveListen()} style={actionButton(listenCallSid ? '#DC2626' : '#7C3AED')}>
+            {listenCallSid ? <Square size={14} fill="currentColor" /> : <Volume2 size={16} />}
+            {listenCallSid ? 'Stop Listening' : 'Listen Live'}
+          </button>
           <button onClick={() => setIsTestingBrowser(true)} style={actionButton('#2563EB')}>
             <Mic size={15} /> Test Agent
           </button>
@@ -271,19 +283,10 @@ export default function AgentPipelinePage() {
         })}
       </div>
 
-      {listenCallSid && <LiveCallMonitor callSid={listenCallSid} onClose={() => setListenCallSid(null)} />}
+      {listenCallSid && <LiveCallMonitor callSid={listenCallSid} autoStart onClose={() => setListenCallSid(null)} />}
       {isTestingBrowser && <BrowserAgentTester onClose={() => setIsTestingBrowser(false)} />}
       {error && <Alert text={error} danger />}
-      {message && (
-        <Alert
-          text={message}
-          action={latestStartedCallSid ? (
-            <button onClick={() => setListenCallSid(latestStartedCallSid)} style={alertListenButton}>
-              <Headphones size={15} /> Listen Live
-            </button>
-          ) : null}
-        />
-      )}
+      {message && <Alert text={message} />}
 
       {activeTab === 'leads' ? (
         <AvailableLeadList
@@ -303,11 +306,6 @@ export default function AgentPipelinePage() {
         <PipelineLeadList
           leads={visibleLeads}
           loading={loading}
-          activeCallsMap={activeCallsMap}
-          fallbackCallSid={fallbackCallSid}
-          onListen={handleListenLead}
-          callingLeadId={callingLeadId}
-          onStartCall={handleStartCall}
         />
       )}
     </div>
@@ -371,19 +369,9 @@ function AvailableLeadList({
 function PipelineLeadList({
   leads,
   loading,
-  activeCallsMap,
-  fallbackCallSid,
-  onListen,
-  callingLeadId,
-  onStartCall,
 }: {
   leads: Lead[];
   loading: boolean;
-  activeCallsMap: Record<string, string>;
-  fallbackCallSid: string | null;
-  onListen: (lead: Lead, callSid: string | null) => void;
-  callingLeadId: string | null;
-  onStartCall: (leadId: string) => void;
 }) {
   if (loading) return <Empty text="Loading pipeline..." />;
   if (!leads.length) return <Empty text="No leads in this stage" />;
@@ -391,9 +379,7 @@ function PipelineLeadList({
   return (
     <div style={{ overflowX: 'auto' }}>
       <div style={{ minWidth: 900, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {leads.map((lead) => {
-          const liveCallSid = activeCallsMap[lead.id] || getLeadActiveCallSid(lead) || (lead.lead_stage === 'calling' ? fallbackCallSid : null);
-          return (
+        {leads.map((lead) => (
           <div key={lead.id} style={leadRow(lead.lead_stage === 'calling')}>
           <LeadIdentity name={lead.company_name || lead.domain} niche={lead.raw_data?.niche_name || lead.industry_guess} detail={lead.primary_email || lead.domain} />
           <Score value={lead.ai_score || 0} />
@@ -404,30 +390,9 @@ function PipelineLeadList({
               ? `Meeting: ${new Date(getMeetingTime(lead) as string).toLocaleString()}`
               : lead.ai_summary || lead.lead_notes || 'No notes yet'}
           </span>
-          {lead.lead_stage === 'calling' ? (
-            <button onClick={() => onListen(lead, liveCallSid)} style={{ ...actionButton('#DC2626'), justifySelf: 'end', minWidth: 122 }}>
-              <Headphones size={15} /> Listen Live
-            </button>
-          ) : lead.lead_stage === 'assigned' ? (
-            <button
-              disabled={callingLeadId === lead.id}
-              onClick={() => onStartCall(lead.id)}
-              style={{
-                ...actionButton(callingLeadId === lead.id ? '#94A3B8' : '#0F766E'),
-                justifySelf: 'end',
-                minWidth: 120,
-                animation: callingLeadId === lead.id ? 'none' : undefined,
-              }}
-            >
-              <PhoneCall size={15} />
-              {callingLeadId === lead.id ? 'Calling...' : 'Start Call'}
-            </button>
-          ) : (
-            <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'end' }}>{STAGE_LABELS[lead.lead_stage]}</span>
-          )}
+          <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'end' }}>{STAGE_LABELS[lead.lead_stage]}</span>
           </div>
-        );
-        })}
+        ))}
       </div>
     </div>
   );
@@ -517,23 +482,6 @@ const actionButton = (background: string): React.CSSProperties => ({
   fontWeight: 700,
   cursor: 'pointer',
 });
-
-const alertListenButton: React.CSSProperties = {
-  minHeight: 32,
-  padding: '0 12px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 7,
-  border: 0,
-  borderRadius: 8,
-  background: '#DC2626',
-  color: '#fff',
-  fontSize: 12,
-  fontWeight: 800,
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-};
 
 const secondaryButton: React.CSSProperties = {
   minHeight: 38,
