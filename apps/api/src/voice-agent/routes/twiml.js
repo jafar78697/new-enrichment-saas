@@ -150,9 +150,21 @@ router.post(
       await query(
         `UPDATE enrichment_results
          SET lead_stage = 'no_answer',
+             raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
              lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1)
          WHERE id = $2 AND lead_stage = 'calling'`,
         [`[AI Call] Twilio status: ${req.body.CallStatus}`, contactId],
+      );
+    }
+
+    if (contactId && req.body.CallStatus === 'completed') {
+      await query(
+        `UPDATE enrichment_results
+         SET lead_stage = 'called',
+             raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
+             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1)
+         WHERE id = $2 AND lead_stage = 'calling'`,
+        [`[AI Call] Completed${req.body.CallDuration ? ` (${req.body.CallDuration}s)` : ''}.`, contactId],
       );
     }
 
