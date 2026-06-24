@@ -27,7 +27,15 @@ export async function runOutboundCallerLoop() {
 
   // Simple loop: every 30 seconds
   setInterval(async () => {
+    let claimedLeadId = null;
     try {
+      const { rows: activeRows } = await query(`
+        SELECT COUNT(*)::int AS count
+        FROM enrichment_results
+        WHERE assigned_to_ai = true AND lead_stage = 'calling'
+      `);
+      if ((activeRows[0]?.count || 0) > 0) return;
+
       // Find one queued AI lead with a phone number.
       // CRM stages use "new"; older enrichment imports may still use "enriched".
       const { rows } = await query(`
@@ -47,6 +55,7 @@ export async function runOutboundCallerLoop() {
       if (rows.length === 0) return;
 
       const lead = rows[0];
+      claimedLeadId = lead.id;
 
       // Mark as calling to prevent duplicate calls
       await query(
@@ -67,13 +76,22 @@ export async function runOutboundCallerLoop() {
         url: webhookUrl,
         to: lead.primary_phone,
         from: fromPhone,
-        method: 'POST'
+        method: 'POST',
+        statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
+        statusCallbackMethod: 'POST',
+        statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       });
 
       console.log(`[outbound-caller] Twilio call created for lead ${lead.id}: ${call.sid}.`);
 
     } catch (err) {
       console.error('[outbound-caller] Error during outbound call loop:', err);
+      if (claimedLeadId) {
+        await query(
+          `UPDATE enrichment_results SET lead_stage = 'no_answer' WHERE id = $1 AND lead_stage = 'calling'`,
+          [claimedLeadId],
+        ).catch((resetErr) => console.error('[outbound-caller] Failed to reset lead stage:', resetErr.message));
+      }
     }
   }, 30000); // Check every 30s
 }

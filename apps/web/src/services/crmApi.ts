@@ -71,6 +71,12 @@ export interface Lead {
   ai_pain_points: string | null;
   ai_score: number | null;
   ai_updated_at: string | null;
+  raw_data?: {
+    source_contact_id?: string;
+    niche_id?: number;
+    niche_name?: string;
+    [key: string]: unknown;
+  } | null;
   created_at: string;
 }
 
@@ -95,7 +101,7 @@ export const leadsApi = {
     api.get<{ leads: Lead[]; total: number; page: number; limit: number }>('/leads', { params }).then((r) => r.data),
   pipeline: () => api.get<{ stages: StageCount[] }>('/leads/pipeline').then((r) => r.data),
   activeCalls: () => api.get<{ activeCalls: Record<string, string> }>('/leads/active-calls').then((r) => r.data),
-  queueAi: (body: { lead_ids?: string[]; niche_id?: number; limit?: number }) =>
+  queueAi: (body: { lead_ids?: string[]; contact_ids?: number[]; niche_id?: number; limit?: number }) =>
     api.post<{ ok: boolean; queuedExisting: number; createdFromContacts: number; totalQueued: number }>(
       '/leads/queue-ai',
       body,

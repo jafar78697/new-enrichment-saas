@@ -5,6 +5,7 @@ import { env, VOICE_AGENT_ENABLED } from '../config/env.js';
 import { asyncHandler, AppError } from '../utils/errors.js';
 import { validateTwilioSignature } from '../middleware/twilio-signature.js';
 import { wsUrl } from '../utils/http.js';
+import { query } from '../../calls-module/db/index.js';
 
 const router = Router();
 
@@ -126,11 +127,23 @@ router.post(
   '/webhooks/call-status',
   validateTwilioSignature,
   asyncHandler(async (req, res) => {
+    const contactId = req.query.contactId;
     console.log('[voice-agent] Call status webhook:', {
       CallSid: req.body.CallSid,
       CallStatus: req.body.CallStatus,
       Duration: req.body.CallDuration,
+      contactId,
     });
+
+    if (contactId && ['busy', 'failed', 'no-answer', 'canceled'].includes(req.body.CallStatus)) {
+      await query(
+        `UPDATE enrichment_results
+         SET lead_stage = 'no_answer',
+             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1)
+         WHERE id = $2 AND lead_stage = 'calling'`,
+        [`[AI Call] Twilio status: ${req.body.CallStatus}`, contactId],
+      );
+    }
 
     // Post-call processing will be triggered by the orchestrator
     // when it receives the Twilio Media Streams 'stop' event.

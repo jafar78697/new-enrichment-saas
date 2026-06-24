@@ -76,7 +76,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
              lead_stage, lead_owner_id, lead_priority, lead_notes,
              last_contacted_at, next_followup_at,
              ai_summary, ai_pain_points, ai_score, ai_updated_at,
-             assigned_to_ai,
+             assigned_to_ai, raw_data,
              created_at
       FROM enrichment_results
       WHERE ${where.join(' AND ')}
@@ -99,11 +99,14 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     const { tenantId, userId } = request.tenant;
     const body = request.body || {};
     const leadIds = Array.isArray(body.lead_ids) ? body.lead_ids.filter(Boolean) : [];
+    const contactIds = Array.isArray(body.contact_ids)
+      ? body.contact_ids.map(Number).filter((id: number) => Number.isInteger(id) && id > 0)
+      : [];
     const nicheId = body.niche_id ? Number(body.niche_id) : null;
     const limit = Math.max(1, Math.min(500, Number(body.limit || 100)));
 
-    if (!leadIds.length && !nicheId) {
-      return reply.code(400).send({ error: 'Provide lead_ids or niche_id' });
+    if (!leadIds.length && !nicheId && !contactIds.length) {
+      return reply.code(400).send({ error: 'Provide lead_ids, contact_ids, or niche_id' });
     }
 
     let queuedExisting = 0;
@@ -133,6 +136,10 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       );
       const jobId = jobRows[0].id;
 
+      const existingParams: any[] = [tenantId, nicheId];
+      const selectedExistingFilter = contactIds.length
+        ? `AND c.id = ANY($${existingParams.push(contactIds)}::int[])`
+        : '';
       const { rowCount: updatedExisting } = await fastify.db.query(
         `UPDATE enrichment_results er
          SET assigned_to_ai = true,
@@ -146,11 +153,17 @@ export default async function crmRoutes(fastify: FastifyInstance) {
            AND er.raw_data->>'source_contact_id' = c.id::text
            AND c.niche_id = $2
            AND c.phone_number IS NOT NULL
-           AND c.phone_number <> ''`,
-        [tenantId, nicheId],
+           AND c.phone_number <> ''
+           ${selectedExistingFilter}`,
+        existingParams,
       );
       queuedExisting += updatedExisting || 0;
 
+      const insertParams: any[] = [jobId, tenantId, nicheId];
+      const selectedInsertFilter = contactIds.length
+        ? `AND c.id = ANY($${insertParams.push(contactIds)}::int[])`
+        : '';
+      const limitParam = insertParams.push(limit);
       const { rows: insertedRows } = await fastify.db.query(
         `INSERT INTO enrichment_results (
            job_id, tenant_id, domain, primary_email, primary_phone, company_name,
@@ -186,15 +199,16 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          WHERE c.niche_id = $3
            AND c.phone_number IS NOT NULL
            AND c.phone_number <> ''
+           ${selectedInsertFilter}
            AND NOT EXISTS (
              SELECT 1 FROM enrichment_results er
              WHERE er.tenant_id = $2
                AND er.raw_data->>'source_contact_id' = c.id::text
            )
          ORDER BY c.updated_at DESC, c.created_at DESC
-         LIMIT $4
+         LIMIT $${limitParam}
          RETURNING id`,
-        [jobId, tenantId, nicheId, limit],
+        insertParams,
       );
       createdFromContacts = insertedRows.length;
 
@@ -206,6 +220,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
 
     await writeAudit(fastify, tenantId, userId, 'lead.ai_queued', 'lead', 'bulk', {
       leadIds,
+      contactIds,
       nicheId,
       queuedExisting,
       createdFromContacts,

@@ -134,6 +134,12 @@ export const callsApi = {
 
   listContacts: () => request<{ contacts: Contact[] }>(`/contacts`),
 
+  listContactsByNiche: (nicheId: number) => {
+    const qs = new URLSearchParams();
+    qs.set('niche_id', String(nicheId));
+    return request<{ contacts: Contact[] }>(`/contacts?${qs.toString()}`);
+  },
+
   claimContacts: (contactIds: number[]) =>
     request<{ ok: boolean; claimedIds: number[] }>(`/contacts/claim`, {
       method: 'POST',
