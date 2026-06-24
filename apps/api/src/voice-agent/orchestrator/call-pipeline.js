@@ -25,6 +25,126 @@ import twilio from 'twilio';
 // Active pipeline instances per streamSid
 const activePipelines = new Map();
 
+function parseMeetingTime(value) {
+  const raw = String(value || '').trim();
+  if (!raw || !/(Z|[+-]\d{2}:\d{2})$/i.test(raw)) {
+    throw new Error('meeting_time must be ISO 8601 and include a UTC offset, for example 2026-06-25T15:00:00-04:00');
+  }
+
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) throw new Error('meeting_time is not a valid date and time');
+  if (timestamp < Date.now() + 5 * 60 * 1000) throw new Error('meeting_time must be in the future');
+  if (timestamp > Date.now() + 2 * 365 * 24 * 60 * 60 * 1000) throw new Error('meeting_time is too far in the future');
+
+  return new Date(timestamp).toISOString();
+}
+
+async function persistMeeting(callSid, contactId, args) {
+  if (!contactId) throw new Error('This call is not linked to a CRM lead');
+
+  const meetingTime = parseMeetingTime(args?.meeting_time);
+  const email = String(args?.email || '').trim().toLowerCase();
+  const timezone = String(args?.timezone || '').trim();
+  const durationMinutes = Math.min(120, Math.max(10, Number(args?.duration_minutes) || 15));
+  if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('A valid email is required to book the meeting');
+  if (!timezone) throw new Error('The client timezone is required to book the meeting');
+
+  const note = `[AI Meeting] ${meetingTime} (${timezone}), ${durationMinutes} minutes, ${email}`;
+  const meetingMetadata = JSON.stringify({
+    meeting_time: meetingTime,
+    timezone,
+    duration_minutes: durationMinutes,
+    email,
+    name: String(args?.name || '').trim() || null,
+    call_sid: callSid,
+  });
+
+  const { rows } = await query(
+    `UPDATE enrichment_results
+     SET lead_stage = 'interested',
+         assigned_to_ai = false,
+         primary_email = COALESCE(NULLIF(primary_email, ''), $2),
+         next_followup_at = $3,
+         lead_notes = CONCAT_WS(E'\n\n', NULLIF(lead_notes, ''), $4),
+         ai_updated_at = NOW(),
+         raw_data = jsonb_set(COALESCE(raw_data, '{}'::jsonb), '{meeting}', $5::jsonb, true)
+     WHERE id = $1
+     RETURNING tenant_id, company_name, raw_data`,
+    [contactId, email, meetingTime, note, meetingMetadata],
+  );
+
+  if (!rows.length) throw new Error('CRM lead was not found');
+  const lead = rows[0];
+  const sourceContactId = lead.raw_data?.source_contact_id;
+
+  if (sourceContactId && /^\d+$/.test(String(sourceContactId))) {
+    try {
+      await query(
+        `UPDATE contacts
+         SET meeting_time = $1,
+             email = COALESCE(NULLIF(email, ''), $2),
+             stage = 'discovery',
+             notes = CONCAT_WS(E'\n\n', NULLIF(notes, ''), $3),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4`,
+        [meetingTime, email, note, Number(sourceContactId)],
+      );
+    } catch (err) {
+      console.warn(`[voice-agent:orchestrator] Meeting saved to AI pipeline, but contact sync failed: ${err.message}`);
+    }
+  }
+
+  await query(
+    `INSERT INTO tasks (tenant_id, lead_id, title, description, task_type, due_at, priority)
+     SELECT $1, $2, $3, $4, 'followup', $5, 'high'
+     WHERE NOT EXISTS (
+       SELECT 1 FROM tasks
+       WHERE lead_id = $2 AND status = 'open' AND due_at = $5
+         AND title LIKE 'Meeting:%'
+     )`,
+    [lead.tenant_id, contactId, `Meeting: ${lead.company_name || email}`, note, meetingTime],
+  );
+
+  let calendarInviteSent = false;
+  if (env.N8N_WEBHOOK_URL) {
+    try {
+      const axios = (await import('axios')).default;
+      await axios.post(env.N8N_WEBHOOK_URL, {
+        event: 'book_meeting',
+        callSid,
+        contactId,
+        email,
+        meeting_time: meetingTime,
+        timezone,
+        duration_minutes: durationMinutes,
+        name: args?.name || null,
+      });
+      calendarInviteSent = true;
+    } catch (err) {
+      console.warn(`[voice-agent:orchestrator] CRM meeting saved but calendar workflow failed: ${err.message}`);
+    }
+  }
+
+  const session = await getSession(callSid);
+  if (session) {
+    await updateSession(callSid, {
+      metadata: {
+        ...session.metadata,
+        meeting: JSON.parse(meetingMetadata),
+      },
+    });
+  }
+
+  return {
+    success: true,
+    meeting_time: meetingTime,
+    timezone,
+    duration_minutes: durationMinutes,
+    crm_updated: true,
+    calendar_invite_sent: calendarInviteSent,
+  };
+}
+
 /**
  * Initialize the orchestrator — listen for new media stream events.
  */
@@ -130,15 +250,17 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
   const tools = [
     {
       name: 'book_meeting',
-      description: 'Schedules a meeting and sends a calendar invite.',
+      description: 'Books a confirmed meeting in the CRM and triggers the calendar invite workflow when configured.',
       parameters: {
         type: 'object',
         properties: {
-          name: { type: 'string' },
-          email: { type: 'string' },
-          meeting_time: { type: 'string' },
+          name: { type: 'string', description: 'Client name' },
+          email: { type: 'string', description: 'Confirmed client email address' },
+          meeting_time: { type: 'string', description: 'Confirmed ISO 8601 date/time including UTC offset' },
+          timezone: { type: 'string', description: 'Confirmed IANA timezone or explicit timezone name' },
+          duration_minutes: { type: 'number', description: 'Meeting duration; default 15 minutes' },
         },
-        required: ['email', 'meeting_time']
+        required: ['name', 'email', 'meeting_time', 'timezone']
       }
     },
     {
@@ -178,11 +300,18 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
         if (session) {
           const currentInput = session.metadata.inputTokens || 0;
           const currentOutput = session.metadata.outputTokens || 0;
+          const inputDetails = usage.input_token_details || {};
+          const outputDetails = usage.output_token_details || {};
           await updateSession(callSid, {
             metadata: {
               ...session.metadata,
               inputTokens: currentInput + (usage.input_tokens || 0),
               outputTokens: currentOutput + (usage.output_tokens || 0),
+              inputAudioTokens: (session.metadata.inputAudioTokens || 0) + (inputDetails.audio_tokens || 0),
+              inputTextTokens: (session.metadata.inputTextTokens || 0) + (inputDetails.text_tokens || 0),
+              outputAudioTokens: (session.metadata.outputAudioTokens || 0) + (outputDetails.audio_tokens || 0),
+              outputTextTokens: (session.metadata.outputTextTokens || 0) + (outputDetails.text_tokens || 0),
+              cachedInputTokens: (session.metadata.cachedInputTokens || 0) + (inputDetails.cached_tokens || 0),
             }
           });
         }
@@ -293,17 +422,8 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
         let resultStr = '';
         
         if (name === 'book_meeting') {
-          if (env.N8N_WEBHOOK_URL) {
-            const axios = (await import('axios')).default;
-            await axios.post(env.N8N_WEBHOOK_URL, {
-              event: 'book_meeting',
-              callSid,
-              ...args
-            });
-            resultStr = JSON.stringify({ success: true, message: 'Meeting workflow triggered' });
-          } else {
-            resultStr = JSON.stringify({ success: true, message: 'Simulated booking (N8N not configured)' });
-          }
+          const result = await persistMeeting(callSid, customParams.contactId, args);
+          resultStr = JSON.stringify(result);
         } else if (name === 'press_keypad') {
           const digit = String(args?.digit ?? args?.digits ?? '').trim();
           if (!digit || !/^[0-9*#]$/.test(digit)) {

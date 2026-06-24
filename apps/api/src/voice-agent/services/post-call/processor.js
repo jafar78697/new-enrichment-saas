@@ -79,6 +79,10 @@ export async function processPostCall(callSid) {
       ttsCharacters: session.ttsCharacters || 0,
       openAiInputTokens: session.metadata?.inputTokens || 0,
       openAiOutputTokens: session.metadata?.outputTokens || 0,
+      openAiInputAudioTokens: session.metadata?.inputAudioTokens || 0,
+      openAiOutputAudioTokens: session.metadata?.outputAudioTokens || 0,
+      openAiInputTextTokens: session.metadata?.inputTextTokens || 0,
+      openAiOutputTextTokens: session.metadata?.outputTextTokens || 0,
     });
 
     // 4. Save to voice_call_sessions table

@@ -17,7 +17,7 @@ class AudioBufferEngine {
 }
 
 export function createOpenAISession(config) {
-  const realtimeModel = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime';
+  const realtimeModel = env.OPENAI_REALTIME_MODEL;
   const wsUrl = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(realtimeModel)}`;
   const apiKey = env.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 
@@ -88,13 +88,14 @@ export function createOpenAISession(config) {
             interrupt_response: true
           },
           transcription: {
-            model: 'whisper-1'
+            model: env.OPENAI_TRANSCRIPTION_MODEL
           }
         },
         output: {
           format: audioFormat
         }
       },
+      max_output_tokens: env.OPENAI_REALTIME_MAX_OUTPUT_TOKENS,
     },
   };
 
@@ -221,6 +222,7 @@ export function createOpenAISession(config) {
         type: 'response.create',
         response: {
           output_modalities: ['audio'],
+          max_output_tokens: env.OPENAI_REALTIME_MAX_OUTPUT_TOKENS,
           audio: {
             output: {
               format: audioFormat
@@ -248,6 +250,7 @@ export function createOpenAISession(config) {
         type: 'response.create',
         response: {
           output_modalities: ['audio'],
+          max_output_tokens: env.OPENAI_REALTIME_MAX_OUTPUT_TOKENS,
           audio: {
             output: {
               format: audioFormat

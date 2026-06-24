@@ -21,6 +21,13 @@ const AGENT_TABS = [
 
 type AgentTab = (typeof AGENT_TABS)[number]['key'];
 
+function getMeetingTime(lead: Lead) {
+  const meeting = lead.raw_data?.meeting;
+  if (!meeting || typeof meeting !== 'object') return null;
+  const value = (meeting as Record<string, unknown>).meeting_time;
+  return typeof value === 'string' ? value : null;
+}
+
 export default function AgentPipelinePage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [niches, setNiches] = useState<Niche[]>([]);
@@ -320,7 +327,11 @@ function PipelineLeadList({
           <Score value={lead.ai_score || 0} />
           <PhoneValue value={lead.primary_phone || 'No phone'} />
           <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'start' }}>{STAGE_LABELS[lead.lead_stage]}</span>
-          <span style={{ ...mutedText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.ai_summary || lead.lead_notes || 'No notes yet'}</span>
+          <span style={{ ...mutedText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {getMeetingTime(lead)
+              ? `Meeting: ${new Date(getMeetingTime(lead) as string).toLocaleString()}`
+              : lead.ai_summary || lead.lead_notes || 'No notes yet'}
+          </span>
           {lead.lead_stage === 'calling' && activeCallsMap[lead.id] ? (
             <button onClick={() => onListen(activeCallsMap[lead.id])} style={{ ...actionButton('#DC2626'), justifySelf: 'end' }}>
               <Headphones size={15} /> Listen Live

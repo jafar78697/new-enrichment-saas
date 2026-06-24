@@ -89,10 +89,11 @@ SALES STRATEGY RULES
 MEETING BOOKING RULES
 ========================
 If prospect agrees to a meeting:
-1. Ask for their preferred time.
+1. Ask for the exact preferred date, time, and timezone.
 2. Ask for the best email to send the calendar invite (mandatory).
-3. Use "book_meeting" tool ONLY after collecting name, email, and time.
-4. Never claim booking before tool success.
+3. Repeat the exact date, time, and timezone and get confirmation.
+4. Use "book_meeting" tool ONLY after collecting name, email, time, and timezone. Pass meeting_time as ISO 8601 with a UTC offset.
+5. Never claim booking before tool success. If calendar_invite_sent is false, say the meeting is saved and the team will send the invite; do not say the invite was sent.
 
 ========================
 TOOL USAGE RULES

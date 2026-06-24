@@ -1,18 +1,8 @@
 /**
  * Cost Tracking Service
  *
- * Calculates and tracks per-call costs across all services:
- * - Twilio: per-minute voice + recording storage
- * - Google STT: per 15-second increment
- * - Vertex AI Gemini: per 1K input/output tokens
- * - ElevenLabs: per 1K characters
- *
- * Pricing (approximate, update with actual rates):
- * - Twilio inbound: $0.0085/min, outbound: $0.013/min
- * - Twilio recording: $0.0025/min
- * - Google STT (enhanced phone_call model): $0.006/15s
- * - Vertex AI Gemini 1.5 Flash: $0.00001875/1K input chars, $0.000075/1K output chars
- * - ElevenLabs (turbo v2.5): $0.001/1K chars
+ * Tracks the services used by the current call path: Twilio, OpenAI Realtime,
+ * and OpenAI transcription. Post-call analysis remains a separate estimate.
  */
 
 // Pricing constants (USD)
@@ -22,10 +12,6 @@ const PRICING = {
     outboundPerMinute: 0.013,
     recordingPerMinute: 0.0025,
   },
-  googleSTT: {
-    per15Seconds: 0.006,
-    modelMultiplier: 1.0, // phone_call model same as standard
-  },
   vertexAI: {
     inputPer1KChars: 0.00001875,
     outputPer1KChars: 0.000075,
@@ -34,8 +20,12 @@ const PRICING = {
     per1KChars: 0.001, // Turbo v2.5
   },
   openAI: {
-    realtimeInputPer1K: 0.10, // $100 per 1M tokens (audio)
-    realtimeOutputPer1K: 0.20, // $200 per 1M tokens (audio)
+    model: 'gpt-realtime-mini',
+    audioInputPer1M: 10,
+    audioOutputPer1M: 20,
+    textInputPer1M: 0.60,
+    textOutputPer1M: 2.40,
+    transcriptionPerMinute: 0.003,
   },
 };
 
@@ -62,6 +52,10 @@ export function trackCallCost({
   wasRecorded = false,
   openAiInputTokens = 0,
   openAiOutputTokens = 0,
+  openAiInputAudioTokens = 0,
+  openAiOutputAudioTokens = 0,
+  openAiInputTextTokens = 0,
+  openAiOutputTextTokens = 0,
 }) {
   const durationMinutes = durationSeconds / 60;
 
@@ -75,9 +69,8 @@ export function trackCallCost({
     : 0;
   const twilioTotalCost = twilioVoiceCost + twilioRecordingCost;
 
-  // STT cost (charged per 15-second increment)
-  const stt15SecondIncrements = Math.ceil(durationSeconds / 15);
-  const sttCost = stt15SecondIncrements * PRICING.googleSTT.per15Seconds;
+  // Realtime transcription is billed independently from speech-to-speech usage.
+  const transcriptionCost = durationMinutes * PRICING.openAI.transcriptionPerMinute;
 
   // Vertex AI cost (per 1K characters, approximate token-to-char conversion)
   // ~4 chars per token for English
@@ -90,13 +83,24 @@ export function trackCallCost({
   // ElevenLabs cost
   const elevenLabsCost = (ttsCharacters / 1000) * PRICING.elevenLabs.per1KChars;
 
-  // OpenAI Realtime cost
-  const openAiInputCost = (openAiInputTokens / 1000) * PRICING.openAI.realtimeInputPer1K;
-  const openAiOutputCost = (openAiOutputTokens / 1000) * PRICING.openAI.realtimeOutputPer1K;
+  // Realtime usage reports audio and text token details separately. Older
+  // responses without details are conservatively treated as audio tokens.
+  const classifiedInput = openAiInputAudioTokens + openAiInputTextTokens;
+  const classifiedOutput = openAiOutputAudioTokens + openAiOutputTextTokens;
+  const unclassifiedInput = Math.max(0, openAiInputTokens - classifiedInput);
+  const unclassifiedOutput = Math.max(0, openAiOutputTokens - classifiedOutput);
+  const billedInputAudioTokens = openAiInputAudioTokens + unclassifiedInput;
+  const billedOutputAudioTokens = openAiOutputAudioTokens + unclassifiedOutput;
+  const openAiAudioInputCost = (billedInputAudioTokens / 1_000_000) * PRICING.openAI.audioInputPer1M;
+  const openAiAudioOutputCost = (billedOutputAudioTokens / 1_000_000) * PRICING.openAI.audioOutputPer1M;
+  const openAiTextInputCost = (openAiInputTextTokens / 1_000_000) * PRICING.openAI.textInputPer1M;
+  const openAiTextOutputCost = (openAiOutputTextTokens / 1_000_000) * PRICING.openAI.textOutputPer1M;
+  const openAiInputCost = openAiAudioInputCost + openAiTextInputCost;
+  const openAiOutputCost = openAiAudioOutputCost + openAiTextOutputCost;
   const openAiCost = openAiInputCost + openAiOutputCost;
 
   // Totals
-  const totalCost = twilioTotalCost + sttCost + vertexTotalCost + elevenLabsCost + openAiCost;
+  const totalCost = twilioTotalCost + vertexTotalCost + elevenLabsCost + openAiCost + transcriptionCost;
 
   const breakdown = {
     callSid,
@@ -110,10 +114,10 @@ export function trackCallCost({
       total: roundToCents(twilioTotalCost),
       perMinuteRate: twilioPerMinute,
     },
-    googleSTT: {
-      cost: roundToCents(sttCost),
-      increments: stt15SecondIncrements,
-      per15SecondRate: PRICING.googleSTT.per15Seconds,
+    transcription: {
+      model: 'gpt-4o-mini-transcribe',
+      cost: roundToCents(transcriptionCost),
+      perMinuteRate: PRICING.openAI.transcriptionPerMinute,
     },
     vertexAI: {
       inputCost: roundToCents(vertexInputCost),
@@ -131,10 +135,16 @@ export function trackCallCost({
     },
     openAI: {
       cost: roundToCents(openAiCost),
+      model: PRICING.openAI.model,
       inputTokens: openAiInputTokens,
       outputTokens: openAiOutputTokens,
+      inputAudioTokens: billedInputAudioTokens,
+      outputAudioTokens: billedOutputAudioTokens,
+      inputTextTokens: openAiInputTextTokens,
+      outputTextTokens: openAiOutputTextTokens,
       inputCost: roundToCents(openAiInputCost),
       outputCost: roundToCents(openAiOutputCost),
+      transcriptionCost: roundToCents(transcriptionCost),
     },
     total: roundToCents(totalCost),
   };
@@ -188,7 +198,7 @@ export function aggregateCosts(sessions) {
     totalCost += breakdown.total || 0;
     totalDuration += breakdown.durationSeconds || 0;
     twilioCost += breakdown.twilio?.total || 0;
-    sttCost += breakdown.googleSTT?.cost || 0;
+    sttCost += breakdown.transcription?.cost || breakdown.googleSTT?.cost || 0;
     vertexCost += breakdown.vertexAI?.total || 0;
     elevenLabsCost += breakdown.elevenLabs?.cost || 0;
     openAiCost += breakdown.openAI?.cost || 0;
