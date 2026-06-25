@@ -375,17 +375,23 @@ export default function AgentPipelinePage() {
         </div>
       )}
 
-      {(activeRecordingUrl || lastRecordingUrl) && (
-        <div style={{ marginBottom: 18, padding: 16, border: '1px solid #D8E1D7', borderRadius: 10, background: '#FFFFFF' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#52606D', marginBottom: 8 }}>CALL RECORDING</div>
-          <div style={{ fontSize: 14, color: '#14202B', marginBottom: 10 }}>
-            {activeRecordingUrl ? 'Current/active lead recording' : 'Last completed call recording'}
-          </div>
-          <audio controls preload="none" style={{ width: '100%' }}>
-            <source src={activeRecordingUrl || lastRecordingUrl || undefined} type="audio/mpeg" />
-          </audio>
+      <div style={{ marginBottom: 18, padding: 16, border: '1px solid #D8E1D7', borderRadius: 10, background: '#FFFFFF' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#52606D', marginBottom: 12 }}>CALL RECORDINGS</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(240px, 1fr))', gap: 12 }}>
+          <RecordingPanel
+            title="Current Call Recording"
+            subtitle={activeLead ? activeLead.company_name || activeLead.domain : 'No active lead'}
+            url={activeRecordingUrl}
+            emptyText="Jab current call ki recording Twilio se mil jayegi, yahan play ho jayegi."
+          />
+          <RecordingPanel
+            title="Last Call Recording"
+            subtitle={callingStatus?.lastCall ? callingStatus.lastCall.company_name || callingStatus.lastCall.domain : 'No previous call'}
+            url={lastRecordingUrl}
+            emptyText="Last completed call ki recording yahan show hogi."
+          />
         </div>
-      )}
+      </div>
 
       {activeTab === 'leads' ? (
         <AvailableLeadList
@@ -548,6 +554,32 @@ function StatusStripCard({
       <div style={{ marginTop: 8, color: '#14202B', fontSize: 15, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
       <div style={{ marginTop: 6, color: '#334155', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detail}</div>
       <div style={{ marginTop: 6, color: '#64748B', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{helper}</div>
+    </div>
+  );
+}
+
+function RecordingPanel({
+  title,
+  subtitle,
+  url,
+  emptyText,
+}: {
+  title: string;
+  subtitle: string;
+  url: string | null;
+  emptyText: string;
+}) {
+  return (
+    <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, padding: 12, background: '#F8FAFC', minHeight: 112 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#14202B', marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 13, color: '#52606D', marginBottom: 10 }}>{subtitle}</div>
+      {url ? (
+        <audio controls preload="none" style={{ width: '100%' }}>
+          <source src={url} type="audio/mpeg" />
+        </audio>
+      ) : (
+        <div style={{ fontSize: 13, color: '#94A3B8' }}>{emptyText}</div>
+      )}
     </div>
   );
 }
