@@ -218,10 +218,9 @@ router.get(
     }
 
     const mediaUrl = recordingSid
-      ? `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Recordings/${recordingSid}.mp3?RequestedChannels=1`
-      : recordingUrl.includes('?')
-        ? `${recordingUrl}&RequestedChannels=1`
-        : `${recordingUrl}?RequestedChannels=1`;
+      ? `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Recordings/${recordingSid}.mp3`
+      : recordingUrl;
+
 
     let response = await axios({
       method: 'get',

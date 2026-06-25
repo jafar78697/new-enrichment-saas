@@ -29,8 +29,9 @@ function getMeetingTime(lead: Lead) {
 }
 
 function getRecordingUrl(lead: { id: string; raw_data?: Record<string, any> | null } | null) {
-  const value = lead?.raw_data?.recording_url;
-  return typeof value === 'string' && value ? `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/voice/recordings/${lead.id}/stream` : null;
+  const url = lead?.raw_data?.recording_url;
+  const status = lead?.raw_data?.recording_status;
+  return typeof url === 'string' && url && status === 'completed' ? `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/voice/recordings/${lead.id}/stream` : null;
 }
 
 function getRecordingStatus(lead: { raw_data?: Record<string, any> | null } | null) {
