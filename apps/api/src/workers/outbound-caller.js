@@ -73,13 +73,23 @@ async function runWorkerTick() {
           statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
           statusCallbackMethod: 'POST',
           statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+          record: true,
+          recordingChannels: 'mono',
+          recordingTrack: 'both',
+          recordingStatusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
+          recordingStatusCallbackMethod: 'POST',
+          recordingStatusCallbackEvent: ['in-progress', 'completed', 'absent'],
           machineDetection: 'Enable',
           machineDetectionTimeout: 8,
         });
 
         await query(
           `UPDATE enrichment_results
-           SET raw_data = jsonb_set(COALESCE(raw_data, '{}'::jsonb), '{active_call_sid}', to_jsonb($1::text))
+           SET raw_data = jsonb_set(
+                 jsonb_set(COALESCE(raw_data, '{}'::jsonb), '{active_call_sid}', to_jsonb($1::text)),
+                 '{recording_enabled}',
+                 'true'::jsonb
+               )
            WHERE id = $2`,
           [call.sid, lead.id],
         );

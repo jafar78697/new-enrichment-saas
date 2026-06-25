@@ -37,6 +37,11 @@ function getMeetingTime(lead: Lead) {
   return typeof value === 'string' ? value : null;
 }
 
+function getRecordingUrl(lead: { id: string; raw_data?: Record<string, any> | null } | null) {
+  const value = lead?.raw_data?.recording_url;
+  return typeof value === 'string' && value ? `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/voice/recordings/${lead.id}/stream` : null;
+}
+
 export default function AgentPipelinePage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [niches, setNiches] = useState<Niche[]>([]);
@@ -252,6 +257,9 @@ export default function AgentPipelinePage() {
     return 'Calling ON hai, lekin is waqt koi live call nahi chal rahi.';
   }, [callingStatus]);
 
+  const activeRecordingUrl = getRecordingUrl(activeLead);
+  const lastRecordingUrl = getRecordingUrl(callingStatus?.lastCall || null);
+
   return (
     <div style={{ fontFamily: 'Manrope, sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
@@ -364,6 +372,18 @@ export default function AgentPipelinePage() {
             detail={callingStatus.lastCall?.primary_phone || 'No phone available'}
             helper={callingStatus.lastCall ? STAGE_LABELS[callingStatus.lastCall.lead_stage] : 'Result will appear here'}
           />
+        </div>
+      )}
+
+      {(activeRecordingUrl || lastRecordingUrl) && (
+        <div style={{ marginBottom: 18, padding: 16, border: '1px solid #D8E1D7', borderRadius: 10, background: '#FFFFFF' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#52606D', marginBottom: 8 }}>CALL RECORDING</div>
+          <div style={{ fontSize: 14, color: '#14202B', marginBottom: 10 }}>
+            {activeRecordingUrl ? 'Current/active lead recording' : 'Last completed call recording'}
+          </div>
+          <audio controls preload="none" style={{ width: '100%' }}>
+            <source src={activeRecordingUrl || lastRecordingUrl || undefined} type="audio/mpeg" />
+          </audio>
         </div>
       )}
 

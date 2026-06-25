@@ -6,6 +6,7 @@ import { asyncHandler, AppError } from '../utils/errors.js';
 import { validateTwilioSignature } from '../middleware/twilio-signature.js';
 import { wsUrl } from '../utils/http.js';
 import { query } from '../../calls-module/db/index.js';
+import axios from 'axios';
 
 const router = Router();
 
@@ -168,10 +169,67 @@ router.post(
       );
     }
 
+    if (contactId && (req.body.RecordingSid || req.body.RecordingStatus || req.body.RecordingUrl)) {
+      await query(
+        `UPDATE enrichment_results
+         SET raw_data = COALESCE(raw_data, '{}'::jsonb)
+           || jsonb_build_object(
+                'recording_sid', $1::text,
+                'recording_status', $2::text,
+                'recording_url', $3::text,
+                'recording_enabled', true
+              ),
+             lead_notes = CASE
+               WHEN $2::text = 'completed'
+                 THEN CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Recording available.')
+               ELSE lead_notes
+             END
+         WHERE id = $4`,
+        [
+          req.body.RecordingSid || null,
+          req.body.RecordingStatus || null,
+          req.body.RecordingUrl ? `${req.body.RecordingUrl}.mp3` : null,
+          contactId,
+        ],
+      );
+    }
+
     // Post-call processing will be triggered by the orchestrator
     // when it receives the Twilio Media Streams 'stop' event.
 
     res.status(200).json({ received: true });
+  }),
+);
+
+router.get(
+  '/recordings/:contactId/stream',
+  asyncHandler(async (req, res) => {
+    const { contactId } = req.params;
+    const { rows } = await query(
+      `SELECT raw_data->>'recording_url' AS recording_url
+       FROM enrichment_results
+       WHERE id = $1`,
+      [contactId],
+    );
+
+    const recordingUrl = rows[0]?.recording_url;
+    if (!recordingUrl) {
+      throw new AppError('Recording not found', 404);
+    }
+
+    const response = await axios({
+      method: 'get',
+      url: recordingUrl,
+      responseType: 'stream',
+      auth: {
+        username: env.TWILIO_ACCOUNT_SID,
+        password: env.TWILIO_AUTH_TOKEN,
+      },
+    });
+
+    res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    response.data.pipe(res);
   }),
 );
 

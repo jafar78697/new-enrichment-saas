@@ -2,6 +2,7 @@ import { createSTTSession, createSilenceDetector } from '../services/stt/google-
 import { createTTSStream } from '../services/tts/google-tts.service.js';
 import { streamGeminiResponse } from '../services/llm/vertex-ai.service.js';
 import { sendMediaToTwilio, clearTwilioAudio } from '../websocket/media-server.js';
+import { broadcastCallAudio, broadcastCallTranscript } from '../websocket/call-monitor.js';
 
 function splitIntoSpeakableChunks(text = '') {
   return String(text)
@@ -35,6 +36,7 @@ export function createGoogleGatekeeperEngine({
     onAudio: (base64Audio) => {
       if (closed) return;
       sendMediaToTwilio(streamSid, base64Audio);
+      broadcastCallAudio(callSid, 'ai', base64Audio);
     },
     onError: (err) => onError?.(err),
     onEnd: () => {
@@ -68,6 +70,9 @@ export function createGoogleGatekeeperEngine({
       }
 
       onTranscript?.({ text, isFinal, confidence, source: 'google_gatekeeper' });
+      if (isFinal) {
+        broadcastCallTranscript(callSid, 'prospect', text);
+      }
 
       if (!isFinal) return;
 
@@ -136,14 +141,17 @@ export function createGoogleGatekeeperEngine({
         onComplete: async ({ fullText: completedText }) => {
           const reply = (completedText || fullText || fallback).trim();
           messageHistory.push({ role: 'assistant', content: reply });
+          broadcastCallTranscript(callSid, 'ai', reply);
           await speak(reply);
         },
         onError: async () => {
+          broadcastCallTranscript(callSid, 'ai', fallback);
           await speak(fallback);
         },
       });
     } catch (err) {
       onError?.(err);
+      broadcastCallTranscript(callSid, 'ai', fallback);
       await speak(fallback);
     }
   }
@@ -153,6 +161,7 @@ export function createGoogleGatekeeperEngine({
       ? `Hi, this is Jento AI calling about ${companyName}. Am I speaking with the owner?`
       : 'Hi, this is Jento AI calling about your company. Am I speaking with the owner?';
     messageHistory.push({ role: 'assistant', content: intro });
+    broadcastCallTranscript(callSid, 'ai', intro);
     await speak(intro);
   }
 
