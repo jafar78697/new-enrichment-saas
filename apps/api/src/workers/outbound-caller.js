@@ -1,6 +1,7 @@
 import { query } from '../calls-module/db/index.js';
 import twilio from 'twilio';
 import { env } from '../voice-agent/config/env.js';
+import { normalizeUSPhone } from '../utils/us-phone.js';
 
 // Setup Twilio Client
 const accountSid = env.TWILIO_ACCOUNT_SID;
@@ -63,11 +64,23 @@ async function runWorkerTick() {
         const lead = rows[0];
         claimedLeadId = lead.id;
 
-        console.log(`[outbound-caller] Initiating call to lead: ${lead.company_name || lead.domain} (${lead.primary_phone})`);
+        const normalizedPhone = normalizeUSPhone(lead.primary_phone);
+        if (!normalizedPhone) {
+          await query(
+            `UPDATE enrichment_results
+             SET lead_stage = 'no_answer',
+                 lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Skipped because phone number is not a valid USA number.')
+             WHERE id = $1`,
+            [lead.id],
+          );
+          continue;
+        }
+
+        console.log(`[outbound-caller] Initiating call to lead: ${lead.company_name || lead.domain} (${normalizedPhone})`);
         const webhookUrl = `${PUBLIC_BASE_URL}/api/voice/twiml/outbound?contactId=${lead.id}&tenantId=${lead.tenant_id}`;
         const call = await twilioClient.calls.create({
           url: webhookUrl,
-          to: lead.primary_phone,
+          to: normalizedPhone,
           from: fromPhone,
           method: 'POST',
           statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,

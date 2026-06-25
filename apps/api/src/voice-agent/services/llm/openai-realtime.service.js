@@ -39,6 +39,7 @@ export function createOpenAISession(config) {
   const state = {
     sessionReady: false,
     responseActive: false,
+    fallbackResponseTimer: null,
   };
 
   const audioBuffer = new AudioBufferEngine((base64Payload) => {
@@ -70,6 +71,32 @@ export function createOpenAISession(config) {
   }
 
   const audioFormat = toRealtimeAudioFormat(config.audioFormat);
+
+  function clearFallbackResponseTimer() {
+    if (state.fallbackResponseTimer) {
+      clearTimeout(state.fallbackResponseTimer);
+      state.fallbackResponseTimer = null;
+    }
+  }
+
+  function requestResponseIfIdle() {
+    clearFallbackResponseTimer();
+    if (ws.readyState !== WebSocket.OPEN || state.responseActive) return;
+
+    console.log('[voice-agent:openai] ⏱️ Fallback response.create after transcription');
+    ws.send(JSON.stringify({
+      type: 'response.create',
+      response: {
+        output_modalities: ['audio'],
+        max_output_tokens: env.OPENAI_REALTIME_MAX_OUTPUT_TOKENS,
+        audio: {
+          output: {
+            format: audioFormat
+          }
+        }
+      }
+    }));
+  }
 
   const sessionUpdate = {
     type: 'session.update',
@@ -137,7 +164,10 @@ export function createOpenAISession(config) {
         }
       }
 
-      if (msg.type === 'response.created') state.responseActive = true;
+      if (msg.type === 'response.created') {
+        state.responseActive = true;
+        clearFallbackResponseTimer();
+      }
 
       // Server VAD cancels the model response. Only clear playback when the
       // customer actually interrupts active AI audio.
@@ -150,6 +180,10 @@ export function createOpenAISession(config) {
         if (config.onTranscription && msg.transcript) {
           config.onTranscription(msg.transcript);
         }
+        clearFallbackResponseTimer();
+        state.fallbackResponseTimer = setTimeout(() => {
+          requestResponseIfIdle();
+        }, 500);
       }
 
       // AI text transcription
@@ -186,6 +220,7 @@ export function createOpenAISession(config) {
       // Usage
       if (msg.type === 'response.done') {
         state.responseActive = false;
+        clearFallbackResponseTimer();
         if (config.onUsage && msg.response && msg.response.usage) {
           config.onUsage(msg.response.usage);
         }
@@ -204,6 +239,7 @@ export function createOpenAISession(config) {
   ws.on('close', (code) => {
     console.log(`[voice-agent:openai] 🔌 Connection closed: ${code}`);
     state.sessionReady = false;
+    clearFallbackResponseTimer();
     if (config.onClose) config.onClose();
   });
 
@@ -217,6 +253,7 @@ export function createOpenAISession(config) {
       if (ws.readyState !== WebSocket.OPEN) return;
 
       console.log(`[voice-agent:openai] 🚀 Triggering response...`);
+      clearFallbackResponseTimer();
 
       if (textMessage) {
         ws.send(JSON.stringify({
@@ -247,6 +284,7 @@ export function createOpenAISession(config) {
       if (ws.readyState !== WebSocket.OPEN) return;
 
       console.log(`[voice-agent:openai] 🛠️ Submitting tool result for ${callId}...`);
+      clearFallbackResponseTimer();
 
       ws.send(JSON.stringify({
         type: 'conversation.item.create',
@@ -278,6 +316,7 @@ export function createOpenAISession(config) {
         ws.send(JSON.stringify({ type: 'response.cancel' }));
         state.responseActive = false;
       }
+      clearFallbackResponseTimer();
     },
 
     clearBuffer: () => {
@@ -288,6 +327,7 @@ export function createOpenAISession(config) {
     },
 
     close: () => {
+      clearFallbackResponseTimer();
       if (ws.readyState === WebSocket.OPEN) ws.close();
     },
   };

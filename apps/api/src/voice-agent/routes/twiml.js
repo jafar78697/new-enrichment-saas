@@ -7,22 +7,9 @@ import { validateTwilioSignature } from '../middleware/twilio-signature.js';
 import { wsUrl } from '../utils/http.js';
 import { query } from '../../calls-module/db/index.js';
 import axios from 'axios';
+import { normalizeUSPhone } from '../../utils/us-phone.js';
 
 const router = Router();
-
-/**
- * Cleans any phone number format into E.164.
- */
-function cleanPhoneNumber(raw) {
-  if (!raw) return '';
-  let digits = raw.replace(/[^\d+]/g, '');
-  if (digits.startsWith('+')) return digits;
-  digits = digits.replace(/^0+/, '');
-  if (digits.length === 10) return '+1' + digits;
-  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
-  if (digits.length > 0) return '+' + digits;
-  return '';
-}
 
 /**
  * POST /api/voice/twiml/outbound
@@ -50,11 +37,11 @@ router.post(
       AnsweredBy: z.string().optional(),
     }).parse({ ...req.body, ...req.query });
 
-    const toStr = cleanPhoneNumber(payload.To);
+    const toStr = normalizeUSPhone(payload.To);
 
     if (!toStr || toStr.length < 4) {
       const errResponse = new twilio.twiml.VoiceResponse();
-      errResponse.say({ voice: 'alice' }, 'Sorry, the phone number entered is not valid.');
+      errResponse.say({ voice: 'alice' }, 'Sorry, only valid USA numbers are supported for this call.');
       errResponse.hangup();
       return res.type('text/xml').send(errResponse.toString());
     }

@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { normalizeUSPhone } from '../utils/us-phone.js';
 
 // Canonical pipeline stages. Frontend renders columns in this exact order.
 export const PIPELINE_STAGES = [
@@ -407,9 +408,21 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       const twilio = (await import('twilio')).default;
       const client = twilio(accountSid, authToken);
       const webhookUrl = `${publicBaseUrl}/api/voice/twiml/outbound?contactId=${leadId}&tenantId=${tenantId}`;
+      const normalizedPhone = normalizeUSPhone(lead.primary_phone);
+      if (!normalizedPhone) {
+        await fastify.db.query(
+          `UPDATE enrichment_results
+           SET lead_stage = 'no_answer',
+               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Manual call skipped because phone number is not a valid USA number.')
+           WHERE id = $1`,
+          [leadId],
+        );
+        return reply.code(400).send({ error: 'Only valid USA numbers can be called' });
+      }
+
       const call = await client.calls.create({
         url: webhookUrl,
-        to: lead.primary_phone,
+        to: normalizedPhone,
         from: fromPhone,
         method: 'POST',
         statusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
