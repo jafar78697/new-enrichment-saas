@@ -164,6 +164,7 @@ router.post(
                 'recording_sid', $1::text,
                 'recording_status', $2::text,
                 'recording_url', $3::text,
+                'recording_duration', $4::text,
                'recording_enabled', true
               ),
              lead_notes = CASE
@@ -171,11 +172,12 @@ router.post(
                  THEN CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Recording available.')
                ELSE lead_notes
              END
-         WHERE id = $4::uuid`,
+         WHERE id = $5::uuid`,
         [
           req.body.RecordingSid || null,
           req.body.RecordingStatus || null,
           req.body.RecordingUrl ? `${req.body.RecordingUrl}.mp3` : null,
+          req.body.RecordingDuration || null,
           contactId,
         ],
       );
@@ -193,29 +195,44 @@ router.get(
   asyncHandler(async (req, res) => {
     const { contactId } = req.params;
     const { rows } = await query(
-      `SELECT raw_data->>'recording_url' AS recording_url
+      `SELECT
+         raw_data->>'recording_url' AS recording_url,
+         raw_data->>'recording_sid' AS recording_sid
        FROM enrichment_results
        WHERE id = $1`,
       [contactId],
     );
 
     const recordingUrl = rows[0]?.recording_url;
+    const recordingSid = rows[0]?.recording_sid;
     if (!recordingUrl) {
       throw new AppError('Recording not found', 404);
     }
 
+    const mediaUrl = recordingSid
+      ? `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Recordings/${recordingSid}.mp3?RequestedChannels=1`
+      : recordingUrl.includes('?')
+        ? `${recordingUrl}&RequestedChannels=1`
+        : `${recordingUrl}?RequestedChannels=1`;
+
     const response = await axios({
       method: 'get',
-      url: recordingUrl,
+      url: mediaUrl,
       responseType: 'stream',
       auth: {
         username: env.TWILIO_ACCOUNT_SID,
         password: env.TWILIO_AUTH_TOKEN,
       },
+      headers: req.headers.range ? { Range: req.headers.range } : undefined,
+      validateStatus: (status) => status >= 200 && status < 400,
     });
 
     res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-store');
+    if (response.headers['accept-ranges']) res.setHeader('Accept-Ranges', response.headers['accept-ranges']);
+    if (response.headers['content-length']) res.setHeader('Content-Length', response.headers['content-length']);
+    if (response.headers['content-range']) res.setHeader('Content-Range', response.headers['content-range']);
+    res.status(response.status);
     response.data.pipe(res);
   }),
 );

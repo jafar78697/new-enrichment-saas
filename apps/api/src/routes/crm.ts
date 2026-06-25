@@ -469,6 +469,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         recordingStatusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
         recordingStatusCallbackMethod: 'POST',
         recordingStatusCallbackEvent: ['in-progress', 'completed', 'absent'],
+        trim: 'do-not-trim',
         machineDetection: 'Enable',
         machineDetectionTimeout: 8,
       });

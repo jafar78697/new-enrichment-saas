@@ -65,9 +65,9 @@ export function createOpenAISession(config) {
   }));
 
   function toRealtimeAudioFormat(format) {
-    if (format === 'g711_ulaw') return { type: 'audio/pcmu' };
-    if (format === 'g711_alaw') return { type: 'audio/pcma' };
-    return { type: 'audio/pcm', rate: 24000 };
+    if (format === 'g711_ulaw') return 'g711_ulaw';
+    if (format === 'g711_alaw') return 'g711_alaw';
+    return 'pcm16';
   }
 
   const audioFormat = toRealtimeAudioFormat(config.audioFormat);

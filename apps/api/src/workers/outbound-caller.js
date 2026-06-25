@@ -92,6 +92,7 @@ async function runWorkerTick() {
           recordingStatusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
           recordingStatusCallbackMethod: 'POST',
           recordingStatusCallbackEvent: ['in-progress', 'completed', 'absent'],
+          trim: 'do-not-trim',
           machineDetection: 'Enable',
           machineDetectionTimeout: 8,
         });
