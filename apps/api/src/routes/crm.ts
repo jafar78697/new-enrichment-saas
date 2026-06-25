@@ -305,11 +305,39 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          AND primary_phone <> ''`,
       [tenantId],
     );
+    const { rows: stageRows } = await fastify.db.query(
+      `SELECT lead_stage, COUNT(*)::int AS count
+       FROM enrichment_results
+       WHERE tenant_id = $1 AND assigned_to_ai = true
+       GROUP BY lead_stage`,
+      [tenantId],
+    );
+    const { rows: recentRows } = await fastify.db.query(
+      `SELECT
+         id,
+         company_name,
+         domain,
+         primary_phone,
+         primary_email,
+         lead_stage,
+         lead_notes,
+         ai_summary,
+         last_contacted_at,
+         raw_data
+       FROM enrichment_results
+       WHERE tenant_id = $1
+         AND assigned_to_ai = true
+         AND last_contacted_at IS NOT NULL
+       ORDER BY last_contacted_at DESC
+       LIMIT 12`,
+      [tenantId],
+    );
 
     const activeLeadId = callRows[0]?.id || null;
     const activeCallSid = callRows[0]?.active_call_sid || null;
     const lastCall = lastRows[0] || null;
     const nextLead = nextRows[0] || null;
+    const stageCounts = Object.fromEntries(stageRows.map((row: any) => [row.lead_stage, row.count]));
 
     return {
       isRunning: controlRows[0]?.is_running === true,
@@ -318,6 +346,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       lastCall,
       nextLead,
       queueCount: queueRows[0]?.count || 0,
+      stageCounts,
+      recentActivity: recentRows,
     };
   });
 
@@ -362,8 +392,13 @@ export default async function crmRoutes(fastify: FastifyInstance) {
 
     await fastify.db.query(
       `UPDATE enrichment_results
-       SET lead_stage = 'assigned', raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid'
-       WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'`,
+       SET lead_stage = 'assigned',
+           raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
+           lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Calling queue stopped before a live call SID was available.')
+       WHERE tenant_id = $1
+         AND assigned_to_ai = true
+         AND lead_stage = 'calling'
+         AND COALESCE(raw_data->>'active_call_sid', '') = ''`,
       [tenantId],
     );
     await writeAudit(fastify, tenantId, userId, 'ai_calling.stopped', 'tenant', tenantId, { stoppedCalls: activeRows.length });
@@ -502,16 +537,25 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       fastify.log.warn({ leadId, activeCallSid, error: err.message }, 'Failed to terminate call in Twilio');
     }
 
-    // Reset lead stage back to assigned and remove call sid from raw_data
+    if (!activeCallSid) {
+      await fastify.db.query(
+        `UPDATE enrichment_results 
+         SET lead_stage = 'assigned',
+             raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid'
+         WHERE id = $1`,
+        [leadId],
+      );
+      return { ok: true, message: 'No active Twilio SID found; lead moved back to assigned' };
+    }
+
     await fastify.db.query(
-      `UPDATE enrichment_results 
-       SET lead_stage = 'assigned',
-           raw_data = raw_data - 'active_call_sid'
+      `UPDATE enrichment_results
+       SET lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Manual stop requested; waiting for final Twilio status.')
        WHERE id = $1`,
       [leadId],
     );
 
-    return { ok: true };
+    return { ok: true, message: 'Call stop requested; final stage will update from Twilio callback.' };
   });
 
   // GET /v1/leads/active-calls -> Returns mapping of contactId -> callSid for live monitoring

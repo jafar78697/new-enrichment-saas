@@ -103,13 +103,28 @@ export interface CallingQueueLead {
   company_name: string | null;
   domain: string;
   primary_phone: string | null;
+  primary_email?: string | null;
   lead_stage: Stage;
+  lead_notes?: string | null;
+  ai_summary?: string | null;
   last_contacted_at?: string | null;
   active_call_sid?: string | null;
   raw_data?: {
     recording_url?: string;
+    recording_status?: string;
     [key: string]: unknown;
   } | null;
+}
+
+export interface CallingStatusResponse {
+  isRunning: boolean;
+  activeLeadId: string | null;
+  activeCallSid: string | null;
+  lastCall: CallingQueueLead | null;
+  nextLead: CallingQueueLead | null;
+  queueCount: number;
+  stageCounts: Partial<Record<Stage, number>>;
+  recentActivity: CallingQueueLead[];
 }
 
 export const leadsApi = {
@@ -117,14 +132,7 @@ export const leadsApi = {
     api.get<{ leads: Lead[]; total: number; page: number; limit: number }>('/leads', { params }).then((r) => r.data),
   pipeline: () => api.get<{ stages: StageCount[] }>('/leads/pipeline').then((r) => r.data),
   activeCalls: () => api.get<{ activeCalls: Record<string, string> }>('/leads/active-calls').then((r) => r.data),
-  callingStatus: () => api.get<{
-    isRunning: boolean;
-    activeLeadId: string | null;
-    activeCallSid: string | null;
-    lastCall: CallingQueueLead | null;
-    nextLead: CallingQueueLead | null;
-    queueCount: number;
-  }>('/leads/ai-calling/status').then((r) => r.data),
+  callingStatus: () => api.get<CallingStatusResponse>('/leads/ai-calling/status').then((r) => r.data),
   startCalling: () => api.post<{ ok: boolean; isRunning: boolean }>('/leads/ai-calling/start').then((r) => r.data),
   stopCalling: () => api.post<{ ok: boolean; isRunning: boolean; stoppedCalls: number }>('/leads/ai-calling/stop').then((r) => r.data),
   queueAi: (body: { lead_ids?: string[]; contact_ids?: number[]; niche_id?: number; limit?: number }) =>

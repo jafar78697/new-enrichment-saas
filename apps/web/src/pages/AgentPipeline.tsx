@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bot, Mic, Phone, PhoneCall, RefreshCw, Search, Square, UserPlus, Volume2 } from 'lucide-react';
-import { leadsApi, type CallingQueueLead, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
+import { leadsApi, type CallingQueueLead, type CallingStatusResponse, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
 import LiveCallMonitor from '../components/LiveCallMonitor';
@@ -21,15 +21,6 @@ const AGENT_TABS = [
 
 type AgentTab = (typeof AGENT_TABS)[number]['key'];
 
-type CallingStatus = {
-  isRunning: boolean;
-  activeLeadId: string | null;
-  activeCallSid: string | null;
-  lastCall: CallingQueueLead | null;
-  nextLead: CallingQueueLead | null;
-  queueCount: number;
-};
-
 function getMeetingTime(lead: Lead) {
   const meeting = lead.raw_data?.meeting;
   if (!meeting || typeof meeting !== 'object') return null;
@@ -40,6 +31,23 @@ function getMeetingTime(lead: Lead) {
 function getRecordingUrl(lead: { id: string; raw_data?: Record<string, any> | null } | null) {
   const value = lead?.raw_data?.recording_url;
   return typeof value === 'string' && value ? `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/voice/recordings/${lead.id}/stream` : null;
+}
+
+function getRecordingStatus(lead: { raw_data?: Record<string, any> | null } | null) {
+  const value = lead?.raw_data?.recording_status;
+  return typeof value === 'string' && value ? value : null;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return 'No time';
+  return new Date(value).toLocaleString();
+}
+
+function getLeadResultText(lead: Pick<CallingQueueLead, 'lead_stage' | 'lead_notes' | 'ai_summary'> | null) {
+  if (!lead) return 'No result yet';
+  if (lead.ai_summary) return lead.ai_summary;
+  if (lead.lead_notes) return lead.lead_notes.split('\n').filter(Boolean).slice(-1)[0] || STAGE_LABELS[lead.lead_stage];
+  return STAGE_LABELS[lead.lead_stage];
 }
 
 export default function AgentPipelinePage() {
@@ -60,7 +68,7 @@ export default function AgentPipelinePage() {
   const [automationRunning, setAutomationRunning] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
   const [activeCallSid, setActiveCallSid] = useState<string | null>(null);
-  const [callingStatus, setCallingStatus] = useState<CallingStatus | null>(null);
+  const [callingStatus, setCallingStatus] = useState<CallingStatusResponse | null>(null);
 
   const loadPipeline = async () => {
     try {
@@ -221,11 +229,13 @@ export default function AgentPipelinePage() {
   };
 
   const stats = useMemo(() => ({
-    total: leads.length,
-    calling: leads.filter((lead) => lead.lead_stage === 'calling').length,
-    interested: leads.filter((lead) => lead.lead_stage === 'interested').length,
-    won: leads.filter((lead) => lead.lead_stage === 'closed_won').length,
-  }), [leads]);
+    assigned: callingStatus?.stageCounts?.assigned || 0,
+    calling: callingStatus?.stageCounts?.calling || 0,
+    called: callingStatus?.stageCounts?.called || 0,
+    noAnswer: callingStatus?.stageCounts?.no_answer || 0,
+    interested: callingStatus?.stageCounts?.interested || 0,
+    won: callingStatus?.stageCounts?.closed_won || 0,
+  }), [callingStatus]);
 
   const activeLead = useMemo(
     () => leads.find((lead) => lead.id === callingStatus?.activeLeadId) || null,
@@ -259,6 +269,7 @@ export default function AgentPipelinePage() {
 
   const activeRecordingUrl = getRecordingUrl(activeLead);
   const lastRecordingUrl = getRecordingUrl(callingStatus?.lastCall || null);
+  const recentActivity = callingStatus?.recentActivity || [];
 
   return (
     <div style={{ fontFamily: 'Manrope, sans-serif' }}>
@@ -298,9 +309,11 @@ export default function AgentPipelinePage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(150px, 1fr))', gap: 14, marginBottom: 28 }}>
-        <Stat label="Assigned Leads" value={stats.total} color="#14202B" background="#FFFFFF" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(120px, 1fr))', gap: 14, marginBottom: 28 }}>
+        <Stat label="Assigned" value={stats.assigned} color="#14202B" background="#FFFFFF" />
         <Stat label="Active Calls" value={stats.calling} color="#1D4ED8" background="#EFF6FF" />
+        <Stat label="Called" value={stats.called} color="#4F46E5" background="#EEF2FF" />
+        <Stat label="No Answer" value={stats.noAnswer} color="#C2410C" background="#FFF7ED" />
         <Stat label="Interested" value={stats.interested} color="#047857" background="#ECFDF5" />
         <Stat label="Closed Won" value={stats.won} color="#4D7C0F" background="#F7FEE7" />
       </div>
@@ -356,21 +369,21 @@ export default function AgentPipelinePage() {
             accent="#2563EB"
             name={activeLead ? activeLead.company_name || activeLead.domain : 'No live call'}
             detail={activeLead?.primary_phone || (callingStatus.isRunning ? 'Waiting for live call connect' : 'Calling is currently stopped')}
-            helper={activeLead ? 'Live call in progress' : callingStatus.isRunning ? 'Auto dialer is on' : 'Press Start Calling to resume'}
+            helper={activeLead ? `${STAGE_LABELS[activeLead.lead_stage]} | ${formatDateTime(activeLead.last_contacted_at)}` : callingStatus.isRunning ? 'Auto dialer is on' : 'Press Start Calling to resume'}
           />
           <StatusStripCard
             title="Next Lead"
             accent="#0F766E"
             name={callingStatus.nextLead ? callingStatus.nextLead.company_name || callingStatus.nextLead.domain : 'No lead in queue'}
             detail={callingStatus.nextLead?.primary_phone || `Queue count: ${callingStatus.queueCount}`}
-            helper={callingStatus.nextLead ? 'Next auto-call target' : 'Assign more leads or start follow-up queue'}
+            helper={callingStatus.nextLead ? `Stage: ${STAGE_LABELS[callingStatus.nextLead.lead_stage]}` : 'Assign more leads or start follow-up queue'}
           />
           <StatusStripCard
             title="Last Call"
             accent="#D97706"
             name={callingStatus.lastCall ? callingStatus.lastCall.company_name || callingStatus.lastCall.domain : 'No previous call'}
             detail={callingStatus.lastCall?.primary_phone || 'No phone available'}
-            helper={callingStatus.lastCall ? STAGE_LABELS[callingStatus.lastCall.lead_stage] : 'Result will appear here'}
+            helper={callingStatus.lastCall ? `${STAGE_LABELS[callingStatus.lastCall.lead_stage]} | ${formatDateTime(callingStatus.lastCall.last_contacted_at)}` : 'Result will appear here'}
           />
         </div>
       )}
@@ -382,15 +395,58 @@ export default function AgentPipelinePage() {
             title="Current Call Recording"
             subtitle={activeLead ? activeLead.company_name || activeLead.domain : 'No active lead'}
             url={activeRecordingUrl}
-            emptyText="Jab current call ki recording Twilio se mil jayegi, yahan play ho jayegi."
+            status={getRecordingStatus(activeLead)}
+            emptyText="Current live call ki recording abhi available nahi hai."
           />
           <RecordingPanel
             title="Last Call Recording"
             subtitle={callingStatus?.lastCall ? callingStatus.lastCall.company_name || callingStatus.lastCall.domain : 'No previous call'}
             url={lastRecordingUrl}
-            emptyText="Last completed call ki recording yahan show hogi."
+            status={getRecordingStatus(callingStatus?.lastCall || null)}
+            emptyText="Last call ki recording abhi save nahi hui ya Twilio callback pending hai."
           />
         </div>
+      </div>
+
+      <div style={{ marginBottom: 18, padding: 16, border: '1px solid #D8E1D7', borderRadius: 10, background: '#FFFFFF' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#52606D', marginBottom: 12 }}>RECENT CALL ACTIVITY</div>
+        {recentActivity.length ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {recentActivity.map((lead) => (
+              <div key={lead.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 1.4fr) minmax(140px, 0.8fr) minmax(120px, 0.8fr) minmax(180px, 1fr) minmax(120px, 0.8fr)', gap: 12, alignItems: 'center', padding: '12px 14px', border: '1px solid #E5E7EB', borderRadius: 8, background: '#F8FAFC' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: '#14202B', fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {lead.company_name || lead.domain}
+                  </div>
+                  <div style={{ ...mutedText, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {lead.primary_email || lead.domain}
+                  </div>
+                </div>
+                <PhoneValue value={lead.primary_phone || 'No phone'} />
+                <span style={badge(STAGE_COLORS[lead.lead_stage])}>{STAGE_LABELS[lead.lead_stage]}</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: '#334155', fontSize: 12, fontWeight: 600 }}>{formatDateTime(lead.last_contacted_at)}</div>
+                  <div style={{ ...mutedText, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {getLeadResultText(lead)}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  {getRecordingUrl(lead) ? (
+                    <audio controls preload="none" style={{ width: 180, maxWidth: '100%' }}>
+                      <source src={getRecordingUrl(lead)!} type="audio/mpeg" />
+                    </audio>
+                  ) : (
+                    <span style={badge(getRecordingStatus(lead) === 'in-progress' ? '#2563EB' : '#94A3B8')}>
+                      {getRecordingStatus(lead) === 'in-progress' ? 'Recording...' : 'No recording'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty text="Abhi recent call activity available nahi hai." />
+        )}
       </div>
 
       {activeTab === 'leads' ? (
@@ -492,13 +548,26 @@ function PipelineLeadList({
           <LeadIdentity name={lead.company_name || lead.domain} niche={lead.raw_data?.niche_name || lead.industry_guess} detail={lead.primary_email || lead.domain} />
           <Score value={lead.ai_score || 0} />
           <PhoneValue value={lead.primary_phone || 'No phone'} />
-          <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'start' }}>{STAGE_LABELS[lead.lead_stage]}</span>
+          <div style={{ minWidth: 0 }}>
+            <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'start' }}>{STAGE_LABELS[lead.lead_stage]}</span>
+            <div style={{ ...mutedText, marginTop: 6 }}>{formatDateTime(lead.last_contacted_at)}</div>
+          </div>
           <span style={{ ...mutedText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {getMeetingTime(lead)
               ? `Meeting: ${new Date(getMeetingTime(lead) as string).toLocaleString()}`
               : lead.ai_summary || lead.lead_notes || 'No notes yet'}
           </span>
-          <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'end' }}>{STAGE_LABELS[lead.lead_stage]}</span>
+          <div style={{ justifySelf: 'end' }}>
+            {getRecordingUrl(lead) ? (
+              <audio controls preload="none" style={{ width: 180, maxWidth: '100%' }}>
+                <source src={getRecordingUrl(lead)!} type="audio/mpeg" />
+              </audio>
+            ) : (
+              <span style={badge(getRecordingStatus(lead) === 'in-progress' ? '#2563EB' : '#94A3B8')}>
+                {getRecordingStatus(lead) === 'in-progress' ? 'Recording...' : 'No recording'}
+              </span>
+            )}
+          </div>
           </div>
         ))}
       </div>
@@ -562,16 +631,21 @@ function RecordingPanel({
   title,
   subtitle,
   url,
+  status,
   emptyText,
 }: {
   title: string;
   subtitle: string;
   url: string | null;
+  status: string | null;
   emptyText: string;
 }) {
   return (
     <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, padding: 12, background: '#F8FAFC', minHeight: 112 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: '#14202B', marginBottom: 4 }}>{title}</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#14202B' }}>{title}</div>
+        {status && <span style={badge(status === 'completed' ? '#047857' : status === 'in-progress' ? '#2563EB' : '#94A3B8')}>{status}</span>}
+      </div>
       <div style={{ fontSize: 13, color: '#52606D', marginBottom: 10 }}>{subtitle}</div>
       {url ? (
         <audio controls preload="none" style={{ width: '100%' }}>
@@ -603,7 +677,7 @@ const leadRow = (calling: boolean): React.CSSProperties => ({
   minHeight: 74,
   padding: '12px 18px',
   display: 'grid',
-  gridTemplateColumns: 'minmax(220px, 1.6fr) 48px minmax(150px, 0.8fr) minmax(105px, 0.65fr) minmax(170px, 1fr) auto',
+  gridTemplateColumns: 'minmax(220px, 1.6fr) 48px minmax(150px, 0.8fr) minmax(115px, 0.7fr) minmax(170px, 1fr) minmax(190px, 0.9fr)',
   gap: 16,
   alignItems: 'center',
   border: calling ? '1px solid #F59E0B' : '1px solid #D8E1D7',
