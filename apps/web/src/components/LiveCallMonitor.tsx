@@ -16,7 +16,7 @@ interface TranscriptEntry {
 export default function LiveCallMonitor({ callSid, onClose, autoStart = false }: LiveCallMonitorProps) {
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
   const [isListening, setIsListening] = useState(false);
-  const [callStatus, setCallStatus] = useState<string>('connecting...');
+  const [callStatus, setCallStatus] = useState<string>('ringing');
   const [error, setError] = useState<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);

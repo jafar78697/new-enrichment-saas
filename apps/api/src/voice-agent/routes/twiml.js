@@ -223,10 +223,11 @@ router.get(
         ? `${recordingUrl}&RequestedChannels=1`
         : `${recordingUrl}?RequestedChannels=1`;
 
-    const response = await axios({
+    let response = await axios({
       method: 'get',
       url: mediaUrl,
       responseType: 'stream',
+      maxRedirects: 0,
       auth: {
         username: env.TWILIO_ACCOUNT_SID,
         password: env.TWILIO_AUTH_TOKEN,
@@ -234,6 +235,16 @@ router.get(
       headers: req.headers.range ? { Range: req.headers.range } : undefined,
       validateStatus: (status) => status >= 200 && status < 400,
     });
+
+    if (response.status >= 300 && response.status < 400 && response.headers.location) {
+      response = await axios({
+        method: 'get',
+        url: response.headers.location,
+        responseType: 'stream',
+        headers: req.headers.range ? { Range: req.headers.range } : undefined,
+        validateStatus: (status) => status >= 200 && status < 400,
+      });
+    }
 
     res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-store');
