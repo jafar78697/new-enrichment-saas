@@ -432,9 +432,7 @@ export default function AgentPipelinePage() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   {getRecordingUrl(lead) ? (
-                    <audio controls preload="none" style={{ width: 180, maxWidth: '100%' }}>
-                      <source src={getRecordingUrl(lead)!} type="audio/mpeg" />
-                    </audio>
+                    <audio controls preload="none" style={{ width: 180, maxWidth: '100%' }} src={getRecordingUrl(lead)!} />
                   ) : (
                     <span style={badge(getRecordingStatus(lead) === 'in-progress' ? '#2563EB' : '#94A3B8')}>
                       {getRecordingStatus(lead) === 'in-progress' ? 'Recording...' : 'No recording'}
@@ -559,9 +557,7 @@ function PipelineLeadList({
           </span>
           <div style={{ justifySelf: 'end' }}>
             {getRecordingUrl(lead) ? (
-              <audio controls preload="none" style={{ width: 180, maxWidth: '100%' }}>
-                <source src={getRecordingUrl(lead)!} type="audio/mpeg" />
-              </audio>
+              <audio controls preload="none" style={{ width: 180, maxWidth: '100%' }} src={getRecordingUrl(lead)!} />
             ) : (
               <span style={badge(getRecordingStatus(lead) === 'in-progress' ? '#2563EB' : '#94A3B8')}>
                 {getRecordingStatus(lead) === 'in-progress' ? 'Recording...' : 'No recording'}
@@ -648,9 +644,7 @@ function RecordingPanel({
       </div>
       <div style={{ fontSize: 13, color: '#52606D', marginBottom: 10 }}>{subtitle}</div>
       {url ? (
-        <audio controls preload="none" style={{ width: '100%' }}>
-          <source src={url} type="audio/mpeg" />
-        </audio>
+        <audio controls preload="none" style={{ width: '100%' }} src={url} />
       ) : (
         <div style={{ fontSize: 13, color: '#94A3B8' }}>{emptyText}</div>
       )}

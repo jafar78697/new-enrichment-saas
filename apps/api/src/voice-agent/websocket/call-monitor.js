@@ -58,3 +58,15 @@ export function broadcastCallTranscript(callSid, speaker, text) {
     timestamp: new Date().toISOString()
   });
 }
+
+/**
+ * Broadcast call status (ringing, in-progress, completed) to subscribers.
+ */
+export function broadcastCallStatus(callSid, status) {
+  if (!monitorNamespace) return;
+  
+  monitorNamespace.to(`call_${callSid}`).emit('call_status', {
+    status,
+    timestamp: new Date().toISOString()
+  });
+}

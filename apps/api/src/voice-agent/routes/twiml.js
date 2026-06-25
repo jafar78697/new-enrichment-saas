@@ -5,6 +5,7 @@ import { env, VOICE_AGENT_ENABLED } from '../config/env.js';
 import { asyncHandler, AppError } from '../utils/errors.js';
 import { validateTwilioSignature } from '../middleware/twilio-signature.js';
 import { wsUrl } from '../utils/http.js';
+import { broadcastCallStatus } from '../websocket/call-monitor.js';
 import { query } from '../../calls-module/db/index.js';
 import axios from 'axios';
 import { normalizeUSPhone } from '../../utils/us-phone.js';
@@ -133,6 +134,13 @@ router.post(
       Duration: req.body.CallDuration,
       contactId,
     });
+
+    if (req.body.CallStatus && req.body.CallSid) {
+      broadcastCallStatus(req.body.CallSid, req.body.CallStatus);
+      if (req.body.ParentCallSid) {
+        broadcastCallStatus(req.body.ParentCallSid, req.body.CallStatus);
+      }
+    }
 
     if (contactId && ['busy', 'failed', 'no-answer', 'canceled'].includes(req.body.CallStatus)) {
       await query(

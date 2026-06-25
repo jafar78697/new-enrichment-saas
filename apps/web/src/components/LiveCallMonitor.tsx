@@ -16,28 +16,82 @@ interface TranscriptEntry {
 export default function LiveCallMonitor({ callSid, onClose, autoStart = false }: LiveCallMonitorProps) {
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
   const [isListening, setIsListening] = useState(false);
+  const [callStatus, setCallStatus] = useState<string>('connecting...');
   const [error, setError] = useState<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const nextStartTimeRef = useRef<number>(0);
+  const nextStartTimeRef = useRef<{ [speaker: string]: number }>({});
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const ringbackRef = useRef<{ oscillators: OscillatorNode[], interval: number | null }>({ oscillators: [], interval: null });
 
   useEffect(() => {
-    // Scroll to bottom when new transcript arrives
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcripts]);
+
+  const startRingback = () => {
+    if (!audioContextRef.current) return;
+    const ctx = audioContextRef.current;
+    if (ringbackRef.current.interval) return;
+
+    const playRing = () => {
+      const now = ctx.currentTime;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.3, now + 0.1);
+      gain.gain.setValueAtTime(0.3, now + 1.9);
+      gain.gain.linearRampToValueAtTime(0, now + 2.0);
+      gain.connect(ctx.destination);
+
+      const osc1 = ctx.createOscillator();
+      osc1.frequency.value = 440;
+      osc1.connect(gain);
+      osc1.start(now);
+      osc1.stop(now + 2.0);
+
+      const osc2 = ctx.createOscillator();
+      osc2.frequency.value = 480;
+      osc2.connect(gain);
+      osc2.start(now);
+      osc2.stop(now + 2.0);
+
+      ringbackRef.current.oscillators.push(osc1, osc2);
+      setTimeout(() => {
+        try { gain.disconnect(); } catch(e) {}
+        ringbackRef.current.oscillators = ringbackRef.current.oscillators.filter(o => o !== osc1 && o !== osc2);
+      }, 2100);
+    };
+
+    playRing();
+    ringbackRef.current.interval = window.setInterval(playRing, 6000);
+  };
+
+  const stopRingback = () => {
+    if (ringbackRef.current.interval) {
+      clearInterval(ringbackRef.current.interval);
+      ringbackRef.current.interval = null;
+    }
+    ringbackRef.current.oscillators.forEach(o => {
+      try { o.stop(); o.disconnect(); } catch(e) {}
+    });
+    ringbackRef.current.oscillators = [];
+  };
+
+  useEffect(() => {
+    if (callStatus === 'ringing' || callStatus === 'initiated') {
+      startRingback();
+    } else {
+      stopRingback();
+    }
+  }, [callStatus]);
 
   const startListening = async () => {
     if (socketRef.current) return;
     try {
-      // Initialize Web Audio API
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       audioContextRef.current = new AudioContextClass({ sampleRate: 8000 });
       await audioContextRef.current.resume();
-      nextStartTimeRef.current = audioContextRef.current.currentTime;
 
-      // Connect to the specific namespace we created in the backend
       const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
       socketRef.current = io(`${SOCKET_URL}/call-monitor`);
 
@@ -46,8 +100,13 @@ export default function LiveCallMonitor({ callSid, onClose, autoStart = false }:
         setIsListening(true);
       });
 
+      socketRef.current.on('call_status', (data: { status: string }) => {
+        setCallStatus(data.status);
+      });
+
       socketRef.current.on('live_audio', (data: { speaker: string; audio: string }) => {
-        playAudioChunk(data.audio);
+        if (callStatus !== 'in-progress') setCallStatus('in-progress');
+        playAudioChunk(data.audio, data.speaker);
       });
 
       socketRef.current.on('live_transcript', (data: TranscriptEntry) => {
@@ -66,6 +125,7 @@ export default function LiveCallMonitor({ callSid, onClose, autoStart = false }:
   };
 
   const stopListening = () => {
+    stopRingback();
     if (socketRef.current) {
       socketRef.current.emit('unsubscribe_call', { callSid });
       socketRef.current.disconnect();
@@ -85,8 +145,7 @@ export default function LiveCallMonitor({ callSid, onClose, autoStart = false }:
     };
   }, [callSid, autoStart]);
 
-  // Decode base64 16-bit PCM (8000Hz) and play it
-  const playAudioChunk = (base64PCM: string) => {
+  const playAudioChunk = (base64PCM: string, speaker: string) => {
     if (!audioContextRef.current) return;
     
     try {
@@ -98,7 +157,6 @@ export default function LiveCallMonitor({ callSid, onClose, autoStart = false }:
         view[i] = binaryStr.charCodeAt(i);
       }
 
-      // PCM 16-bit to Float32 (-1.0 to 1.0)
       const int16Array = new Int16Array(buffer);
       const float32Array = new Float32Array(int16Array.length);
       for (let i = 0; i < int16Array.length; i++) {
@@ -112,17 +170,25 @@ export default function LiveCallMonitor({ callSid, onClose, autoStart = false }:
       source.buffer = audioBuffer;
       source.connect(audioContextRef.current.destination);
 
-      // Ensure smooth continuous playback
       const currentTime = audioContextRef.current.currentTime;
-      if (nextStartTimeRef.current < currentTime) {
-        nextStartTimeRef.current = currentTime; // Reset if we fell behind
+      let nextStart = nextStartTimeRef.current[speaker] || currentTime;
+      if (nextStart < currentTime) {
+        nextStart = currentTime;
       }
       
-      source.start(nextStartTimeRef.current);
-      nextStartTimeRef.current += audioBuffer.duration;
+      source.start(nextStart);
+      nextStartTimeRef.current[speaker] = nextStart + audioBuffer.duration;
     } catch (err) {
       console.error('Error decoding audio chunk:', err);
     }
+  };
+
+  const statusLabel = () => {
+    if (!isListening) return 'Disconnected';
+    if (callStatus === 'ringing') return 'Ringing...';
+    if (callStatus === 'in-progress') return 'Connected';
+    if (callStatus === 'completed') return 'Call Ended';
+    return callStatus.charAt(0).toUpperCase() + callStatus.slice(1);
   };
 
   return (
@@ -144,9 +210,18 @@ export default function LiveCallMonitor({ callSid, onClose, autoStart = false }:
             }}></span>
             Live Monitor (Call: {callSid.slice(0, 8)}...)
           </h2>
-          <button onClick={onClose} style={{
-            background: 'transparent', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: '16px'
-          }}>✕</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ 
+              fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', 
+              padding: '4px 8px', borderRadius: '4px',
+              backgroundColor: callStatus === 'ringing' ? '#F59E0B' : callStatus === 'in-progress' ? '#10B981' : '#374151'
+            }}>
+              {statusLabel()}
+            </span>
+            <button onClick={onClose} style={{
+              background: 'transparent', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: '16px'
+            }}>✕</button>
+          </div>
         </div>
 
         {error && <div style={{ background: '#7F1D1D', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px' }}>{error}</div>}
