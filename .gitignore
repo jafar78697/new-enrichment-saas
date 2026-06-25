@@ -17,3 +17,10 @@ build/
 .next/
 coverage/
 .turbo/
+*.log
+*.pid
+*.tsbuildinfo
+__pycache__/
+*.pyc
+apps/api/api.log
+apps/api/api.pid

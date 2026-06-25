@@ -3,7 +3,7 @@
 Welcome to the Enrichment SaaS platform.
 
 > [!IMPORTANT]  
-> **If you are an AI assistant or a new developer**, please immediately read [AI_GUIDE.md](./AI_GUIDE.md) before making any code changes. It contains critical information about the architecture, tech stack, database, and deployment pipeline.
+> **If you are an AI assistant or a new developer**, first read [AGENTS.md](./AGENTS.md). Then read [AI_GUIDE.md](./AI_GUIDE.md) only if the task touches deployment, EC2, PM2, database, or multi-service behavior.
 
 ## Overview
 This repository contains:
@@ -13,6 +13,7 @@ This repository contains:
 - `apps/worker-browser/`: Node.js headless browser fallback worker
 
 ## Documentation
+- Coding agent quick map: [AGENTS.md](./AGENTS.md)
 - Technical Guide: [AI_GUIDE.md](./AI_GUIDE.md)
 - Old Status Logs & Bug Fixes: [docs/archive/](./docs/archive/)
 - Initial Design Specs: [docs/specs/](./docs/specs/)

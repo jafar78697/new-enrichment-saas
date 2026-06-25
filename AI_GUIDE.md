@@ -1,7 +1,7 @@
 # AI Agent Guide - Enrichment SaaS
 
 > [!IMPORTANT]
-> **READ THIS BEFORE MAKING ANY CHANGES**
+> Read `AGENTS.md` first. Read this file when the task touches deployment, EC2, PM2, database, or multi-service production behavior.
 > This repository is a complex, multi-service application with strict deployment, database, and backend architectures. Follow these rules to avoid breaking the production system.
 
 ## 1. Project Architecture
