@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bot, Mic, Phone, PhoneCall, RefreshCw, Search, Square, UserPlus, Volume2 } from 'lucide-react';
-import { leadsApi, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
+import { leadsApi, type CallingQueueLead, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
 import LiveCallMonitor from '../components/LiveCallMonitor';
@@ -20,6 +20,15 @@ const AGENT_TABS = [
 ] as const;
 
 type AgentTab = (typeof AGENT_TABS)[number]['key'];
+
+type CallingStatus = {
+  isRunning: boolean;
+  activeLeadId: string | null;
+  activeCallSid: string | null;
+  lastCall: CallingQueueLead | null;
+  nextLead: CallingQueueLead | null;
+  queueCount: number;
+};
 
 function getMeetingTime(lead: Lead) {
   const meeting = lead.raw_data?.meeting;
@@ -46,6 +55,7 @@ export default function AgentPipelinePage() {
   const [automationRunning, setAutomationRunning] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
   const [activeCallSid, setActiveCallSid] = useState<string | null>(null);
+  const [callingStatus, setCallingStatus] = useState<CallingStatus | null>(null);
 
   const loadPipeline = async () => {
     try {
@@ -55,6 +65,7 @@ export default function AgentPipelinePage() {
         leadsApi.callingStatus(),
       ]);
       setLeads(leadResult.leads || []);
+      setCallingStatus(callingStatus);
       setAutomationRunning(callingStatus.isRunning);
       setActiveCallSid(callingStatus.activeCallSid || Object.values(activeResult.activeCalls || {})[0] || null);
       setError('');
@@ -71,7 +82,7 @@ export default function AgentPipelinePage() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => void loadPipeline(), 10000);
+    const timer = window.setInterval(() => void loadPipeline(), 5000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -211,6 +222,36 @@ export default function AgentPipelinePage() {
     won: leads.filter((lead) => lead.lead_stage === 'closed_won').length,
   }), [leads]);
 
+  const activeLead = useMemo(
+    () => leads.find((lead) => lead.id === callingStatus?.activeLeadId) || null,
+    [leads, callingStatus?.activeLeadId],
+  );
+
+  const bannerText = useMemo(() => {
+    if (!callingStatus) return '';
+    if (activeLead) {
+      return `Abhi call ${activeLead.company_name || activeLead.domain} ko ja rahi hai${activeLead.primary_phone ? ` (${activeLead.primary_phone})` : ''}.`;
+    }
+    if (callingStatus.isRunning && callingStatus.nextLead) {
+      return `Calling ON hai. Next lead ${callingStatus.nextLead.company_name || callingStatus.nextLead.domain}${callingStatus.nextLead.primary_phone ? ` (${callingStatus.nextLead.primary_phone})` : ''} queue me hai.`;
+    }
+    if (callingStatus.isRunning) {
+      return 'Calling ON hai, lekin is waqt koi live call nahi chal rahi.';
+    }
+    if (callingStatus.lastCall) {
+      return `Calling OFF hai. Last call ${callingStatus.lastCall.company_name || callingStatus.lastCall.domain}${callingStatus.lastCall.primary_phone ? ` (${callingStatus.lastCall.primary_phone})` : ''} ko gayi thi aur stage ${STAGE_LABELS[callingStatus.lastCall.lead_stage]}.`;
+    }
+    return 'Calling abhi OFF hai. Start Calling dabao to assigned leads par automatic calls shuru ho jayengi.';
+  }, [activeLead, callingStatus]);
+
+  const callingEmptyText = useMemo(() => {
+    if (!callingStatus?.isRunning) return 'No leads in this stage';
+    if (callingStatus.nextLead) {
+      return `Live call abhi nahi chal rahi. Next lead ${callingStatus.nextLead.company_name || callingStatus.nextLead.domain} queue me hai.`;
+    }
+    return 'Calling ON hai, lekin is waqt koi live call nahi chal rahi.';
+  }, [callingStatus]);
+
   return (
     <div style={{ fontFamily: 'Manrope, sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
@@ -287,6 +328,19 @@ export default function AgentPipelinePage() {
       {isTestingBrowser && <BrowserAgentTester onClose={() => setIsTestingBrowser(false)} />}
       {error && <Alert text={error} danger />}
       {message && <Alert text={message} />}
+      {!!bannerText && (
+        <Alert
+          text={bannerText}
+          action={callingStatus ? (
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', color: 'inherit' }}>
+              <span>Queue: {callingStatus.queueCount}</span>
+              {callingStatus.lastCall?.last_contacted_at && (
+                <span>Last update: {new Date(callingStatus.lastCall.last_contacted_at).toLocaleString()}</span>
+              )}
+            </div>
+          ) : null}
+        />
+      )}
 
       {activeTab === 'leads' ? (
         <AvailableLeadList
@@ -306,6 +360,7 @@ export default function AgentPipelinePage() {
         <PipelineLeadList
           leads={visibleLeads}
           loading={loading}
+          emptyText={activeTab === 'calling' ? callingEmptyText : 'No leads in this stage'}
         />
       )}
     </div>
@@ -369,12 +424,14 @@ function AvailableLeadList({
 function PipelineLeadList({
   leads,
   loading,
+  emptyText,
 }: {
   leads: Lead[];
   loading: boolean;
+  emptyText: string;
 }) {
   if (loading) return <Empty text="Loading pipeline..." />;
-  if (!leads.length) return <Empty text="No leads in this stage" />;
+  if (!leads.length) return <Empty text={emptyText} />;
 
   return (
     <div style={{ overflowX: 'auto' }}>

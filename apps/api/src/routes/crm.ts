@@ -256,10 +256,66 @@ export default async function crmRoutes(fastify: FastifyInstance) {
        ORDER BY last_contacted_at DESC NULLS LAST LIMIT 1`,
       [tenantId],
     );
+    const { rows: lastRows } = await fastify.db.query(
+      `SELECT
+         id,
+         company_name,
+         domain,
+         primary_phone,
+         lead_stage,
+         last_contacted_at,
+         raw_data->>'active_call_sid' AS active_call_sid
+       FROM enrichment_results
+       WHERE tenant_id = $1
+         AND assigned_to_ai = true
+         AND last_contacted_at IS NOT NULL
+       ORDER BY last_contacted_at DESC
+       LIMIT 1`,
+      [tenantId],
+    );
+    const { rows: nextRows } = await fastify.db.query(
+      `SELECT
+         id,
+         company_name,
+         domain,
+         primary_phone,
+         lead_stage
+       FROM enrichment_results
+       WHERE tenant_id = $1
+         AND assigned_to_ai = true
+         AND lead_stage IN ('assigned', 'followup')
+         AND primary_phone IS NOT NULL
+         AND primary_phone <> ''
+         AND (next_followup_at IS NULL OR next_followup_at <= NOW())
+       ORDER BY
+         CASE WHEN lead_stage = 'followup' THEN 0 ELSE 1 END,
+         COALESCE(next_followup_at, created_at) ASC
+       LIMIT 1`,
+      [tenantId],
+    );
+    const { rows: queueRows } = await fastify.db.query(
+      `SELECT COUNT(*)::int AS count
+       FROM enrichment_results
+       WHERE tenant_id = $1
+         AND assigned_to_ai = true
+         AND lead_stage IN ('assigned', 'followup')
+         AND primary_phone IS NOT NULL
+         AND primary_phone <> ''`,
+      [tenantId],
+    );
+
+    const activeLeadId = callRows[0]?.id || null;
+    const activeCallSid = callRows[0]?.active_call_sid || null;
+    const lastCall = lastRows[0] || null;
+    const nextLead = nextRows[0] || null;
+
     return {
       isRunning: controlRows[0]?.is_running === true,
-      activeLeadId: callRows[0]?.id || null,
-      activeCallSid: callRows[0]?.active_call_sid || null,
+      activeLeadId,
+      activeCallSid,
+      lastCall,
+      nextLead,
+      queueCount: queueRows[0]?.count || 0,
     };
   });
 

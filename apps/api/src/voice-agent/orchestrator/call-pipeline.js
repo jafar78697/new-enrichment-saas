@@ -217,6 +217,8 @@ export async function startCallPipeline(streamSid, callSid, customParams = {}, a
       industry: session.metadata.industry,
     });
 
+    let companyName = null;
+
     if (customParams.contactId) {
       try {
         const { rows } = await query(
@@ -227,6 +229,7 @@ export async function startCallPipeline(streamSid, callSid, customParams = {}, a
         );
         if (rows.length > 0) {
           const lead = rows[0];
+          companyName = lead.company_name;
           const niche = lead.niche_name || lead.industry_guess || 'Unknown';
           systemPrompt += `\n\n# Current niche and lead context\nCompany: ${lead.company_name || 'Unknown'}
 Niche: ${niche}
@@ -242,7 +245,7 @@ Use only relevant facts from this context. Do not read this block aloud.`;
 
     await setState(callSid, 'listening');
 
-    startOpenAIPipeline(streamSid, callSid, customParams, activeAdapter, systemPrompt, null);
+    startOpenAIPipeline(streamSid, callSid, customParams, activeAdapter, systemPrompt, null, companyName);
 
   } catch (err) {
     console.error(`[voice-agent:orchestrator] Failed to start pipeline for ${callSid}:`, err.message);
@@ -252,7 +255,7 @@ Use only relevant facts from this context. Do not read this block aloud.`;
 /**
  * Start the OpenAI Realtime pipeline using VoiceKernel
  */
-export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdapter, systemPrompt, initialUtterance) {
+export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdapter, systemPrompt, initialUtterance, companyName = null) {
   console.log(`[voice-agent:orchestrator] Bridging ${callSid} to OpenAI Realtime via VoiceKernel`);
   
   const tools = [
@@ -358,6 +361,8 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
 
       if (initialUtterance) {
         openaiSession.triggerResponse(`User said: "${initialUtterance}". Respond naturally.`);
+      } else if (companyName) {
+        openaiSession.triggerResponse(`The phone call has just connected. Greet the caller warmly, ask if you're speaking with the owner of ${companyName}, and briefly introduce yourself as the Jento AI assistant.`);
       } else {
         openaiSession.triggerResponse('The phone call has just connected. Greet the caller warmly, introduce yourself as the Jento AI assistant, and ask one short opening question.');
       }

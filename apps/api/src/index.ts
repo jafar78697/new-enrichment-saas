@@ -218,6 +218,11 @@ import { startWarmupScheduler } from './calls-module/warmup.js';
 
 const start = async () => {
   try {
+    if (process.env.DISABLE_OUTBOUND_WORKER !== 'true') {
+      const { runOutboundCallerLoop } = await import('./workers/outbound-caller.js');
+      runOutboundCallerLoop().catch(err => console.error('[startup] Outbound caller error:', err));
+    }
+
     // Register expressPlugin for Express middleware support required by both Voice and Calls modules
     await fastify.register(expressPlugin);
 

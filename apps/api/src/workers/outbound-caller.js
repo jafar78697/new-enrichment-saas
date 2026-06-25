@@ -43,24 +43,25 @@ async function runWorkerTick() {
         if ((activeRows[0]?.count || 0) > 0) continue;
 
         const { rows } = await query(
-          `SELECT id, tenant_id, primary_phone, company_name, domain
-           FROM enrichment_results
-           WHERE tenant_id = $1 AND assigned_to_ai = true
-             AND lead_stage IN ('assigned', 'followup')
-             AND primary_phone IS NOT NULL AND primary_phone <> ''
-             AND (next_followup_at IS NULL OR next_followup_at <= NOW())
-           ORDER BY CASE lead_stage WHEN 'followup' THEN 0 ELSE 1 END, created_at ASC
-           LIMIT 1`,
+          `UPDATE enrichment_results 
+           SET lead_stage = 'calling', last_contacted_at = NOW() 
+           WHERE id = (
+             SELECT id FROM enrichment_results
+             WHERE tenant_id = $1 AND assigned_to_ai = true
+               AND lead_stage IN ('assigned', 'followup')
+               AND primary_phone IS NOT NULL AND primary_phone <> ''
+               AND (next_followup_at IS NULL OR next_followup_at <= NOW())
+             ORDER BY CASE lead_stage WHEN 'followup' THEN 0 ELSE 1 END, created_at ASC
+             FOR UPDATE SKIP LOCKED
+             LIMIT 1
+           )
+           RETURNING id, tenant_id, primary_phone, company_name, domain`,
           [control.tenant_id],
         );
         if (rows.length === 0) continue;
 
         const lead = rows[0];
         claimedLeadId = lead.id;
-        await query(
-          `UPDATE enrichment_results SET lead_stage = 'calling', last_contacted_at = NOW() WHERE id = $1`,
-          [lead.id],
-        );
 
         console.log(`[outbound-caller] Initiating call to lead: ${lead.company_name || lead.domain} (${lead.primary_phone})`);
         const webhookUrl = `${PUBLIC_BASE_URL}/api/voice/twiml/outbound?contactId=${lead.id}&tenantId=${lead.tenant_id}`;
