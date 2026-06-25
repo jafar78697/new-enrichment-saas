@@ -341,6 +341,31 @@ export default function AgentPipelinePage() {
           ) : null}
         />
       )}
+      {callingStatus && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>
+          <StatusStripCard
+            title="Current Lead"
+            accent="#2563EB"
+            name={activeLead ? activeLead.company_name || activeLead.domain : 'No live call'}
+            detail={activeLead?.primary_phone || (callingStatus.isRunning ? 'Waiting for live call connect' : 'Calling is currently stopped')}
+            helper={activeLead ? 'Live call in progress' : callingStatus.isRunning ? 'Auto dialer is on' : 'Press Start Calling to resume'}
+          />
+          <StatusStripCard
+            title="Next Lead"
+            accent="#0F766E"
+            name={callingStatus.nextLead ? callingStatus.nextLead.company_name || callingStatus.nextLead.domain : 'No lead in queue'}
+            detail={callingStatus.nextLead?.primary_phone || `Queue count: ${callingStatus.queueCount}`}
+            helper={callingStatus.nextLead ? 'Next auto-call target' : 'Assign more leads or start follow-up queue'}
+          />
+          <StatusStripCard
+            title="Last Call"
+            accent="#D97706"
+            name={callingStatus.lastCall ? callingStatus.lastCall.company_name || callingStatus.lastCall.domain : 'No previous call'}
+            detail={callingStatus.lastCall?.primary_phone || 'No phone available'}
+            helper={callingStatus.lastCall ? STAGE_LABELS[callingStatus.lastCall.lead_stage] : 'Result will appear here'}
+          />
+        </div>
+      )}
 
       {activeTab === 'leads' ? (
         <AvailableLeadList
@@ -480,6 +505,29 @@ function Stat({ label, value, color, background }: { label: string; value: numbe
     <div style={{ minHeight: 82, padding: '15px 18px', border: '1px solid #D8E1D7', borderRadius: 8, background }}>
       <div style={{ fontSize: 11, fontWeight: 700, color, textTransform: 'uppercase' }}>{label}</div>
       <div style={{ marginTop: 8, fontSize: 23, fontWeight: 700, color }}>{value}</div>
+    </div>
+  );
+}
+
+function StatusStripCard({
+  title,
+  accent,
+  name,
+  detail,
+  helper,
+}: {
+  title: string;
+  accent: string;
+  name: string;
+  detail: string;
+  helper: string;
+}) {
+  return (
+    <div style={{ minHeight: 92, padding: '14px 16px', border: `1px solid ${accent}30`, borderRadius: 8, background: '#fff' }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: accent, textTransform: 'uppercase' }}>{title}</div>
+      <div style={{ marginTop: 8, color: '#14202B', fontSize: 15, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
+      <div style={{ marginTop: 6, color: '#334155', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detail}</div>
+      <div style={{ marginTop: 6, color: '#64748B', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{helper}</div>
     </div>
   );
 }
