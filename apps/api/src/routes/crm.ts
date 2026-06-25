@@ -63,7 +63,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     const { tenantId } = request.tenant;
     const q = request.query as any;
     const page = Math.max(1, parseInt(q.page || '1'));
-    const limit = Math.min(200, parseInt(q.limit || '100'));
+    const limit = Math.min(1000, parseInt(q.limit || '100'));
     const offset = (page - 1) * limit;
 
     const where: string[] = ['tenant_id = $1'];
@@ -90,7 +90,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
              created_at
       FROM enrichment_results
       WHERE ${where.join(' AND ')}
-      ORDER BY created_at DESC
+      ${q.assigned_to_ai 
+        ? `ORDER BY last_contacted_at DESC NULLS LAST, created_at ASC` 
+        : `ORDER BY created_at DESC`}
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
     const { rows } = await fastify.db.query(sql, [...params, limit, offset]);
