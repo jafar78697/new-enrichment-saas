@@ -106,6 +106,10 @@ export interface CallingQueueLead {
   lead_stage: Stage;
   last_contacted_at?: string | null;
   active_call_sid?: string | null;
+  raw_data?: {
+    recording_url?: string;
+    [key: string]: unknown;
+  } | null;
 }
 
 export const leadsApi = {

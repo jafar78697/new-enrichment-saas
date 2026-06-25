@@ -6,7 +6,6 @@ import { createOpenAISession } from '../services/llm/openai-realtime.service.js'
 import { getSystemPrompt, getNicheGuidance } from '../services/llm/prompts/system-prompts.js';
 import { broadcastCallAudio, broadcastCallTranscript } from '../websocket/call-monitor.js';
 import { VoiceKernel } from './voice.kernel.js';
-import { createGoogleGatekeeperEngine } from './google-gatekeeper-engine.js';
 
 import {
   createSession,
@@ -30,7 +29,7 @@ function classifyCallSignal(text = '') {
   const lower = String(text || '').toLowerCase().trim();
   let ownerConfidenceDelta = 0;
   let detectedRole = null;
-  let suggestedMode = 'google_gatekeeper';
+  let suggestedMode = 'openai_owner';
   let auditLabel = null;
 
   if (!lower) {
@@ -39,7 +38,7 @@ function classifyCallSignal(text = '') {
 
   if (/(press\s+\d|for sales|for support|for billing|for appointments|main menu|please listen carefully|operator)/.test(lower)) {
     detectedRole = 'ivr';
-    suggestedMode = 'google_ivr';
+    suggestedMode = 'openai_owner';
     auditLabel = 'ivr_detected';
   } else if (/(owner speaking|i am the owner|i'm the owner|this is the owner|speaking|i handle that|i'm the manager|i am the manager|person who handles calls)/.test(lower)) {
     detectedRole = 'owner';
@@ -52,13 +51,13 @@ function classifyCallSignal(text = '') {
     if (/(i'm the manager|i am the manager)/.test(lower)) ownerConfidenceDelta += 0.4;
   } else if (/(how can i help you|please hold|hold on|one moment|let me transfer|who is calling|what is this about|front desk|reception)/.test(lower)) {
     detectedRole = 'gatekeeper';
-    suggestedMode = 'google_gatekeeper';
+    suggestedMode = 'openai_owner';
     auditLabel = /transfer/.test(lower) ? 'transferred_to_owner' : 'receptionist_reached';
 
     if (/(let me transfer|hold on|one moment)/.test(lower)) ownerConfidenceDelta += 0.2;
   } else if (/(support|billing|customer service|wrong department)/.test(lower)) {
     detectedRole = 'non_owner_department';
-    suggestedMode = 'google_gatekeeper';
+    suggestedMode = 'openai_owner';
     auditLabel = 'wrong_department';
     ownerConfidenceDelta -= 0.5;
   } else if (/(not interested|stop calling|do not call|remove me)/.test(lower)) {
@@ -67,7 +66,7 @@ function classifyCallSignal(text = '') {
     auditLabel = 'do_not_call';
   } else if (/(call back|callback|try again later|owner is not here|not available)/.test(lower)) {
     detectedRole = 'callback';
-    suggestedMode = 'google_gatekeeper';
+    suggestedMode = 'openai_owner';
     auditLabel = 'callback_requested';
   }
 
@@ -81,7 +80,7 @@ async function processTranscriptSignal({ streamSid, callSid, customParams, text,
   const signal = classifyCallSignal(text);
   const nextConfidence = Math.max(0, Math.min(1, currentConfidence + signal.ownerConfidenceDelta));
   const ownerConfirmed = nextConfidence >= 0.75 || signal.detectedRole === 'owner';
-  const voiceMode = ownerConfirmed ? 'openai_owner' : signal.suggestedMode || currentMeta.voiceMode || 'google_gatekeeper';
+  const voiceMode = ownerConfirmed ? 'openai_owner' : signal.suggestedMode || currentMeta.voiceMode || 'openai_owner';
   const ownerHandoffTriggered = Boolean(currentMeta.ownerHandoffTriggered);
 
   if (session) {
@@ -342,12 +341,7 @@ export function initOrchestrator() {
       broadcastCallAudio(callSid, 'prospect', payload);
     }
 
-    if (pipeline.mode === 'openai_owner') {
-      pipeline.kernel?.emit('audio.in', { base64Audio: payload });
-      return;
-    }
-
-    pipeline.gatekeeperEngine?.write(payload);
+    pipeline.kernel?.emit('audio.in', { base64Audio: payload });
   });
 
   onStreamEvent('stream:stop', (data) => {
@@ -388,13 +382,13 @@ export async function startCallPipeline(streamSid, callSid, customParams = {}, a
     });
 
     await updateLeadVoiceState(customParams.contactId, {
-      voice_mode: 'google_gatekeeper',
+      voice_mode: 'openai_owner',
       owner_confidence: 0,
       owner_confirmed: false,
       ivr_attempts: 0,
       premium_started_at: null,
       current_role: 'unknown',
-    }, '[AI Call] Call connected. Gatekeeper mode started.');
+    }, '[AI Call] Call connected. OpenAI voice mode started.');
 
     let systemPrompt = getSystemPrompt({
       agentType: session.metadata.agentType,
@@ -436,7 +430,7 @@ Use only relevant facts from this context. Do not read this block aloud.`;
         metadata: {
           ...session.metadata,
           leadFastContext,
-          voiceMode: 'google_gatekeeper',
+          voiceMode: 'openai_owner',
           ownerConfidence: 0,
           ownerConfirmed: false,
           ownerHandoffTriggered: false,
@@ -445,57 +439,6 @@ Use only relevant facts from this context. Do not read this block aloud.`;
     }
 
     startOpenAIPipeline(streamSid, callSid, customParams, activeAdapter, systemPrompt, null, companyName);
-
-    const gatekeeperPrompt = `${systemPrompt}
-
-# Cost mode
-- You are in low-cost gatekeeper mode.
-- Your job is only to handle IVR, receptionist, transfer, hold, and owner detection.
-- Keep replies under 12 words where possible.
-- Do not pitch deeply before the owner joins.
-- If a human asks who is calling, say: "This is Jento AI calling about ${companyName || 'their company'}."
-- If transferred to the owner, stop and let premium mode continue.`;
-
-    const gatekeeperEngine = createGoogleGatekeeperEngine({
-      streamSid,
-      callSid,
-      systemPrompt: gatekeeperPrompt,
-      companyName,
-      onTranscript: async ({ text, isFinal, source }) => {
-        if (!isFinal) return;
-        console.log(`[voice-agent:orchestrator] User said (${callSid}) [${source}]: "${text}"`);
-        await addConversationTurn(callSid, 'user', text);
-        broadcastCallTranscript(callSid, 'prospect', text);
-      },
-      onOwnerDetected: async ({ text, source }) => {
-        const result = await processTranscriptSignal({ streamSid, callSid, customParams, text, source });
-        const pipeline = activePipelines.get(streamSid);
-        if (result.ownerConfirmed && pipeline) {
-          pipeline.mode = 'openai_owner';
-          return true;
-        }
-        return false;
-      },
-      onHoldDetected: async ({ type, text }) => {
-        if (!customParams.contactId) return;
-        await updateLeadVoiceState(customParams.contactId, {
-          hold_detected: true,
-          hold_reason: type,
-          hold_last_text: text,
-        }, `[AI Call] Hold detected: ${type}`);
-      },
-      onError: (err) => {
-        console.error(`[voice-agent:orchestrator] Google gatekeeper error for ${callSid}:`, err.message);
-      },
-    });
-
-    const pipeline = activePipelines.get(streamSid);
-    if (pipeline) {
-      pipeline.gatekeeperEngine = gatekeeperEngine;
-      pipeline.mode = 'google_gatekeeper';
-    }
-
-    await gatekeeperEngine.start();
 
   } catch (err) {
     console.error(`[voice-agent:orchestrator] Failed to start pipeline for ${callSid}:`, err.message);
@@ -608,10 +551,14 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
     
     // NEW v3 READY SIGNAL: Clean, deterministic, and event-driven!
     onSystemReady: async () => {
-      console.log(`[voice-agent:orchestrator] 🚀 OpenAI System Ready for ${callSid}. Premium owner mode standing by.`);
+      console.log(`[voice-agent:orchestrator] 🚀 OpenAI System Ready for ${callSid}. Triggering greeting.`);
       await setState(callSid, 'listening');
       if (initialUtterance) {
         openaiSession.triggerResponse(`User said: "${initialUtterance}". Respond naturally.`);
+      } else if (companyName) {
+        openaiSession.triggerResponse(`The phone call has just connected. Say exactly: "Hi, this is Jento AI calling about ${companyName}. Am I speaking with the owner?" Then stop and listen.`);
+      } else {
+        openaiSession.triggerResponse('The phone call has just connected. Say exactly: "Hi, this is Jento AI calling about your company. Am I speaking with the owner?" Then stop and listen.');
       }
     },
     
@@ -716,7 +663,7 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
     kernel,
     openaiSession,
     contactId: customParams.contactId || null,
-    mode: 'google_gatekeeper',
+    mode: 'openai_owner',
     gatekeeperEngine: null,
   });
 }

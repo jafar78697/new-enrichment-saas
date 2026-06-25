@@ -139,7 +139,7 @@ router.post(
   '/webhooks/call-status',
   validateTwilioSignature,
   asyncHandler(async (req, res) => {
-    const contactId = req.query.contactId;
+    const contactId = typeof req.query.contactId === 'string' ? req.query.contactId : null;
     console.log('[voice-agent] Call status webhook:', {
       CallSid: req.body.CallSid,
       CallStatus: req.body.CallStatus,
@@ -152,8 +152,8 @@ router.post(
         `UPDATE enrichment_results
          SET lead_stage = 'no_answer',
              raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
-             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1)
-         WHERE id = $2 AND lead_stage = 'calling'`,
+             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1::text)
+         WHERE id = $2::uuid AND lead_stage = 'calling'`,
         [`[AI Call] Twilio status: ${req.body.CallStatus}`, contactId],
       );
     }
@@ -163,8 +163,8 @@ router.post(
         `UPDATE enrichment_results
          SET lead_stage = 'called',
              raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
-             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1)
-         WHERE id = $2 AND lead_stage = 'calling'`,
+             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1::text)
+         WHERE id = $2::uuid AND lead_stage = 'calling'`,
         [`[AI Call] Completed${req.body.CallDuration ? ` (${req.body.CallDuration}s)` : ''}.`, contactId],
       );
     }
@@ -177,14 +177,14 @@ router.post(
                 'recording_sid', $1::text,
                 'recording_status', $2::text,
                 'recording_url', $3::text,
-                'recording_enabled', true
+               'recording_enabled', true
               ),
              lead_notes = CASE
                WHEN $2::text = 'completed'
                  THEN CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Recording available.')
                ELSE lead_notes
              END
-         WHERE id = $4`,
+         WHERE id = $4::uuid`,
         [
           req.body.RecordingSid || null,
           req.body.RecordingStatus || null,

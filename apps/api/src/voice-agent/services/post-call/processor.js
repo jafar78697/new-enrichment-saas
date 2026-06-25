@@ -22,10 +22,10 @@ let importsInitialized = false;
 async function initImports() {
   if (importsInitialized) return;
   try {
-    const dbModule = await import('../../calls-module/db/index.js');
+    const dbModule = await import('../../../calls-module/db/index.js');
     callsQuery = dbModule.query;
 
-    const socketModule = await import('../../calls-module/services/socket.service.js');
+    const socketModule = await import('../../../calls-module/services/socket.service.js');
     emitToAgent = socketModule.emitToAgent;
     importsInitialized = true;
   } catch (err) {

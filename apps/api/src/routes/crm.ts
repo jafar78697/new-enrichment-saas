@@ -264,7 +264,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          primary_phone,
          lead_stage,
          last_contacted_at,
-         raw_data->>'active_call_sid' AS active_call_sid
+         raw_data->>'active_call_sid' AS active_call_sid,
+         raw_data
        FROM enrichment_results
        WHERE tenant_id = $1
          AND assigned_to_ai = true
@@ -414,6 +415,12 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         statusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
         statusCallbackMethod: 'POST',
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+        record: true,
+        recordingChannels: 'mono',
+        recordingTrack: 'both',
+        recordingStatusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
+        recordingStatusCallbackMethod: 'POST',
+        recordingStatusCallbackEvent: ['in-progress', 'completed', 'absent'],
         machineDetection: 'Enable',
         machineDetectionTimeout: 8,
       });
