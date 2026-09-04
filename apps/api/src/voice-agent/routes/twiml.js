@@ -7,8 +7,7 @@ import { validateTwilioSignature } from '../middleware/twilio-signature.js';
 import { wsUrl } from '../utils/http.js';
 import { broadcastCallStatus } from '../websocket/call-monitor.js';
 import { query } from '../../calls-module/db/index.js';
-import axios from 'axios';
-import { normalizeUSPhone } from '../../utils/us-phone.js';
+import { normalizeNorthAmericanPhone } from '../../utils/us-phone.js';
 
 const router = Router();
 
@@ -60,11 +59,11 @@ router.post(
       AnsweredBy: z.string().optional(),
     }).parse({ ...req.body, ...req.query });
 
-    const toStr = normalizeUSPhone(payload.To);
+    const toStr = normalizeNorthAmericanPhone(payload.To);
 
     if (!toStr || toStr.length < 4) {
       const errResponse = new RestClient.LaML.VoiceResponse();
-      errResponse.say({ voice: 'alice' }, 'Sorry, only valid USA numbers are supported for this call.');
+      errResponse.say({ voice: 'alice' }, 'Sorry, only valid USA or Canada numbers are supported for this call.');
       errResponse.hangup();
       return res.type('text/xml').send(errResponse.toString());
     }
@@ -73,18 +72,30 @@ router.post(
 
     const response = new RestClient.LaML.VoiceResponse();
 
-    if (payload.AnsweredBy === 'fax') {
+    const answeredBy = String(payload.AnsweredBy || '').toLowerCase();
+    const nonHumanAnswer = answeredBy === 'fax' || answeredBy.startsWith('machine');
+    if (nonHumanAnswer) {
       if (payload.contactId) {
         await query(
           `UPDATE enrichment_results
            SET lead_stage = 'no_answer',
-               raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
-               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1::text)
-           WHERE id = $2::uuid`,
-          ['[AI Call] Fax detected by SignalWire; call ended automatically.', payload.contactId],
+               raw_data = (COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid')
+                 || jsonb_build_object(
+                      'answered_by', $1::text,
+                      'call_status', 'machine_detected',
+                      'machine_detection_seconds', 10,
+                      'call_ended_at', NOW()::text
+                    ),
+               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $2::text)
+           WHERE id = $3::uuid AND ai_voice_consent = true AND do_not_call = false`,
+          [
+            answeredBy,
+            `[AI Call] ${answeredBy || 'machine'} detected by SignalWire in the first 10 seconds; call ended before Deepgram started.`,
+            payload.contactId,
+          ],
         );
       }
-      console.log(`[voice-agent] ${payload.AnsweredBy} detected for ${payload.CallSid}; hanging up before AI stream.`);
+      console.log(`[voice-agent] ${answeredBy} detected for ${payload.CallSid}; hanging up before AI stream.`);
       response.hangup();
       return res.type('text/xml').send(response.toString());
     }
@@ -96,6 +107,7 @@ router.post(
       // 1. Get provider
       const { rows } = await query(
         `SELECT er.ai_agent_provider, er.assigned_ai_agent_id, er.tenant_id,
+                er.ai_voice_consent, er.do_not_call,
                 ac.id AS active_agent_id
          FROM enrichment_results er
          LEFT JOIN ai_agent_configs ac
@@ -103,18 +115,29 @@ router.post(
           AND ac.tenant_id = er.tenant_id
           AND ac.is_active = true
           AND ac.mode = 'outbound'
-         WHERE er.id = $1`,
+         WHERE er.id = $1
+           AND er.ai_voice_consent = true
+           AND er.do_not_call = false`,
         [payload.contactId],
       );
       if (rows.length > 0) {
         provider = rows[0].active_agent_id ? rows[0].ai_agent_provider || null : null;
-        const tenantId = payload.tenantId || rows[0].tenant_id;
+        const tenantId = rows[0].tenant_id;
         // 2. Create ai_call_sessions record
         try {
           const res = await query(`
-            INSERT INTO ai_call_sessions (tenant_id, lead_id, provider, signalwire_call_sid, agent_config_id, started_at)
-            VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id
-          `, [tenantId, payload.contactId, provider, payload.CallSid, rows[0].assigned_ai_agent_id || null]);
+            INSERT INTO ai_call_sessions (
+              tenant_id, lead_id, provider, signalwire_call_sid, agent_config_id,
+              started_at, call_state, first_answer_type
+            ) VALUES ($1, $2, $3, $4, $5, NOW(), 'starting', $6) RETURNING id
+          `, [
+            tenantId,
+            payload.contactId,
+            provider,
+            payload.CallSid,
+            rows[0].assigned_ai_agent_id || null,
+            answeredBy === 'human' ? 'HUMAN_LIVE' : null,
+          ]);
           sessionId = res.rows[0].id;
         } catch (e) {
           console.error('[voice-agent] Failed to create call session:', e.message);
@@ -319,63 +342,6 @@ router.post(
     // when it receives the Twilio Media Streams 'stop' event.
 
     res.status(200).json({ received: true });
-  }),
-);
-
-router.get(
-  '/recordings/:contactId/stream',
-  asyncHandler(async (req, res) => {
-    const { contactId } = req.params;
-    const { rows } = await query(
-      `SELECT
-         raw_data->>'recording_url' AS recording_url,
-         raw_data->>'recording_sid' AS recording_sid
-       FROM enrichment_results
-       WHERE id = $1`,
-      [contactId],
-    );
-
-    const recordingUrl = rows[0]?.recording_url;
-    const recordingSid = rows[0]?.recording_sid;
-    if (!recordingUrl) {
-      throw new AppError('Recording not found', 404);
-    }
-
-    const mediaUrl = recordingSid
-      ? `https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Recordings/${recordingSid}.mp3`
-      : recordingUrl;
-
-
-    let response = await axios({
-      method: 'get',
-      url: mediaUrl,
-      responseType: 'stream',
-      maxRedirects: 0,
-      auth: {
-        username: env.TWILIO_ACCOUNT_SID,
-        password: env.TWILIO_AUTH_TOKEN,
-      },
-      headers: req.headers.range ? { Range: req.headers.range } : undefined,
-      validateStatus: (status) => status >= 200 && status < 400,
-    });
-
-    if (response.status >= 300 && response.status < 400 && response.headers.location) {
-      response = await axios({
-        method: 'get',
-        url: response.headers.location,
-        responseType: 'stream',
-        headers: req.headers.range ? { Range: req.headers.range } : undefined,
-        validateStatus: (status) => status >= 200 && status < 400,
-      });
-    }
-
-    res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
-    res.setHeader('Cache-Control', 'no-store');
-    if (response.headers['accept-ranges']) res.setHeader('Accept-Ranges', response.headers['accept-ranges']);
-    if (response.headers['content-length']) res.setHeader('Content-Length', response.headers['content-length']);
-    if (response.headers['content-range']) res.setHeader('Content-Range', response.headers['content-range']);
-    res.status(response.status);
-    response.data.pipe(res);
   }),
 );
 

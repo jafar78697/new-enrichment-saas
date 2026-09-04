@@ -36,12 +36,56 @@ CREATE UNIQUE INDEX IF NOT EXISTS ai_agent_configs_active_inbound_phone_unique
   WHERE is_active = true AND mode = 'inbound' AND assigned_phone_number IS NOT NULL;
 
 ALTER TABLE enrichment_results
+  ADD COLUMN IF NOT EXISTS raw_data JSONB DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS ai_agent_provider TEXT,
-  ADD COLUMN IF NOT EXISTS assigned_ai_agent_id UUID;
+  ADD COLUMN IF NOT EXISTS assigned_ai_agent_id UUID,
+  ADD COLUMN IF NOT EXISTS ai_voice_consent BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS ai_voice_consent_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS ai_voice_consent_source TEXT,
+  ADD COLUMN IF NOT EXISTS do_not_call BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE IF EXISTS contacts
+  ADD COLUMN IF NOT EXISTS ai_voice_consent BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS ai_voice_consent_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS ai_voice_consent_source TEXT,
+  ADD COLUMN IF NOT EXISTS do_not_call BOOLEAN NOT NULL DEFAULT false;
+
+UPDATE enrichment_results
+SET raw_data = '{}'::jsonb
+WHERE raw_data IS NULL;
+
+ALTER TABLE enrichment_results
+  ALTER COLUMN raw_data SET DEFAULT '{}'::jsonb;
+
+CREATE INDEX IF NOT EXISTS enrichment_results_source_contact_idx
+  ON enrichment_results (tenant_id, ((raw_data->>'source_contact_id')))
+  WHERE raw_data ? 'source_contact_id';
 
 CREATE INDEX IF NOT EXISTS enrichment_results_assigned_ai_agent_idx
   ON enrichment_results (tenant_id, assigned_ai_agent_id)
   WHERE assigned_to_ai = true;
+
+CREATE TABLE IF NOT EXISTS ai_calling_controls (
+  tenant_id UUID PRIMARY KEY,
+  is_running BOOLEAN NOT NULL DEFAULT false,
+  calls_per_minute INT NOT NULL DEFAULT 1,
+  max_calls_per_day INT NOT NULL DEFAULT 5,
+  max_minutes_per_day INT NOT NULL DEFAULT 10,
+  max_cost_usd_per_day NUMERIC NOT NULL DEFAULT 1,
+  calling_timezone TEXT NOT NULL DEFAULT 'America/New_York',
+  calling_window_start_hour INT NOT NULL DEFAULT 9,
+  calling_window_end_hour INT NOT NULL DEFAULT 17,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE ai_calling_controls
+  ADD COLUMN IF NOT EXISTS calls_per_minute INT NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS max_calls_per_day INT NOT NULL DEFAULT 5,
+  ADD COLUMN IF NOT EXISTS max_minutes_per_day INT NOT NULL DEFAULT 10,
+  ADD COLUMN IF NOT EXISTS max_cost_usd_per_day NUMERIC NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS calling_timezone TEXT NOT NULL DEFAULT 'America/New_York',
+  ADD COLUMN IF NOT EXISTS calling_window_start_hour INT NOT NULL DEFAULT 9,
+  ADD COLUMN IF NOT EXISTS calling_window_end_hour INT NOT NULL DEFAULT 17;
 
 CREATE TABLE IF NOT EXISTS ai_call_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

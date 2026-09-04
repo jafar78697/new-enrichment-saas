@@ -20,7 +20,7 @@ export const STAGE_LABELS: Record<Stage, string> = {
   new: 'New Leads',
   assigned: 'Assigned Leads',
   calling: 'Calling...',
-  called: 'Called',
+  called: 'Answered / Called',
   no_answer: 'No Answer',
   followup: 'Follow-up',
   interested: 'Interested',
@@ -65,6 +65,10 @@ export interface Lead {
   lead_stage: Stage;
   lead_owner_id: string | null;
   assigned_to_ai: boolean;
+  ai_voice_consent: boolean;
+  ai_voice_consent_at: string | null;
+  ai_voice_consent_source: string | null;
+  do_not_call: boolean;
   lead_priority: string | null;
   lead_notes: string | null;
   last_contacted_at: string | null;
@@ -133,6 +137,20 @@ export interface CallingStatusResponse {
   queueCount: number;
   stageCounts: Partial<Record<Stage, number>>;
   recentActivity: CallingQueueLead[];
+  settings: CallingSettings;
+  serverCaps: Pick<CallingSettings, 'callsPerMinute' | 'maxCallsPerDay' | 'maxMinutesPerDay' | 'maxCostUsdPerDay'>;
+  usageToday: { attempts: number; seconds: number; costUsd: number };
+  withinCallingWindow: boolean;
+}
+
+export interface CallingSettings {
+  callsPerMinute: number;
+  maxCallsPerDay: number;
+  maxMinutesPerDay: number;
+  maxCostUsdPerDay: number;
+  callingTimezone: string;
+  callingWindowStartHour: number;
+  callingWindowEndHour: number;
 }
 
 export const leadsApi = {
@@ -141,6 +159,13 @@ export const leadsApi = {
   pipeline: () => api.get<{ stages: StageCount[] }>('/leads/pipeline').then((r) => r.data),
   activeCalls: () => api.get<{ activeCalls: Record<string, string> }>('/leads/active-calls').then((r) => r.data),
   callingStatus: () => api.get<CallingStatusResponse>('/leads/ai-calling/status').then((r) => r.data),
+  updateCallingSettings: (body: CallingSettings) =>
+    api.patch<{ settings: CallingSettings; serverCaps: CallingStatusResponse['serverCaps'] }>(
+      '/leads/ai-calling/settings',
+      body,
+    ).then((r) => r.data),
+  setVoiceConsent: (contactId: number, body: { consented: boolean; source: string }) =>
+    api.post<{ contact: unknown }>(`/leads/contacts/${contactId}/voice-consent`, body).then((r) => r.data),
   startCalling: () => api.post<{ ok: boolean; isRunning: boolean; message?: string }>('/leads/ai-calling/start').then((r) => r.data),
   stopCalling: () => api.post<{ ok: boolean; isRunning: boolean; stoppedCalls: number }>('/leads/ai-calling/stop').then((r) => r.data),
   skipActiveCall: (body: { callSid: string; reason: string }) =>
@@ -149,7 +174,15 @@ export const leadsApi = {
       body,
     ).then((r) => r.data),
   queueAi: (body: { agent_id: string; lead_ids?: string[]; contact_ids?: number[]; niche_id?: number; limit?: number }) =>
-    api.post<{ ok: boolean; queuedExisting: number; createdFromContacts: number; totalQueued: number }>(
+    api.post<{
+      ok: boolean;
+      queuedExisting: number;
+      createdFromContacts: number;
+      totalQueued: number;
+      invalidRegionCount: number;
+      consentRequiredCount: number;
+      blockedCount: number;
+    }>(
       '/leads/queue-ai',
       body,
     ).then((r) => r.data),

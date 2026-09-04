@@ -68,6 +68,10 @@ export interface Contact {
   facebook?: string | null;
   instagram?: string | null;
   unsubscribed?: boolean | null;
+  ai_voice_consent?: boolean | null;
+  ai_voice_consent_at?: string | null;
+  ai_voice_consent_source?: string | null;
+  do_not_call?: boolean | null;
   score?: number | null;
   stage?: 'new_lead' | 'in_progress' | 'converted_lost' | 'email_sent' | 'replied' | 'fallback_linkedin' | 'needs_browser' | 'cold_calling' | 'discovery' | 'proposal_sent' | 'negotiation' | 'won' | 'lost' | 'unsubscribed' | null;
   omnichannel_stage?: string | null;

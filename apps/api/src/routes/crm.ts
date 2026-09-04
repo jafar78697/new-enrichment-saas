@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { RestClient } from '@signalwire/compatibility-api';
-import { normalizeUSPhone } from '../utils/us-phone.js';
+import { normalizeNorthAmericanPhone } from '../utils/us-phone.js';
 
 // Canonical pipeline stages. Frontend renders columns in this exact order.
 export const PIPELINE_STAGES = [
@@ -18,6 +18,66 @@ export const PIPELINE_STAGES = [
 ] as const;
 
 type Stage = (typeof PIPELINE_STAGES)[number];
+
+const CALLING_TIMEZONES = new Set([
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Toronto',
+  'America/Vancouver',
+]);
+
+function numberInRange(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
+}
+
+function serverCallingCaps() {
+  return {
+    callsPerMinute: numberInRange(process.env.AI_MAX_CALLS_PER_MINUTE, 3, 1, 10),
+    maxCallsPerDay: numberInRange(process.env.AI_MAX_OUTBOUND_CALLS_PER_DAY, 5, 1, 500),
+    maxMinutesPerDay: numberInRange(process.env.AI_MAX_MINUTES_PER_DAY, 10, 1, 1440),
+    maxCostUsdPerDay: numberInRange(process.env.AI_MAX_COST_USD_PER_DAY, 1, 0.1, 500),
+  };
+}
+
+function normalizedCallingControl(row: any = {}) {
+  const caps = serverCallingCaps();
+  const timezone = CALLING_TIMEZONES.has(row.calling_timezone)
+    ? row.calling_timezone
+    : 'America/New_York';
+  const startHour = Math.round(numberInRange(row.calling_window_start_hour, 9, 0, 23));
+  const endHour = Math.round(numberInRange(row.calling_window_end_hour, 17, 1, 24));
+
+  return {
+    isRunning: row.is_running === true,
+    callsPerMinute: Math.round(numberInRange(row.calls_per_minute, 1, 1, caps.callsPerMinute)),
+    maxCallsPerDay: Math.round(numberInRange(row.max_calls_per_day, caps.maxCallsPerDay, 1, caps.maxCallsPerDay)),
+    maxMinutesPerDay: Math.round(numberInRange(row.max_minutes_per_day, caps.maxMinutesPerDay, 1, caps.maxMinutesPerDay)),
+    maxCostUsdPerDay: numberInRange(row.max_cost_usd_per_day, caps.maxCostUsdPerDay, 0.1, caps.maxCostUsdPerDay),
+    callingTimezone: timezone,
+    callingWindowStartHour: startHour,
+    callingWindowEndHour: Math.max(startHour + 1, endHour),
+  };
+}
+
+function hourInTimezone(timezone: string) {
+  return Number(new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date()));
+}
+
+function isWithinCallingWindow(control: any) {
+  const timezone = CALLING_TIMEZONES.has(control?.calling_timezone)
+    ? control.calling_timezone
+    : 'America/New_York';
+  const hour = hourInTimezone(timezone);
+  return hour >= Number(control?.calling_window_start_hour ?? 9)
+    && hour < Number(control?.calling_window_end_hour ?? 17);
+}
 
 async function writeAudit(
   fastify: FastifyInstance,
@@ -58,13 +118,45 @@ async function terminateSignalWireCall(callSid: string) {
 export default async function crmRoutes(fastify: FastifyInstance) {
   // Ensure assigned_to_ai exists (runs once on boot)
   try {
-    await fastify.db.query('ALTER TABLE enrichment_results ADD COLUMN IF NOT EXISTS assigned_to_ai BOOLEAN DEFAULT false;');
+    await fastify.db.query(`
+      ALTER TABLE enrichment_results
+        ADD COLUMN IF NOT EXISTS assigned_to_ai BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS raw_data JSONB DEFAULT '{}'::jsonb,
+        ADD COLUMN IF NOT EXISTS ai_voice_consent BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS ai_voice_consent_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS ai_voice_consent_source TEXT,
+        ADD COLUMN IF NOT EXISTS do_not_call BOOLEAN NOT NULL DEFAULT false
+    `);
+    await fastify.db.query(`
+      ALTER TABLE IF EXISTS contacts
+        ADD COLUMN IF NOT EXISTS ai_voice_consent BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS ai_voice_consent_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS ai_voice_consent_source TEXT,
+        ADD COLUMN IF NOT EXISTS do_not_call BOOLEAN NOT NULL DEFAULT false
+    `);
     await fastify.db.query(`
       CREATE TABLE IF NOT EXISTS ai_calling_controls (
         tenant_id UUID PRIMARY KEY,
         is_running BOOLEAN NOT NULL DEFAULT false,
+        calls_per_minute INT NOT NULL DEFAULT 1,
+        max_calls_per_day INT NOT NULL DEFAULT 5,
+        max_minutes_per_day INT NOT NULL DEFAULT 10,
+        max_cost_usd_per_day NUMERIC NOT NULL DEFAULT 1,
+        calling_timezone TEXT NOT NULL DEFAULT 'America/New_York',
+        calling_window_start_hour INT NOT NULL DEFAULT 9,
+        calling_window_end_hour INT NOT NULL DEFAULT 17,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `);
+    await fastify.db.query(`
+      ALTER TABLE ai_calling_controls
+        ADD COLUMN IF NOT EXISTS calls_per_minute INT NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS max_calls_per_day INT NOT NULL DEFAULT 5,
+        ADD COLUMN IF NOT EXISTS max_minutes_per_day INT NOT NULL DEFAULT 10,
+        ADD COLUMN IF NOT EXISTS max_cost_usd_per_day NUMERIC NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS calling_timezone TEXT NOT NULL DEFAULT 'America/New_York',
+        ADD COLUMN IF NOT EXISTS calling_window_start_hour INT NOT NULL DEFAULT 9,
+        ADD COLUMN IF NOT EXISTS calling_window_end_hour INT NOT NULL DEFAULT 17
     `);
     await fastify.db.query(`UPDATE enrichment_results SET lead_stage = 'assigned' WHERE assigned_to_ai = true AND lead_stage IN ('new', 'enriched');`);
   } catch (err) {
@@ -104,6 +196,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
              last_contacted_at, next_followup_at,
              ai_summary, ai_pain_points, ai_score, ai_updated_at,
              assigned_to_ai, ai_agent_provider, assigned_ai_agent_id, raw_data,
+             ai_voice_consent, ai_voice_consent_at, ai_voice_consent_source, do_not_call,
              created_at
       FROM enrichment_results
       WHERE ${where.join(' AND ')}
@@ -119,6 +212,58 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       params,
     );
     return { leads: rows, total: parseInt(countRows[0].count), page, limit };
+  });
+
+  fastify.post('/v1/leads/contacts/:contactId/voice-consent', { preHandler: [fastify.authenticate as any] }, async (request: any, reply) => {
+    const { tenantId, userId, role } = request.tenant;
+    if (!['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase())) {
+      return reply.code(403).send({ error: 'Only a manager can verify AI voice consent' });
+    }
+
+    const contactId = Number(request.params.contactId);
+    const consented = request.body?.consented === true;
+    const source = typeof request.body?.source === 'string' ? request.body.source.trim().slice(0, 500) : '';
+    if (!Number.isInteger(contactId) || contactId < 1) {
+      return reply.code(400).send({ error: 'Invalid contact' });
+    }
+    if (consented && source.length < 3) {
+      return reply.code(400).send({ error: 'Add where and when this lead gave AI voice-call consent' });
+    }
+
+    const { rows: contactRows } = await fastify.db.query(
+      `SELECT id, phone_number, COALESCE(unsubscribed, false) AS unsubscribed, do_not_call
+       FROM contacts WHERE id = $1`,
+      [contactId],
+    );
+    const contact = contactRows[0];
+    if (!contact) return reply.code(404).send({ error: 'Contact not found' });
+    if (consented && !normalizeNorthAmericanPhone(contact.phone_number)) {
+      return reply.code(400).send({ error: 'Only valid USA or Canada phone numbers can be approved' });
+    }
+    if (consented && (contact.unsubscribed || contact.do_not_call)) {
+      return reply.code(409).send({ error: 'This lead is unsubscribed or on the do-not-call list' });
+    }
+
+    const { rows } = await fastify.db.query(
+      `UPDATE contacts
+       SET ai_voice_consent = $1,
+           ai_voice_consent_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
+           ai_voice_consent_source = CASE WHEN $1 THEN $2 ELSE NULL END,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [consented, source || null, contactId],
+    );
+    await fastify.db.query(
+      `UPDATE enrichment_results
+       SET ai_voice_consent = $1,
+           ai_voice_consent_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
+           ai_voice_consent_source = CASE WHEN $1 THEN $2 ELSE NULL END
+       WHERE tenant_id = $3 AND raw_data->>'source_contact_id' = $4`,
+      [consented, source || null, tenantId, String(contactId)],
+    );
+    await writeAudit(fastify, tenantId, userId, consented ? 'lead.ai_voice_consent_verified' : 'lead.ai_voice_consent_revoked', 'contact', String(contactId), { source: source || null });
+    return { contact: rows[0] };
   });
 
   // POST /v1/leads/queue-ai
@@ -156,44 +301,110 @@ export default async function crmRoutes(fastify: FastifyInstance) {
 
     let queuedExisting = 0;
     let createdFromContacts = 0;
+    let invalidRegionCount = 0;
+    let consentRequiredCount = 0;
+    let blockedCount = 0;
 
     if (leadIds.length) {
-      const { rowCount } = await fastify.db.query(
-        `UPDATE enrichment_results
-         SET assigned_to_ai = true,
-             ai_agent_provider = 'deepgram_voice_agent',
-             assigned_ai_agent_id = $3,
-             ai_updated_at = NOW(),
-             lead_stage = CASE
-               WHEN lead_stage IN ('calling', 'interested', 'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost')
-                 THEN lead_stage
-               ELSE 'assigned'
-             END
+      const { rows: candidateLeads } = await fastify.db.query(
+        `SELECT id, primary_phone, ai_voice_consent, do_not_call
+         FROM enrichment_results
          WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
-        [tenantId, leadIds, agentId],
+        [tenantId, leadIds],
       );
-      queuedExisting += rowCount || 0;
+      const callableLeadIds = candidateLeads
+        .filter((lead: any) => {
+          if (lead.do_not_call) {
+            blockedCount += 1;
+            return false;
+          }
+          if (!lead.ai_voice_consent) {
+            consentRequiredCount += 1;
+            return false;
+          }
+          if (!normalizeNorthAmericanPhone(lead.primary_phone)) {
+            invalidRegionCount += 1;
+            return false;
+          }
+          return true;
+        })
+        .map((lead: any) => lead.id);
+
+      if (callableLeadIds.length) {
+        const { rowCount } = await fastify.db.query(
+          `UPDATE enrichment_results er
+           SET assigned_to_ai = true,
+               ai_agent_provider = 'deepgram_voice_agent',
+               assigned_ai_agent_id = $3,
+               ai_updated_at = NOW(),
+               lead_stage = CASE
+                 WHEN lead_stage IN ('calling', 'interested', 'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost')
+                   THEN lead_stage
+                 ELSE 'assigned'
+               END
+           WHERE tenant_id = $1
+             AND id = ANY($2::uuid[])
+             AND ai_voice_consent = true
+             AND do_not_call = false`,
+          [tenantId, callableLeadIds, agentId],
+        );
+        queuedExisting += rowCount || 0;
+      }
     }
 
     if (nicheId) {
-      const { rows: jobRows } = await fastify.db.query(
+      const candidateParams: any[] = [nicheId];
+      const candidateIdFilter = contactIds.length
+        ? `AND c.id = ANY($${candidateParams.push(contactIds)}::int[])`
+        : '';
+      const candidateLimitParam = candidateParams.push(limit);
+      const { rows: candidateContacts } = await fastify.db.query(
+        `SELECT c.id, c.phone_number, c.ai_voice_consent, c.do_not_call, c.unsubscribed
+         FROM contacts c
+         WHERE c.niche_id = $1
+           ${candidateIdFilter}
+         ORDER BY c.updated_at DESC, c.created_at DESC
+         LIMIT $${candidateLimitParam}`,
+        candidateParams,
+      );
+      const callableContactIds = candidateContacts
+        .filter((contact: any) => {
+          if (contact.do_not_call || contact.unsubscribed) {
+            blockedCount += 1;
+            return false;
+          }
+          if (!contact.ai_voice_consent) {
+            consentRequiredCount += 1;
+            return false;
+          }
+          if (!normalizeNorthAmericanPhone(contact.phone_number)) {
+            invalidRegionCount += 1;
+            return false;
+          }
+          return true;
+        })
+        .map((contact: any) => contact.id);
+
+      if (callableContactIds.length) {
+        const { rows: jobRows } = await fastify.db.query(
         `INSERT INTO enrichment_jobs (tenant_id, mode, status, source_type, total_items)
          VALUES ($1, 'ai_voice_queue', 'completed', 'crm_niche', 0)
          RETURNING id`,
         [tenantId],
       );
-      const jobId = jobRows[0].id;
+        const jobId = jobRows[0].id;
 
-      const existingParams: any[] = [tenantId, nicheId, agentId];
-      const selectedExistingFilter = contactIds.length
-        ? `AND c.id = ANY($${existingParams.push(contactIds)}::int[])`
-        : '';
-      const { rowCount: updatedExisting } = await fastify.db.query(
+        const existingParams: any[] = [tenantId, nicheId, agentId, callableContactIds];
+        const { rowCount: updatedExisting } = await fastify.db.query(
         `UPDATE enrichment_results er
          SET assigned_to_ai = true,
              ai_agent_provider = 'deepgram_voice_agent',
              assigned_ai_agent_id = $3,
              ai_updated_at = NOW(),
+             ai_voice_consent = c.ai_voice_consent,
+             ai_voice_consent_at = c.ai_voice_consent_at,
+             ai_voice_consent_source = c.ai_voice_consent_source,
+             do_not_call = c.do_not_call,
              lead_stage = CASE
                WHEN er.lead_stage IN ('calling', 'interested', 'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost')
                  THEN er.lead_stage
@@ -205,40 +416,76 @@ export default async function crmRoutes(fastify: FastifyInstance) {
            AND c.niche_id = $2
            AND c.phone_number IS NOT NULL
            AND c.phone_number <> ''
-           ${selectedExistingFilter}`,
+           AND c.id = ANY($4::int[])
+           AND c.ai_voice_consent = true
+           AND c.do_not_call = false
+           AND COALESCE(c.unsubscribed, false) = false`,
         existingParams,
       );
-      queuedExisting += updatedExisting || 0;
+        queuedExisting += updatedExisting || 0;
 
-      const insertParams: any[] = [jobId, tenantId, nicheId, agentId];
-      const selectedInsertFilter = contactIds.length
-        ? `AND c.id = ANY($${insertParams.push(contactIds)}::int[])`
-        : '';
-      const limitParam = insertParams.push(limit);
-      const { rows: insertedRows } = await fastify.db.query(
-        `INSERT INTO enrichment_results (
-           job_id, tenant_id, domain, primary_email, primary_phone, company_name,
+        const insertParams: any[] = [jobId, tenantId, nicheId, agentId, callableContactIds];
+        const limitParam = insertParams.push(limit);
+        const { rows: insertedRows } = await fastify.db.query(
+        `WITH selected_contacts AS MATERIALIZED (
+           SELECT
+             c.*,
+             n.name AS niche_name,
+             COALESCE(
+               NULLIF(regexp_replace(COALESCE(c.website, ''), '^https?://(www\\.)?([^/]+).*$', '\\2'), ''),
+               'contact-' || c.id || '.local'
+             ) AS normalized_domain
+           FROM contacts c
+           JOIN niches n ON n.id = c.niche_id
+           WHERE c.niche_id = $3
+             AND c.phone_number IS NOT NULL
+             AND c.phone_number <> ''
+             AND c.id = ANY($5::int[])
+             AND c.ai_voice_consent = true
+             AND c.do_not_call = false
+             AND COALESCE(c.unsubscribed, false) = false
+             AND NOT EXISTS (
+               SELECT 1 FROM enrichment_results er
+               WHERE er.tenant_id = $2
+                 AND er.raw_data->>'source_contact_id' = c.id::text
+             )
+           ORDER BY c.updated_at DESC, c.created_at DESC
+           LIMIT $${limitParam}
+         ), inserted_items AS (
+           INSERT INTO enrichment_job_items (
+             job_id, tenant_id, raw_input, normalized_domain, status, finished_at
+           )
+           SELECT
+             $1,
+             $2,
+             'crm-contact:' || c.id,
+             c.normalized_domain,
+             'completed',
+             NOW()
+           FROM selected_contacts c
+           RETURNING id, raw_input
+         )
+         INSERT INTO enrichment_results (
+           job_item_id, tenant_id, domain, primary_email, primary_phone, company_name,
            industry_guess, one_line_pitch, confidence_level, raw_data,
-           lead_stage, assigned_to_ai, ai_updated_at, lead_priority, ai_agent_provider, assigned_ai_agent_id
+           lead_stage, assigned_to_ai, ai_updated_at, lead_priority, ai_agent_provider, assigned_ai_agent_id,
+           ai_voice_consent, ai_voice_consent_at, ai_voice_consent_source, do_not_call
          )
          SELECT
-           $1,
+           item.id,
            $2,
-           COALESCE(
-             NULLIF(regexp_replace(COALESCE(c.website, ''), '^https?://(www\\.)?([^/]+).*$', '\\2'), ''),
-             'contact-' || c.id || '.local'
-           ) AS domain,
+           c.normalized_domain,
            c.email,
            c.phone_number,
            COALESCE(NULLIF(c.company, ''), c.name),
-           n.name,
-           'CRM niche lead queued for AI voice outreach: ' || n.name,
+           c.niche_name,
+           'CRM niche lead queued for AI voice outreach: ' || c.niche_name,
            'crm',
            jsonb_build_object(
              'source', 'contacts',
              'source_contact_id', c.id::text,
-             'niche_id', n.id,
-             'niche_name', n.name,
+             'niche_id', c.niche_id,
+             'niche_name', c.niche_name,
              'website', c.website,
              'notes', c.notes
            ),
@@ -247,29 +494,25 @@ export default async function crmRoutes(fastify: FastifyInstance) {
            NOW(),
            CASE WHEN COALESCE(c.score, 0) >= 70 THEN 'high' ELSE 'medium' END,
            'deepgram_voice_agent',
-           $4
-         FROM contacts c
-         JOIN niches n ON n.id = c.niche_id
-         WHERE c.niche_id = $3
-           AND c.phone_number IS NOT NULL
-           AND c.phone_number <> ''
-           ${selectedInsertFilter}
-           AND NOT EXISTS (
-             SELECT 1 FROM enrichment_results er
-             WHERE er.tenant_id = $2
-               AND er.raw_data->>'source_contact_id' = c.id::text
-           )
-         ORDER BY c.updated_at DESC, c.created_at DESC
-         LIMIT $${limitParam}
+           $4,
+           c.ai_voice_consent,
+           c.ai_voice_consent_at,
+           c.ai_voice_consent_source,
+           c.do_not_call
+         FROM selected_contacts c
+         JOIN inserted_items item ON item.raw_input = 'crm-contact:' || c.id
          RETURNING id`,
         insertParams,
       );
-      createdFromContacts = insertedRows.length;
+        createdFromContacts = insertedRows.length;
 
-      await fastify.db.query(
-        `UPDATE enrichment_jobs SET total_items = $1, completed_items = $1, updated_at = NOW() WHERE id = $2`,
+        await fastify.db.query(
+        `UPDATE enrichment_jobs
+         SET total_items = $1, completed_items = $1, status = 'completed', finished_at = NOW()
+         WHERE id = $2`,
         [createdFromContacts, jobId],
-      );
+        );
+      }
     }
 
     await writeAudit(fastify, tenantId, userId, 'lead.ai_queued', 'lead', 'bulk', {
@@ -280,6 +523,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       agentName: agentRows[0].name,
       queuedExisting,
       createdFromContacts,
+      invalidRegionCount,
+      consentRequiredCount,
+      blockedCount,
     });
 
     return {
@@ -287,19 +533,99 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       queuedExisting,
       createdFromContacts,
       totalQueued: queuedExisting + createdFromContacts,
+      invalidRegionCount,
+      consentRequiredCount,
+      blockedCount,
     };
+  });
+
+  fastify.patch('/v1/leads/ai-calling/settings', { preHandler: [fastify.authenticate as any] }, async (request: any, reply) => {
+    const { tenantId, userId, role } = request.tenant;
+    if (!['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase())) {
+      return reply.code(403).send({ error: 'Only a manager can change calling safety settings' });
+    }
+
+    const body = request.body || {};
+    const caps = serverCallingCaps();
+    const timezone = CALLING_TIMEZONES.has(body.callingTimezone)
+      ? body.callingTimezone
+      : 'America/New_York';
+    const startHour = Math.round(numberInRange(body.callingWindowStartHour, 9, 0, 23));
+    const endHour = Math.round(numberInRange(body.callingWindowEndHour, 17, 1, 24));
+    if (startHour >= endHour) {
+      return reply.code(400).send({ error: 'Calling end hour must be later than start hour' });
+    }
+
+    const settings = {
+      callsPerMinute: Math.round(numberInRange(body.callsPerMinute, 1, 1, caps.callsPerMinute)),
+      maxCallsPerDay: Math.round(numberInRange(body.maxCallsPerDay, caps.maxCallsPerDay, 1, caps.maxCallsPerDay)),
+      maxMinutesPerDay: Math.round(numberInRange(body.maxMinutesPerDay, caps.maxMinutesPerDay, 1, caps.maxMinutesPerDay)),
+      maxCostUsdPerDay: numberInRange(body.maxCostUsdPerDay, caps.maxCostUsdPerDay, 0.1, caps.maxCostUsdPerDay),
+      callingTimezone: timezone,
+      callingWindowStartHour: startHour,
+      callingWindowEndHour: endHour,
+    };
+
+    const { rows } = await fastify.db.query(
+      `INSERT INTO ai_calling_controls (
+         tenant_id, calls_per_minute, max_calls_per_day, max_minutes_per_day,
+         max_cost_usd_per_day, calling_timezone, calling_window_start_hour,
+         calling_window_end_hour, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         calls_per_minute = EXCLUDED.calls_per_minute,
+         max_calls_per_day = EXCLUDED.max_calls_per_day,
+         max_minutes_per_day = EXCLUDED.max_minutes_per_day,
+         max_cost_usd_per_day = EXCLUDED.max_cost_usd_per_day,
+         calling_timezone = EXCLUDED.calling_timezone,
+         calling_window_start_hour = EXCLUDED.calling_window_start_hour,
+         calling_window_end_hour = EXCLUDED.calling_window_end_hour,
+         updated_at = NOW()
+       RETURNING *`,
+      [
+        tenantId,
+        settings.callsPerMinute,
+        settings.maxCallsPerDay,
+        settings.maxMinutesPerDay,
+        settings.maxCostUsdPerDay,
+        settings.callingTimezone,
+        settings.callingWindowStartHour,
+        settings.callingWindowEndHour,
+      ],
+    );
+    await writeAudit(fastify, tenantId, userId, 'ai_calling.settings_updated', 'tenant', tenantId, settings);
+    return { settings: normalizedCallingControl(rows[0]), serverCaps: caps };
   });
 
   fastify.get('/v1/leads/ai-calling/status', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
     const { tenantId } = request.tenant;
     const { rows: controlRows } = await fastify.db.query(
-      'SELECT is_running FROM ai_calling_controls WHERE tenant_id = $1',
+      'SELECT * FROM ai_calling_controls WHERE tenant_id = $1',
       [tenantId],
+    );
+    const rawControl = controlRows[0] || {};
+    const settings = normalizedCallingControl(rawControl);
+    const { rows: usageRows } = await fastify.db.query(
+      `SELECT
+         (SELECT COUNT(*)::int
+          FROM enrichment_results
+          WHERE tenant_id = $1 AND assigned_to_ai = true
+            AND (last_contacted_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date) AS attempts,
+         COALESCE((SELECT SUM(duration_sec)
+                   FROM ai_call_sessions
+                   WHERE tenant_id = $1
+                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
+         COALESCE((SELECT SUM(cost_estimate_usd)
+                   FROM ai_call_sessions
+                   WHERE tenant_id = $1
+                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric AS cost`,
+      [tenantId, settings.callingTimezone],
     );
     const { rows: callRows } = await fastify.db.query(
       `SELECT id, raw_data->>'active_call_sid' AS active_call_sid
        FROM enrichment_results
        WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'
+         AND ai_voice_consent = true AND do_not_call = false
        ORDER BY last_contacted_at DESC NULLS LAST LIMIT 1`,
       [tenantId],
     );
@@ -332,6 +658,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
        WHERE tenant_id = $1
          AND assigned_to_ai = true
          AND lead_stage IN ('assigned', 'followup')
+         AND ai_voice_consent = true
+         AND do_not_call = false
          AND primary_phone IS NOT NULL
          AND primary_phone <> ''
          AND (next_followup_at IS NULL OR next_followup_at <= NOW())
@@ -347,6 +675,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
        WHERE tenant_id = $1
          AND assigned_to_ai = true
          AND lead_stage IN ('assigned', 'followup')
+         AND ai_voice_consent = true
+         AND do_not_call = false
          AND primary_phone IS NOT NULL
          AND primary_phone <> ''`,
       [tenantId],
@@ -384,9 +714,10 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     const lastCall = lastRows[0] || null;
     const nextLead = nextRows[0] || null;
     const stageCounts = Object.fromEntries(stageRows.map((row: any) => [row.lead_stage, row.count]));
+    const usage = usageRows[0] || {};
 
     return {
-      isRunning: controlRows[0]?.is_running === true,
+      isRunning: settings.isRunning,
       activeLeadId,
       activeCallSid,
       lastCall,
@@ -394,6 +725,22 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       queueCount: queueRows[0]?.count || 0,
       stageCounts,
       recentActivity: recentRows,
+      settings: {
+        callsPerMinute: settings.callsPerMinute,
+        maxCallsPerDay: settings.maxCallsPerDay,
+        maxMinutesPerDay: settings.maxMinutesPerDay,
+        maxCostUsdPerDay: settings.maxCostUsdPerDay,
+        callingTimezone: settings.callingTimezone,
+        callingWindowStartHour: settings.callingWindowStartHour,
+        callingWindowEndHour: settings.callingWindowEndHour,
+      },
+      serverCaps: serverCallingCaps(),
+      usageToday: {
+        attempts: Number(usage.attempts || 0),
+        seconds: Number(usage.seconds || 0),
+        costUsd: Number(usage.cost || 0),
+      },
+      withinCallingWindow: isWithinCallingWindow(rawControl),
     };
   });
 
@@ -402,16 +749,49 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       return reply.code(403).send({ ok: false, isRunning: false, message: 'AI outbound calling is disabled by the server safety policy.' });
     }
     const { tenantId, userId } = request.tenant;
-    const dailyLimit = Math.max(1, Math.min(500, Number(process.env.AI_MAX_OUTBOUND_CALLS_PER_DAY || 5)));
-    const { rows: attemptRows } = await fastify.db.query(
-      `SELECT COUNT(*)::int AS count
-       FROM enrichment_results
-       WHERE tenant_id = $1 AND assigned_to_ai = true
-         AND last_contacted_at >= date_trunc('day', NOW())`,
+    await fastify.db.query(
+      `INSERT INTO ai_calling_controls (tenant_id, is_running, updated_at)
+       VALUES ($1, false, NOW())
+       ON CONFLICT (tenant_id) DO NOTHING`,
       [tenantId],
     );
-    if ((attemptRows[0]?.count || 0) >= dailyLimit) {
-      return reply.code(429).send({ error: `Daily outbound limit of ${dailyLimit} calls is already reached` });
+    const { rows: controlRows } = await fastify.db.query(
+      'SELECT * FROM ai_calling_controls WHERE tenant_id = $1',
+      [tenantId],
+    );
+    const rawControl = controlRows[0] || {};
+    const settings = normalizedCallingControl(rawControl);
+    if (!isWithinCallingWindow(rawControl)) {
+      return reply.code(409).send({
+        error: `Calling window is ${settings.callingWindowStartHour}:00-${settings.callingWindowEndHour}:00 in ${settings.callingTimezone}`,
+      });
+    }
+
+    const { rows: usageRows } = await fastify.db.query(
+      `SELECT
+         (SELECT COUNT(*)::int
+          FROM enrichment_results
+          WHERE tenant_id = $1 AND assigned_to_ai = true
+            AND (last_contacted_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date) AS attempts,
+         COALESCE((SELECT SUM(duration_sec)
+                   FROM ai_call_sessions
+                   WHERE tenant_id = $1
+                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
+         COALESCE((SELECT SUM(cost_estimate_usd)
+                   FROM ai_call_sessions
+                   WHERE tenant_id = $1
+                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric AS cost`,
+      [tenantId, settings.callingTimezone],
+    );
+    const usage = usageRows[0] || {};
+    if (Number(usage.attempts || 0) >= settings.maxCallsPerDay) {
+      return reply.code(429).send({ error: `Daily outbound limit of ${settings.maxCallsPerDay} calls is already reached` });
+    }
+    if (Number(usage.seconds || 0) >= settings.maxMinutesPerDay * 60) {
+      return reply.code(429).send({ error: `Daily talk-time limit of ${settings.maxMinutesPerDay} minutes is already reached` });
+    }
+    if (Number(usage.cost || 0) >= settings.maxCostUsdPerDay) {
+      return reply.code(429).send({ error: `Daily AI calling budget of $${settings.maxCostUsdPerDay.toFixed(2)} is already reached` });
     }
 
     const { rows: readyRows } = await fastify.db.query(
@@ -422,6 +802,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
        WHERE er.tenant_id = $1
          AND er.assigned_to_ai = true
          AND er.lead_stage IN ('assigned', 'followup')
+         AND er.ai_voice_consent = true
+         AND er.do_not_call = false
          AND er.primary_phone IS NOT NULL AND er.primary_phone <> ''
          AND ac.is_active = true AND ac.mode = 'outbound'`,
       [tenantId],
@@ -438,9 +820,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     );
     await writeAudit(fastify, tenantId, userId, 'ai_calling.started', 'tenant', tenantId, {
       queueCount: readyRows[0].count,
-      dailyLimit,
+      settings,
     });
-    return { ok: true, isRunning: true, dailyLimit };
+    return { ok: true, isRunning: true, settings };
   });
 
   fastify.post('/v1/leads/ai-calling/stop', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
@@ -539,7 +921,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     // Fetch the lead
     const { rows } = await fastify.db.query(
       `SELECT er.id, er.tenant_id, er.primary_phone, er.company_name, er.domain,
-              er.lead_stage, er.assigned_to_ai, ac.id AS agent_config_id
+              er.lead_stage, er.assigned_to_ai, er.ai_voice_consent, er.do_not_call,
+              ac.id AS agent_config_id
        FROM enrichment_results er
        LEFT JOIN ai_agent_configs ac
          ON ac.id = er.assigned_ai_agent_id
@@ -553,11 +936,53 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     if (!lead) return reply.code(404).send({ error: 'Lead not found' });
     if (!lead.primary_phone) return reply.code(400).send({ error: 'Lead has no phone number' });
     if (!lead.assigned_to_ai) return reply.code(400).send({ error: 'Lead is not assigned to AI' });
+    if (!lead.ai_voice_consent) return reply.code(409).send({ error: 'Verified AI voice-call consent is required' });
+    if (lead.do_not_call) return reply.code(409).send({ error: 'Lead is on the do-not-call list' });
     if (!lead.agent_config_id) return reply.code(400).send({ error: 'Lead has no active outbound AI agent' });
     if (lead.lead_stage === 'calling') return reply.code(409).send({ error: 'Call already in progress for this lead' });
 
+    const { rows: controlRows } = await fastify.db.query(
+      'SELECT * FROM ai_calling_controls WHERE tenant_id = $1',
+      [tenantId],
+    );
+    const rawControl = controlRows[0] || {};
+    const settings = normalizedCallingControl(rawControl);
+    if (!isWithinCallingWindow(rawControl)) {
+      return reply.code(409).send({ error: `Calling is outside the ${settings.callingTimezone} campaign window` });
+    }
+    const { rows: usageRows } = await fastify.db.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM enrichment_results
+          WHERE tenant_id = $1 AND assigned_to_ai = true
+            AND (last_contacted_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date) AS attempts,
+         (SELECT COUNT(*)::int FROM enrichment_results
+          WHERE tenant_id = $1 AND assigned_to_ai = true
+            AND last_contacted_at >= NOW() - INTERVAL '1 minute') AS attempts_last_minute,
+         (SELECT COUNT(*)::int FROM enrichment_results
+          WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling') AS active_calls,
+         COALESCE((SELECT SUM(duration_sec) FROM ai_call_sessions
+                   WHERE tenant_id = $1
+                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
+         COALESCE((SELECT SUM(cost_estimate_usd) FROM ai_call_sessions
+                   WHERE tenant_id = $1
+                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric AS cost`,
+      [tenantId, settings.callingTimezone],
+    );
+    const usage = usageRows[0] || {};
+    if (Number(usage.attempts_last_minute || 0) >= settings.callsPerMinute) {
+      return reply.code(429).send({ error: `Calls-per-minute limit of ${settings.callsPerMinute} is reached` });
+    }
+    if (Number(usage.active_calls || 0) >= numberInRange(process.env.AI_MAX_ACTIVE_CALLS, 1, 1, 5)) {
+      return reply.code(429).send({ error: 'An AI call is already active' });
+    }
+    if (Number(usage.attempts || 0) >= settings.maxCallsPerDay
+      || Number(usage.seconds || 0) >= settings.maxMinutesPerDay * 60
+      || Number(usage.cost || 0) >= settings.maxCostUsdPerDay) {
+      return reply.code(429).send({ error: 'A daily AI calling safety limit is reached' });
+    }
+
     const signalWireClient = getSignalWireClient();
-    const fromPhone = normalizeUSPhone(process.env.SIGNALWIRE_PHONE_NUMBER);
+    const fromPhone = normalizeNorthAmericanPhone(process.env.SIGNALWIRE_PHONE_NUMBER);
     const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000';
 
     if (!signalWireClient || !fromPhone) {
@@ -573,16 +998,16 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     let callSid: string | null = null;
     try {
       const webhookUrl = `${publicBaseUrl}/api/voice/twiml/outbound?contactId=${leadId}&tenantId=${tenantId}`;
-      const normalizedPhone = normalizeUSPhone(lead.primary_phone);
+      const normalizedPhone = normalizeNorthAmericanPhone(lead.primary_phone);
       if (!normalizedPhone) {
         await fastify.db.query(
           `UPDATE enrichment_results
            SET lead_stage = 'no_answer',
-               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Manual call skipped because phone number is not a valid USA number.')
+               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Manual call skipped because phone number is not a valid USA or Canada number.')
            WHERE id = $1`,
           [leadId],
         );
-        return reply.code(400).send({ error: 'Only valid USA numbers can be called' });
+        return reply.code(400).send({ error: 'Only valid USA or Canada numbers can be called' });
       }
 
       const call = await signalWireClient.calls.create({
@@ -593,6 +1018,13 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         statusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
         statusCallbackMethod: 'POST',
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+        timeout: 30,
+        machineDetection: 'Enable',
+        machineDetectionTimeout: 10,
+        machineDetectionSpeechThreshold: 2400,
+        machineDetectionSpeechEndThreshold: 1200,
+        machineDetectionSilenceTimeout: 5000,
+        record: false,
       });
       callSid = call.sid;
 

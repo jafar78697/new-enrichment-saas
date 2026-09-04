@@ -1,13 +1,13 @@
 import { query } from '../calls-module/db/index.js';
 import { RestClient } from '@signalwire/compatibility-api';
 import { env } from '../voice-agent/config/env.js';
-import { normalizeUSPhone } from '../utils/us-phone.js';
+import { normalizeNorthAmericanPhone } from '../utils/us-phone.js';
 
 // Setup SignalWire Client
 const projectId = env.SIGNALWIRE_PROJECT_ID;
 const apiToken = env.SIGNALWIRE_API_TOKEN;
 const spaceUrl = env.SIGNALWIRE_SPACE_URL;
-const fromPhone = normalizeUSPhone(env.SIGNALWIRE_PHONE_NUMBER);
+const fromPhone = normalizeNorthAmericanPhone(env.SIGNALWIRE_PHONE_NUMBER);
 
 let signalwireClient = null;
 if (projectId && apiToken && spaceUrl) {
@@ -19,9 +19,55 @@ let workerStarted = false;
 let workerTickRunning = false;
 let workerConfigWarned = false;
 
+const CALLING_TIMEZONES = new Set([
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Toronto',
+  'America/Vancouver',
+]);
+
+function numberInRange(value, fallback, min, max) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
+}
+
+function normalizedControl(control) {
+  const callsPerMinuteCap = numberInRange(process.env.AI_MAX_CALLS_PER_MINUTE, 3, 1, 10);
+  const maxCallsCap = env.AI_MAX_OUTBOUND_CALLS_PER_DAY;
+  const maxMinutesCap = env.AI_MAX_MINUTES_PER_DAY;
+  const maxCostCap = env.AI_MAX_COST_USD_PER_DAY;
+  const timezone = CALLING_TIMEZONES.has(control.calling_timezone)
+    ? control.calling_timezone
+    : 'America/New_York';
+  const startHour = Math.round(numberInRange(control.calling_window_start_hour, 9, 0, 23));
+  const endHour = Math.round(numberInRange(control.calling_window_end_hour, 17, 1, 24));
+
+  return {
+    ...control,
+    callsPerMinute: Math.round(numberInRange(control.calls_per_minute, 1, 1, callsPerMinuteCap)),
+    maxCallsPerDay: Math.round(numberInRange(control.max_calls_per_day, maxCallsCap, 1, maxCallsCap)),
+    maxMinutesPerDay: Math.round(numberInRange(control.max_minutes_per_day, maxMinutesCap, 1, maxMinutesCap)),
+    maxCostUsdPerDay: numberInRange(control.max_cost_usd_per_day, maxCostCap, 0.1, maxCostCap),
+    callingTimezone: timezone,
+    callingWindowStartHour: startHour,
+    callingWindowEndHour: Math.max(startHour + 1, endHour),
+  };
+}
+
+function isWithinCallingWindow(control) {
+  const hour = Number(new Intl.DateTimeFormat('en-US', {
+    timeZone: control.callingTimezone,
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date()));
+  return hour >= control.callingWindowStartHour && hour < control.callingWindowEndHour;
+}
+
 function getWorkerConfigError() {
   if (!signalwireClient) return 'SignalWire credentials missing.';
-  if (!fromPhone) return 'SIGNALWIRE_PHONE_NUMBER is missing or is not a valid US E.164 number.';
+  if (!fromPhone) return 'SIGNALWIRE_PHONE_NUMBER is missing or is not a valid USA/Canada E.164 number.';
   if (!env.PUBLIC_BASE_URL) return 'PUBLIC_BASE_URL is missing.';
   if (!PUBLIC_BASE_URL.startsWith('https://')) return 'PUBLIC_BASE_URL must be a public HTTPS URL reachable by SignalWire.';
   return null;
@@ -40,29 +86,34 @@ async function runWorkerTick() {
   }
   workerTickRunning = true;
   try {
-    const { rows: controls } = await query('SELECT tenant_id FROM ai_calling_controls WHERE is_running = true');
-    for (const control of controls) {
+    const { rows: controls } = await query('SELECT * FROM ai_calling_controls WHERE is_running = true');
+    for (const rawControl of controls) {
+      const control = normalizedControl(rawControl);
       let claimedLeadId = null;
       try {
+        if (!isWithinCallingWindow(control)) continue;
+
         const { rows: dailyRows } = await query(
           `SELECT
              (SELECT COUNT(*)::int
               FROM enrichment_results
               WHERE tenant_id = $1 AND assigned_to_ai = true
-                AND last_contacted_at >= date_trunc('day', NOW())) AS attempts,
+                AND (last_contacted_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date) AS attempts,
              COALESCE((SELECT SUM(duration_sec)
                        FROM ai_call_sessions
-                       WHERE tenant_id = $1 AND started_at >= date_trunc('day', NOW())), 0)::int AS seconds,
+                       WHERE tenant_id = $1
+                         AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
              COALESCE((SELECT SUM(cost_estimate_usd)
                        FROM ai_call_sessions
-                       WHERE tenant_id = $1 AND started_at >= date_trunc('day', NOW())), 0)::numeric AS cost`,
-          [control.tenant_id],
+                       WHERE tenant_id = $1
+                         AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric AS cost`,
+          [control.tenant_id, control.callingTimezone],
         );
         const daily = dailyRows[0] || {};
         const nextMaxCost = (env.AI_MAX_SECONDS_PER_CALL / 60) * env.AI_ESTIMATED_COST_USD_PER_MINUTE;
-        const dailyLimitReached = Number(daily.attempts || 0) >= env.AI_MAX_OUTBOUND_CALLS_PER_DAY
-          || Number(daily.seconds || 0) >= env.AI_MAX_MINUTES_PER_DAY * 60
-          || Number(daily.cost || 0) + nextMaxCost > env.AI_MAX_COST_USD_PER_DAY;
+        const dailyLimitReached = Number(daily.attempts || 0) >= control.maxCallsPerDay
+          || Number(daily.seconds || 0) >= control.maxMinutesPerDay * 60
+          || Number(daily.cost || 0) + nextMaxCost > control.maxCostUsdPerDay;
         if (dailyLimitReached) {
           await query(
             `UPDATE ai_calling_controls SET is_running = false, updated_at = NOW() WHERE tenant_id = $1`,
@@ -90,6 +141,15 @@ async function runWorkerTick() {
         );
         if ((activeRows[0]?.count || 0) > 0) continue;
 
+        const { rows: minuteRows } = await query(
+          `SELECT COUNT(*)::int AS count
+           FROM enrichment_results
+           WHERE tenant_id = $1 AND assigned_to_ai = true
+             AND last_contacted_at >= NOW() - INTERVAL '1 minute'`,
+          [control.tenant_id],
+        );
+        if (Number(minuteRows[0]?.count || 0) >= control.callsPerMinute) continue;
+
         const { rows } = await query(
           `UPDATE enrichment_results 
            SET lead_stage = 'calling', last_contacted_at = NOW() 
@@ -98,6 +158,8 @@ async function runWorkerTick() {
              WHERE tenant_id = $1 AND assigned_to_ai = true
                AND lead_stage IN ('assigned', 'followup')
                AND primary_phone IS NOT NULL AND primary_phone <> ''
+               AND ai_voice_consent = true
+               AND do_not_call = false
                AND (next_followup_at IS NULL OR next_followup_at <= NOW())
                AND EXISTS (
                  SELECT 1 FROM ai_agent_configs ac
@@ -112,17 +174,24 @@ async function runWorkerTick() {
            RETURNING id, tenant_id, primary_phone, company_name, domain`,
           [control.tenant_id],
         );
-        if (rows.length === 0) continue;
+        if (rows.length === 0) {
+          await query(
+            `UPDATE ai_calling_controls SET is_running = false, updated_at = NOW() WHERE tenant_id = $1`,
+            [control.tenant_id],
+          );
+          console.log(`[outbound-caller] Queue finished for tenant ${control.tenant_id}; calling paused.`);
+          continue;
+        }
 
         const lead = rows[0];
         claimedLeadId = lead.id;
 
-        const normalizedPhone = normalizeUSPhone(lead.primary_phone);
+        const normalizedPhone = normalizeNorthAmericanPhone(lead.primary_phone);
         if (!normalizedPhone) {
           await query(
             `UPDATE enrichment_results
              SET lead_stage = 'no_answer',
-                 lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Skipped because phone number is not a valid USA number.')
+                 lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Skipped because phone number is not a valid USA or Canada number.')
              WHERE id = $1`,
             [lead.id],
           );
@@ -139,6 +208,13 @@ async function runWorkerTick() {
           statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
           statusCallbackMethod: 'POST',
           statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+          timeout: 30,
+          machineDetection: 'Enable',
+          machineDetectionTimeout: 10,
+          machineDetectionSpeechThreshold: 2400,
+          machineDetectionSpeechEndThreshold: 1200,
+          machineDetectionSilenceTimeout: 5000,
+          record: false,
         });
 
         await query(
@@ -227,6 +303,13 @@ export async function runOutboundCallerLoop() {
     CREATE TABLE IF NOT EXISTS ai_calling_controls (
       tenant_id UUID PRIMARY KEY,
       is_running BOOLEAN NOT NULL DEFAULT false,
+      calls_per_minute INT NOT NULL DEFAULT 1,
+      max_calls_per_day INT NOT NULL DEFAULT 5,
+      max_minutes_per_day INT NOT NULL DEFAULT 10,
+      max_cost_usd_per_day NUMERIC NOT NULL DEFAULT 1,
+      calling_timezone TEXT NOT NULL DEFAULT 'America/New_York',
+      calling_window_start_hour INT NOT NULL DEFAULT 9,
+      calling_window_end_hour INT NOT NULL DEFAULT 17,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);

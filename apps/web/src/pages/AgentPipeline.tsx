@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bot, Phone, PhoneCall, RefreshCw, Search, Settings2, Square, UserPlus, Volume2 } from 'lucide-react';
-import { leadsApi, type CallingQueueLead, type CallingStatusResponse, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
+import { parsePhoneNumberFromString } from 'libphonenumber-js/min';
+import { Bot, Clock3, DollarSign, Gauge, Phone, PhoneCall, RefreshCw, Search, Settings2, ShieldCheck, Square, UserPlus, Volume2, X } from 'lucide-react';
+import { leadsApi, type CallingQueueLead, type CallingSettings, type CallingStatusResponse, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
 import { deepgramAgentsApi, type DeepgramAgent, type DeepgramAgentStatus } from '../services/deepgramAgentsApi';
@@ -11,7 +12,7 @@ const AGENT_TABS = [
   { key: 'leads', label: 'Leads' },
   { key: 'assigned', label: 'Assigned Leads' },
   { key: 'calling', label: 'Calling' },
-  { key: 'called', label: 'Called' },
+  { key: 'called', label: 'Answered / Called' },
   { key: 'no_answer', label: 'No Answer' },
   { key: 'followup', label: 'Follow-up' },
   { key: 'interested', label: 'Interested' },
@@ -22,22 +23,25 @@ const AGENT_TABS = [
 
 type AgentTab = (typeof AGENT_TABS)[number]['key'];
 
+function isCallableNorthAmericanNumber(raw: string | null | undefined) {
+  if (!raw) return false;
+  const digits = raw.replace(/\D/g, '');
+  const candidate = raw.trim().startsWith('+')
+    ? raw.trim()
+    : digits.length === 10
+      ? `+1${digits}`
+      : digits.length === 11 && digits.startsWith('1')
+        ? `+${digits}`
+        : '';
+  const phone = candidate ? parsePhoneNumberFromString(candidate) : undefined;
+  return Boolean(phone?.isValid() && ['US', 'CA'].includes(phone.country || ''));
+}
+
 function getMeetingTime(lead: Lead) {
   const meeting = lead.raw_data?.meeting;
   if (!meeting || typeof meeting !== 'object') return null;
   const value = (meeting as Record<string, unknown>).meeting_time;
   return typeof value === 'string' ? value : null;
-}
-
-function getRecordingUrl(lead: { id: string; raw_data?: Record<string, any> | null } | null) {
-  const url = lead?.raw_data?.recording_url;
-  const status = lead?.raw_data?.recording_status;
-  return typeof url === 'string' && url && status === 'completed' ? `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/voice/recordings/${lead.id}/stream` : null;
-}
-
-function getRecordingStatus(lead: { raw_data?: Record<string, any> | null } | null) {
-  const value = lead?.raw_data?.recording_status;
-  return typeof value === 'string' && value ? value : null;
 }
 
 function formatDateTime(value?: string | null) {
@@ -123,6 +127,20 @@ export default function AgentPipelinePage() {
   const [controlBusy, setControlBusy] = useState(false);
   const [activeCallSid, setActiveCallSid] = useState<string | null>(null);
   const [callingStatus, setCallingStatus] = useState<CallingStatusResponse | null>(null);
+  const [callingSettings, setCallingSettings] = useState<CallingSettings>({
+    callsPerMinute: 1,
+    maxCallsPerDay: 5,
+    maxMinutesPerDay: 10,
+    maxCostUsdPerDay: 1,
+    callingTimezone: 'America/New_York',
+    callingWindowStartHour: 9,
+    callingWindowEndHour: 17,
+  });
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [consentContact, setConsentContact] = useState<Contact | null>(null);
+  const [consentSource, setConsentSource] = useState('');
+  const [consentBusy, setConsentBusy] = useState(false);
+  const settingsLoadedRef = useRef(false);
 
   const outboundAgents = useMemo(
     () => agents.filter((agent) => agent.isActive && agent.mode === 'outbound'),
@@ -142,6 +160,10 @@ export default function AgentPipelinePage() {
       ]);
       setLeads(leadResult.leads || []);
       setCallingStatus(callingStatus);
+      if (!settingsLoadedRef.current && callingStatus.settings) {
+        setCallingSettings(callingStatus.settings);
+        settingsLoadedRef.current = true;
+      }
       setAutomationRunning(callingStatus.isRunning);
       setActiveCallSid(callingStatus.activeCallSid || Object.values(activeResult.activeCalls || {})[0] || null);
       setError('');
@@ -198,15 +220,46 @@ export default function AgentPipelinePage() {
       .filter((id) => Number.isInteger(id) && id > 0),
   ), [leads]);
 
+  const marketContacts = useMemo(() => nicheContacts.filter((contact) => (
+    isCallableNorthAmericanNumber(contact.phone_number) && !assignedContactIds.has(contact.id)
+  )), [nicheContacts, assignedContactIds]);
+
   const availableContacts = useMemo(() => {
     const term = q.trim().toLowerCase();
-    return nicheContacts.filter((contact) => {
-      if (!contact.phone_number || assignedContactIds.has(contact.id)) return false;
+    return marketContacts.filter((contact) => {
       if (!term) return true;
       return [contact.name, contact.company, contact.email, contact.phone_number]
         .some((value) => value?.toLowerCase().includes(term));
     });
-  }, [nicheContacts, assignedContactIds, q]);
+  }, [marketContacts, q]);
+
+  const assignableContacts = useMemo(() => marketContacts.filter((contact) => (
+    contact.ai_voice_consent === true
+    && contact.do_not_call !== true
+    && contact.unsubscribed !== true
+  )), [marketContacts]);
+  const selectableContactIds = useMemo(() => new Set(
+    availableContacts
+      .filter((contact) => contact.ai_voice_consent === true && contact.do_not_call !== true && contact.unsubscribed !== true)
+      .map((contact) => contact.id),
+  ), [availableContacts]);
+
+  const consentRequiredCount = useMemo(() => marketContacts.filter((contact) => (
+    contact.ai_voice_consent !== true
+    && contact.do_not_call !== true
+    && contact.unsubscribed !== true
+  )).length, [marketContacts]);
+
+  const blockedContactCount = useMemo(() => marketContacts.filter((contact) => (
+    contact.do_not_call === true || contact.unsubscribed === true
+  )).length, [marketContacts]);
+
+  const hiddenNonNorthAmericaContacts = useMemo(
+    () => nicheContacts.filter((contact) => (
+      !assignedContactIds.has(contact.id) && !isCallableNorthAmericanNumber(contact.phone_number)
+    )).length,
+    [nicheContacts, assignedContactIds],
+  );
 
   const visibleLeads = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -243,16 +296,23 @@ export default function AgentPipelinePage() {
       setError('Pehle active outbound agent select karein.');
       return;
     }
+    const assignableIds = new Set(assignableContacts.map((contact) => contact.id));
+    const safeContactIds = contactIds.filter((id) => assignableIds.has(id));
+    if (!safeContactIds.length) {
+      setError('Selected leads mein verified AI voice-call consent maujood nahi hai.');
+      return;
+    }
     setQueueing(true);
     setMessage('');
     try {
       const result = await leadsApi.queueAi({
         agent_id: selectedAgentId,
         niche_id: Number(selectedNicheId),
-        contact_ids: contactIds,
-        limit: contactIds.length,
+        contact_ids: safeContactIds,
+        limit: safeContactIds.length,
       });
-      setMessage(`${result.totalQueued} lead${result.totalQueued === 1 ? '' : 's'} ${selectedAgent?.name || 'outbound agent'} ko assign ho gayi`);
+      const skipped = result.invalidRegionCount + result.consentRequiredCount + result.blockedCount;
+      setMessage(`${result.totalQueued} lead${result.totalQueued === 1 ? '' : 's'} ${selectedAgent?.name || 'outbound agent'} ko assign ho gayi${skipped ? `; ${skipped} safety checks ki wajah se skip hui` : ''}`);
       setSelectedContactIds([]);
       await loadPipeline();
       const contacts = await callsApi.listContactsByNiche(Number(selectedNicheId));
@@ -262,6 +322,43 @@ export default function AgentPipelinePage() {
       setError(e?.response?.data?.error || e?.message || 'Failed to assign leads');
     } finally {
       setQueueing(false);
+    }
+  };
+
+  const verifyConsent = async () => {
+    if (!consentContact || consentSource.trim().length < 3) {
+      setError('Consent ka source aur date/reference likhna zaroori hai.');
+      return;
+    }
+    setConsentBusy(true);
+    setError('');
+    try {
+      await leadsApi.setVoiceConsent(consentContact.id, { consented: true, source: consentSource.trim() });
+      setMessage(`${consentContact.company || consentContact.name} ka AI voice-call consent verify ho gaya.`);
+      const contacts = await callsApi.listContactsByNiche(Number(selectedNicheId));
+      setNicheContacts(contacts.contacts || []);
+      setConsentContact(null);
+      setConsentSource('');
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'Consent save nahi ho saka');
+    } finally {
+      setConsentBusy(false);
+    }
+  };
+
+  const saveCallingSettings = async () => {
+    setSettingsBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const result = await leadsApi.updateCallingSettings(callingSettings);
+      setCallingSettings(result.settings);
+      setMessage('Calling speed, daily limits aur time window save ho gaye.');
+      await loadPipeline();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'Calling settings save nahi ho sakin');
+    } finally {
+      setSettingsBusy(false);
     }
   };
 
@@ -389,8 +486,6 @@ export default function AgentPipelinePage() {
     return 'Calling ON hai, lekin is waqt koi live call nahi chal rahi.';
   }, [callingStatus]);
 
-  const activeRecordingUrl = getRecordingUrl(activeLead);
-  const lastRecordingUrl = getRecordingUrl(callingStatus?.lastCall || null);
   const recentActivity = callingStatus?.recentActivity || [];
 
   return (
@@ -398,7 +493,7 @@ export default function AgentPipelinePage() {
       <div className="flex flex-wrap justify-between items-start gap-6 mb-2">
         <div>
           <h1 className="flex items-center gap-3 text-3xl font-extrabold text-gray-900 m-0">
-            <div className="p-2.5 bg-teal-50 border border-teal-100 rounded-2xl shadow-sm">
+            <div className="p-2.5 bg-teal-50 border border-teal-100 rounded-lg shadow-sm">
               <Bot size={28} className="text-teal-700" />
             </div>
             AI Calling
@@ -411,7 +506,7 @@ export default function AgentPipelinePage() {
             onChange={(event) => setSelectedAgentId(event.target.value)}
             disabled={automationRunning}
             aria-label="Select outbound AI agent"
-            className="w-60 h-10 px-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-gray-100"
+            className="w-60 h-10 px-3 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-gray-100"
           >
             <option value="">Select outbound agent</option>
             {outboundAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
@@ -420,7 +515,7 @@ export default function AgentPipelinePage() {
             value={selectedNicheId}
             onChange={(event) => setSelectedNicheId(event.target.value)}
             aria-label="Select niche"
-            className="w-56 h-10 px-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all cursor-pointer hover:border-gray-300"
+            className="w-56 h-10 px-3 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all cursor-pointer hover:border-gray-300"
           >
             <option value="">All niches</option>
             {niches.map((niche) => (
@@ -428,24 +523,24 @@ export default function AgentPipelinePage() {
             ))}
           </select>
           <button 
-            disabled={controlBusy || (!automationRunning && (!selectedAgentId || !callingStatus?.queueCount))}
+            disabled={controlBusy || (!automationRunning && (!selectedAgentId || !callingStatus?.queueCount || callingStatus?.withinCallingWindow === false))}
             onClick={() => void toggleCalling()} 
-            className={`flex items-center gap-2 h-10 px-4 rounded-xl font-bold text-xs text-white shadow-sm hover:shadow-md transition-all duration-200 ${controlBusy || (!automationRunning && (!selectedAgentId || !callingStatus?.queueCount)) ? 'bg-slate-400 cursor-not-allowed' : automationRunning ? 'bg-red-600 hover:bg-red-700 active:scale-95' : 'bg-teal-600 hover:bg-teal-700 active:scale-95'}`}
+            className={`flex items-center gap-2 h-10 px-4 rounded-md font-bold text-xs text-white shadow-sm transition-colors ${controlBusy || (!automationRunning && (!selectedAgentId || !callingStatus?.queueCount || callingStatus?.withinCallingWindow === false)) ? 'bg-slate-400 cursor-not-allowed' : automationRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'}`}
           >
             {automationRunning ? <Square size={14} fill="currentColor" /> : <PhoneCall size={15} />}
             {controlBusy ? 'Please wait...' : automationRunning ? 'Stop Calling' : 'Start Calling'}
           </button>
           <button 
             onClick={() => void toggleLiveListen()} 
-            className={`flex items-center gap-2 h-10 px-4 rounded-xl font-bold text-xs text-white shadow-sm hover:shadow-md transition-all duration-200 active:scale-95 ${listeningEnabled ? 'bg-red-600 hover:bg-red-700' : 'bg-violet-600 hover:bg-violet-700'}`}
+            className={`flex items-center gap-2 h-10 px-4 rounded-lg font-bold text-xs text-white shadow-sm hover:shadow-md transition-all duration-200 active:scale-95 ${listeningEnabled ? 'bg-red-600 hover:bg-red-700' : 'bg-violet-600 hover:bg-violet-700'}`}
           >
             {listeningEnabled ? <Square size={14} fill="currentColor" /> : <Volume2 size={16} />}
             {listeningEnabled ? 'Stop Listening' : 'Listen Live'}
           </button>
-          <button onClick={() => navigate('/ai-agent')} className="flex items-center gap-2 h-10 px-4 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 active:scale-95">
+          <button onClick={() => navigate('/ai-agent')} className="flex items-center gap-2 h-10 px-4 rounded-lg font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 active:scale-95">
             <Settings2 size={15} /> Agent Setup
           </button>
-          <button onClick={() => void loadPipeline()} title="Refresh" className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900 transition-all duration-200">
+          <button onClick={() => void loadPipeline()} title="Refresh" className="w-10 h-10 flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900 transition-all duration-200">
             <RefreshCw size={16} />
           </button>
         </div>
@@ -461,10 +556,49 @@ export default function AgentPipelinePage() {
       {agentStatus && !agentStatus.outboundEnabled && (
         <Alert danger text="Outbound calling server safety policy se paused hai. Leads assign ho sakti hain, lekin calls start nahi hongi." />
       )}
+      {callingStatus && !callingStatus.withinCallingWindow && (
+        <Alert danger text={`Calling sirf ${callingSettings.callingWindowStartHour}:00-${callingSettings.callingWindowEndHour}:00 (${callingSettings.callingTimezone}) mein start hogi.`} />
+      )}
+
+      <section className="border-y border-slate-200 bg-white py-4 px-1">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={18} className="text-teal-700" />
+            <h2 className="text-sm font-bold text-slate-900">Campaign safety</h2>
+          </div>
+          <div className="flex flex-wrap gap-4 text-xs font-semibold text-slate-600">
+            <span>Today: {callingStatus?.usageToday.attempts || 0}/{callingSettings.maxCallsPerDay} calls</span>
+            <span>{formatDurationSeconds(callingStatus?.usageToday.seconds || 0)}/{callingSettings.maxMinutesPerDay}m</span>
+            <span>${(callingStatus?.usageToday.costUsd || 0).toFixed(2)}/${callingSettings.maxCostUsdPerDay.toFixed(2)}</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[repeat(7,minmax(0,1fr))_auto] gap-3 items-end">
+          <SettingNumber icon={<Gauge size={14} />} label="Calls / minute" value={callingSettings.callsPerMinute} min={1} max={callingStatus?.serverCaps.callsPerMinute || 3} onChange={(callsPerMinute) => setCallingSettings((current) => ({ ...current, callsPerMinute }))} />
+          <SettingNumber icon={<PhoneCall size={14} />} label="Daily calls" value={callingSettings.maxCallsPerDay} min={1} max={callingStatus?.serverCaps.maxCallsPerDay || 5} onChange={(maxCallsPerDay) => setCallingSettings((current) => ({ ...current, maxCallsPerDay }))} />
+          <SettingNumber icon={<Clock3 size={14} />} label="Daily minutes" value={callingSettings.maxMinutesPerDay} min={1} max={callingStatus?.serverCaps.maxMinutesPerDay || 10} onChange={(maxMinutesPerDay) => setCallingSettings((current) => ({ ...current, maxMinutesPerDay }))} />
+          <SettingNumber icon={<DollarSign size={14} />} label="AI budget est. $" value={callingSettings.maxCostUsdPerDay} min={0.1} max={callingStatus?.serverCaps.maxCostUsdPerDay || 1} step={0.1} onChange={(maxCostUsdPerDay) => setCallingSettings((current) => ({ ...current, maxCostUsdPerDay }))} />
+          <label className="block text-xs font-semibold text-slate-600">
+            Timezone
+            <select value={callingSettings.callingTimezone} onChange={(event) => setCallingSettings((current) => ({ ...current, callingTimezone: event.target.value }))} className="mt-1 w-full h-9 px-2 border border-slate-300 rounded-md bg-white text-xs text-slate-800">
+              <option value="America/New_York">Eastern</option>
+              <option value="America/Chicago">Central</option>
+              <option value="America/Denver">Mountain</option>
+              <option value="America/Los_Angeles">Pacific</option>
+              <option value="America/Toronto">Toronto</option>
+              <option value="America/Vancouver">Vancouver</option>
+            </select>
+          </label>
+          <SettingNumber icon={<Clock3 size={14} />} label="Start hour" value={callingSettings.callingWindowStartHour} min={0} max={23} onChange={(callingWindowStartHour) => setCallingSettings((current) => ({ ...current, callingWindowStartHour }))} />
+          <SettingNumber icon={<Clock3 size={14} />} label="End hour" value={callingSettings.callingWindowEndHour} min={1} max={24} onChange={(callingWindowEndHour) => setCallingSettings((current) => ({ ...current, callingWindowEndHour }))} />
+          <button onClick={() => void saveCallingSettings()} disabled={settingsBusy} className="h-9 px-4 rounded-md bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 disabled:opacity-50">
+            {settingsBusy ? 'Saving...' : 'Save limits'}
+          </button>
+        </div>
+      </section>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Stat label="Assigned" value={stats.assigned} colorClass="text-slate-800" bgClass="bg-white border-slate-200 shadow-sm" />
-        <Stat label="Active Calls" value={stats.calling} colorClass="text-blue-700" bgClass="bg-blue-50/80 border-blue-200 shadow-sm" />
+        <Stat label="Live / Answered" value={stats.calling} colorClass="text-blue-700" bgClass="bg-blue-50/80 border-blue-200 shadow-sm" />
         <Stat label="Called" value={stats.called} colorClass="text-indigo-700" bgClass="bg-indigo-50/80 border-indigo-200 shadow-sm" />
         <Stat label="No Answer" value={stats.noAnswer} colorClass="text-orange-700" bgClass="bg-orange-50/80 border-orange-200 shadow-sm" />
         <Stat label="Interested" value={stats.interested} colorClass="text-emerald-700" bgClass="bg-emerald-50/80 border-emerald-200 shadow-sm" />
@@ -478,7 +612,7 @@ export default function AgentPipelinePage() {
             value={q}
             onChange={(event) => setQ(event.target.value)}
             placeholder="Search leads..."
-            className="w-full h-11 pl-10 pr-4 bg-white border border-gray-200 rounded-xl text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
+            className="w-full h-11 pl-10 pr-4 bg-white border border-gray-200 rounded-lg text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
           />
         </div>
       </div>
@@ -566,32 +700,12 @@ export default function AgentPipelinePage() {
         </div>
       )}
 
-      <div className="p-5 border border-gray-200 rounded-2xl bg-white shadow-sm">
-        <div className="text-xs font-bold text-gray-500 mb-4 tracking-wider">CALL RECORDINGS</div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <RecordingPanel
-            title="Current Call Recording"
-            subtitle={activeLead ? activeLead.company_name || activeLead.domain : 'No active lead'}
-            url={activeRecordingUrl}
-            status={getRecordingStatus(activeLead)}
-            emptyText="Current live call ki recording abhi available nahi hai."
-          />
-          <RecordingPanel
-            title="Last Call Recording"
-            subtitle={callingStatus?.lastCall ? callingStatus.lastCall.company_name || callingStatus.lastCall.domain : 'No previous call'}
-            url={lastRecordingUrl}
-            status={getRecordingStatus(callingStatus?.lastCall || null)}
-            emptyText="Last call ki recording abhi save nahi hui ya Twilio callback pending hai."
-          />
-        </div>
-      </div>
-
-      <div className="p-5 border border-gray-200 rounded-2xl bg-white shadow-sm">
+      <div className="p-5 border border-gray-200 rounded-lg bg-white shadow-sm">
         <div className="text-xs font-bold text-gray-500 mb-4 tracking-wider">RECENT CALL ACTIVITY</div>
         {recentActivity.length ? (
           <div className="flex flex-col gap-3">
             {recentActivity.map((lead) => (
-              <div key={lead.id} className="grid grid-cols-[1.5fr_0.8fr_0.8fr_1.3fr_0.9fr] gap-4 items-center p-4 border border-gray-100 rounded-xl bg-gray-50/50 hover:bg-white hover:shadow-sm transition-all duration-200">
+              <div key={lead.id} className="grid grid-cols-[1.5fr_0.8fr_0.8fr_1.3fr_0.9fr] gap-4 items-center p-4 border border-gray-100 rounded-lg bg-gray-50/50 hover:bg-white hover:shadow-sm transition-all duration-200">
                 <div className="min-w-0">
                   <div className="text-gray-900 text-sm font-bold truncate">
                     {lead.company_name || lead.domain}
@@ -614,13 +728,9 @@ export default function AgentPipelinePage() {
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  {getRecordingUrl(lead) ? (
-                    <audio controls preload="none" className="w-full max-w-[180px] h-8 rounded" src={getRecordingUrl(lead)!} />
-                  ) : (
-                    <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap ${getRecordingStatus(lead) === 'in-progress' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {getRecordingStatus(lead) === 'in-progress' ? 'Recording...' : 'No recording'}
-                    </span>
-                  )}
+                  <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap bg-slate-100 text-slate-700">
+                    {String(lead.raw_data?.answered_by || getCallStatusText(lead))}
+                  </span>
                 </div>
               </div>
             ))}
@@ -645,12 +755,20 @@ export default function AgentPipelinePage() {
           queueing={queueing}
           onToggle={toggleContact}
           onSelectAll={() => setSelectedContactIds(
-            selectedContactIds.length === availableContacts.length ? [] : availableContacts.map((contact) => contact.id),
+            selectedContactIds.length === selectableContactIds.size ? [] : Array.from(selectableContactIds),
           )}
           onAssign={() => void queueContacts(selectedContactIds)}
-          onAssignAll={() => void queueContacts(availableContacts.map((contact) => contact.id))}
+          onAssignAll={() => void queueContacts(assignableContacts.map((contact) => contact.id))}
+          onVerifyConsent={(contact) => {
+            setConsentContact(contact);
+            setConsentSource('');
+          }}
           canAssign={Boolean(selectedAgentId)}
           agentName={selectedAgent?.name || null}
+          hiddenNonUSCount={hiddenNonNorthAmericaContacts}
+          consentRequiredCount={consentRequiredCount}
+          blockedCount={blockedContactCount}
+          selectableCount={selectableContactIds.size}
         />
       ) : (
         <PipelineLeadList
@@ -662,6 +780,30 @@ export default function AgentPipelinePage() {
           loading={loading}
           emptyText={activeTab === 'calling' ? callingEmptyText : 'No leads in this stage'}
         />
+      )}
+      {consentContact && (
+        <div className="fixed inset-0 z-[1100] bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Verify AI voice-call consent</h2>
+                <p className="mt-1 text-xs text-slate-500">{consentContact.company || consentContact.name} | {consentContact.phone_number}</p>
+              </div>
+              <button title="Close" onClick={() => setConsentContact(null)} className="h-8 w-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"><X size={17} /></button>
+            </div>
+            <div className="p-5">
+              <label className="block text-sm font-semibold text-slate-700">
+                Consent source and date
+                <textarea value={consentSource} onChange={(event) => setConsentSource(event.target.value)} rows={4} placeholder="Example: Website form, 2026-09-04, form submission reference 123" className="mt-2 w-full rounded-md border border-slate-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </label>
+              <p className="mt-3 text-xs leading-5 text-slate-500">Save sirf tab karein jab contact ne AI-generated voice call receive karne ki wazeh ijazat di ho.</p>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+              <button onClick={() => setConsentContact(null)} className="h-9 px-4 rounded-md border border-slate-300 bg-white text-xs font-bold text-slate-700">Cancel</button>
+              <button disabled={consentBusy || consentSource.trim().length < 3} onClick={() => void verifyConsent()} className="h-9 px-4 rounded-md bg-teal-700 text-white text-xs font-bold disabled:opacity-50">{consentBusy ? 'Saving...' : 'Confirm consent'}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -681,8 +823,13 @@ function AvailableLeadList({
   onSelectAll,
   onAssign,
   onAssignAll,
+  onVerifyConsent,
   canAssign,
   agentName,
+  hiddenNonUSCount,
+  consentRequiredCount,
+  blockedCount,
+  selectableCount,
 }: {
   selectedNicheId: string;
   contacts: Contact[];
@@ -697,37 +844,59 @@ function AvailableLeadList({
   onSelectAll: () => void;
   onAssign: () => void;
   onAssignAll: () => void;
+  onVerifyConsent: (contact: Contact) => void;
   canAssign: boolean;
   agentName: string | null;
+  hiddenNonUSCount: number;
+  consentRequiredCount: number;
+  blockedCount: number;
+  selectableCount: number;
 }) {
   if (!selectedNicheId) return <Empty text="Select a niche to view leads" />;
   if (loading) return <Empty text="Loading leads..." />;
-  if (!contacts.length) return <Empty text="No available leads in this niche" />;
+  if (!contacts.length) {
+    return <Empty text={hiddenNonUSCount ? `${hiddenNonUSCount} non-USA/Canada ya invalid phone leads safety ke liye hidden hain` : 'No available leads in this niche'} />;
+  }
 
   return (
     <>
       <div className="flex justify-end gap-3 flex-wrap mb-4">
-        <div className="mr-auto self-center text-sm font-semibold text-slate-700">Agent: {agentName || 'Select an outbound agent above'}</div>
-        <button onClick={onSelectAll} className="h-10 px-4 border border-gray-300 rounded-xl bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 shadow-sm transition-all duration-200">
-          {selectedIds.length === contacts.length ? 'Clear Selection' : 'Select All'}
+        <div className="mr-auto self-center text-sm font-semibold text-slate-700">
+          Agent: {agentName || 'Select an outbound agent above'}
+          <span className="ml-3 text-emerald-700">{selectableCount} callable</span>
+          {consentRequiredCount > 0 && <span className="ml-3 text-amber-700">{consentRequiredCount} consent required</span>}
+          {blockedCount > 0 && <span className="ml-3 text-rose-700">{blockedCount} blocked</span>}
+          {hiddenNonUSCount > 0 && <span className="ml-3 text-slate-500">{hiddenNonUSCount} outside USA/Canada</span>}
+        </div>
+        <button onClick={onSelectAll} className="h-10 px-4 border border-gray-300 rounded-lg bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 shadow-sm transition-all duration-200">
+          {selectedIds.length === selectableCount && selectableCount > 0 ? 'Clear Selection' : 'Select Callable'}
         </button>
-        <button disabled={!canAssign || !selectedIds.length || queueing} onClick={onAssign} className={`flex items-center gap-2 h-10 px-4 rounded-xl text-xs font-bold text-white shadow-sm transition-all duration-200 ${canAssign && selectedIds.length && !queueing ? 'bg-teal-600 hover:bg-teal-700 hover:shadow-md' : 'bg-slate-400 cursor-not-allowed'}`}>
+        <button disabled={!canAssign || !selectedIds.length || queueing} onClick={onAssign} className={`flex items-center gap-2 h-10 px-4 rounded-lg text-xs font-bold text-white shadow-sm transition-all duration-200 ${canAssign && selectedIds.length && !queueing ? 'bg-teal-600 hover:bg-teal-700 hover:shadow-md' : 'bg-slate-400 cursor-not-allowed'}`}>
           <UserPlus size={15} /> {queueing ? 'Assigning...' : `Assign Selected (${selectedIds.length})`}
         </button>
-        <button disabled={!canAssign || queueing} onClick={onAssignAll} className="h-10 px-4 border border-gray-300 rounded-xl bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 shadow-sm transition-all duration-200">Assign All</button>
+        <button disabled={!canAssign || !selectableCount || queueing} onClick={onAssignAll} className="h-10 px-4 border border-gray-300 rounded-md bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 shadow-sm transition-colors">Assign All Callable</button>
       </div>
       <div className="overflow-x-auto">
         <div className="min-w-[900px] flex flex-col gap-3">
-          {contacts.map((contact) => (
-            <label key={contact.id} className="grid grid-cols-[1.6fr_48px_0.8fr_0.7fr_1fr_0.9fr] gap-4 items-center min-h-[74px] p-4 border border-gray-200 rounded-xl bg-white hover:bg-gray-50 hover:shadow-sm transition-all duration-200 cursor-pointer">
-            <input type="checkbox" checked={selectedIds.includes(contact.id)} onChange={() => onToggle(contact.id)} className="w-5 h-5 accent-teal-600 cursor-pointer justify-self-center" />
+          {contacts.map((contact) => {
+            const blocked = contact.do_not_call === true || contact.unsubscribed === true;
+            const callable = contact.ai_voice_consent === true && !blocked;
+            return (
+            <div key={contact.id} className="grid grid-cols-[36px_minmax(200px,1.6fr)_52px_170px_minmax(160px,1fr)_170px] gap-4 items-center min-h-[74px] p-4 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 hover:shadow-sm transition-colors">
+            <input type="checkbox" disabled={!callable} checked={selectedIds.includes(contact.id)} onChange={() => onToggle(contact.id)} className="w-5 h-5 accent-teal-600 cursor-pointer justify-self-center disabled:cursor-not-allowed disabled:opacity-30" />
             <LeadIdentity name={contact.company || contact.name} niche={contact.niche_name} detail={contact.name} />
             <Score value={contact.score || 0} />
             <PhoneValue value={contact.phone_number} />
             <span className="text-gray-500 text-xs font-medium">{contact.email || 'No email'}</span>
-            <span className="justify-self-end px-3 py-1.5 text-xs font-bold rounded-full bg-teal-100 text-teal-800 uppercase tracking-wide">Ready</span>
-            </label>
-          ))}
+            {blocked ? (
+              <span className="justify-self-end px-3 py-1.5 text-xs font-bold rounded-full bg-rose-100 text-rose-800 uppercase">DNC / Blocked</span>
+            ) : callable ? (
+              <span className="justify-self-end px-3 py-1.5 text-xs font-bold rounded-full bg-teal-100 text-teal-800 uppercase">Consent verified</span>
+            ) : (
+              <button onClick={() => onVerifyConsent(contact)} className="justify-self-end h-9 px-3 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-xs font-bold hover:bg-amber-100">Verify consent</button>
+            )}
+            </div>
+          );})}
         </div>
       </div>
       <Pagination currentPage={currentPage} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={onPageChange} />
@@ -759,7 +928,7 @@ function PipelineLeadList({
     <div className="overflow-x-auto">
       <div className="min-w-[900px] flex flex-col gap-3">
         {leads.map((lead) => (
-          <div key={lead.id} className={`grid grid-cols-[1.6fr_48px_0.8fr_0.7fr_1fr_0.9fr] gap-4 items-center min-h-[74px] p-4 border rounded-xl transition-all duration-200 ${lead.lead_stage === 'calling' ? 'bg-amber-50 border-amber-300 shadow-md' : 'bg-white border-gray-200 hover:shadow-md'}`}>
+          <div key={lead.id} className={`grid grid-cols-[1.6fr_48px_0.8fr_0.7fr_1fr_0.9fr] gap-4 items-center min-h-[74px] p-4 border rounded-lg transition-all duration-200 ${lead.lead_stage === 'calling' ? 'bg-amber-50 border-amber-300 shadow-md' : 'bg-white border-gray-200 hover:shadow-md'}`}>
           <LeadIdentity name={lead.company_name || lead.domain} niche={lead.raw_data?.niche_name || lead.industry_guess} detail={lead.primary_email || lead.domain} />
           <Score value={lead.ai_score || 0} />
           <PhoneValue value={lead.primary_phone || 'No phone'} />
@@ -774,13 +943,9 @@ function PipelineLeadList({
               : lead.ai_summary || lead.lead_notes || 'No notes yet'}
           </span>
           <div className="justify-self-end w-full max-w-[180px]">
-            {getRecordingUrl(lead) ? (
-              <audio controls preload="none" className="w-full h-8 rounded" src={getRecordingUrl(lead)!} />
-            ) : (
-              <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap float-right ${getRecordingStatus(lead) === 'in-progress' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
-                {getRecordingStatus(lead) === 'in-progress' ? 'Recording...' : 'No recording'}
-              </span>
-            )}
+            <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap float-right bg-slate-100 text-slate-700">
+              {String(lead.raw_data?.answered_by || getCallStatusText(lead))}
+            </span>
           </div>
           </div>
         ))}
@@ -805,7 +970,7 @@ function Pagination({
   if (totalPages <= 1) return null;
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200 mt-4 rounded-xl">
+    <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200 mt-4 rounded-lg">
       <div className="flex-1 flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-700">
@@ -858,9 +1023,42 @@ function PhoneValue({ value }: { value: string }) {
   return <span className="flex items-center gap-2 text-gray-900 text-sm font-bold"><Phone size={14} className="text-teal-600" /> {value}</span>;
 }
 
+function SettingNumber({
+  icon,
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  onChange,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block text-xs font-semibold text-slate-600">
+      <span className="flex items-center gap-1.5">{icon}{label}</span>
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-1 w-full h-9 px-2 border border-slate-300 rounded-md bg-white text-xs text-slate-800"
+      />
+    </label>
+  );
+}
+
 function Stat({ label, value, colorClass, bgClass }: { label: string; value: number; colorClass: string; bgClass: string }) {
   return (
-    <div className={`p-4 rounded-2xl border transition-all duration-300 hover:shadow-md hover:-translate-y-1 ${bgClass}`}>
+    <div className={`p-4 rounded-lg border transition-all duration-300 hover:shadow-md hover:-translate-y-1 ${bgClass}`}>
       <div className={`text-[11px] font-bold uppercase tracking-wider ${colorClass}`}>{label}</div>
       <div className={`mt-2 text-2xl font-black ${colorClass}`}>{value}</div>
     </div>
@@ -883,7 +1081,7 @@ function StatusStripCard({
   helper: string;
 }) {
   return (
-    <div className={`p-5 rounded-2xl bg-white border shadow-sm transition-all duration-300 hover:shadow-md ${borderClass}`}>
+    <div className={`p-5 rounded-lg bg-white border shadow-sm transition-all duration-300 hover:shadow-md ${borderClass}`}>
       <div className={`text-[11px] font-bold uppercase tracking-wider ${accentClass}`}>{title}</div>
       <div className="mt-2.5 text-gray-900 text-[15px] font-extrabold truncate">{name}</div>
       <div className="mt-1.5 text-slate-700 text-[13px] font-bold truncate">{detail}</div>
@@ -892,38 +1090,9 @@ function StatusStripCard({
   );
 }
 
-function RecordingPanel({
-  title,
-  subtitle,
-  url,
-  status,
-  emptyText,
-}: {
-  title: string;
-  subtitle: string;
-  url: string | null;
-  status: string | null;
-  emptyText: string;
-}) {
-  return (
-    <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 min-h-[112px]">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="text-xs font-bold text-gray-900">{title}</div>
-        {status && <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wide ${status === 'completed' ? 'bg-emerald-100 text-emerald-800' : status === 'in-progress' ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-600'}`}>{status}</span>}
-      </div>
-      <div className="text-xs text-gray-600 font-medium mb-3">{subtitle}</div>
-      {url ? (
-        <audio controls preload="none" className="w-full h-9 rounded" src={url} />
-      ) : (
-        <div className="text-xs text-gray-400 font-medium">{emptyText}</div>
-      )}
-    </div>
-  );
-}
-
 function Alert({ text, danger = false, action = null }: { text: string; danger?: boolean; action?: React.ReactNode }) {
   return (
-    <div className={`mb-4 p-4 flex items-center justify-between gap-4 border rounded-xl text-sm font-medium shadow-sm ${danger ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+    <div className={`mb-4 p-4 flex items-center justify-between gap-4 border rounded-lg text-sm font-medium shadow-sm ${danger ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
       <span>{text}</span>
       {action}
     </div>
@@ -931,5 +1100,5 @@ function Alert({ text, danger = false, action = null }: { text: string; danger?:
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="p-10 border border-dashed border-gray-300 rounded-2xl bg-gray-50 text-center text-gray-500 text-sm font-semibold">{text}</div>;
+  return <div className="p-10 border border-dashed border-gray-300 rounded-lg bg-gray-50 text-center text-gray-500 text-sm font-semibold">{text}</div>;
 }

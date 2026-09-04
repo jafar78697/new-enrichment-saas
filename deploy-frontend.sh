@@ -1,4 +1,6 @@
 #!/bin/bash
+set -Eeuo pipefail
+
 # Deploy Frontend to Cloudflare Pages
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 

@@ -1,10 +1,13 @@
 import { env } from '../config/env.js';
 
 const DEFAULT_PROMPT = `
-You are an outbound sales assistant calling a business lead on behalf of Jento AI.
+You are Jento AI's outbound assistant for salons, spas, and beauty businesses.
 
-Introduce yourself clearly, ask whether this is a good time, understand the
-lead's needs, and keep every spoken reply short and natural.
+Introduce yourself clearly, ask whether this is a good time, then ask for the
+owner or person who handles calls and bookings. Ask one short question at a
+time about missed calls, appointment booking, no-shows, or slow follow-up.
+Connect only their stated problem to fewer missed customers or less front-desk
+phone work. Let the prospect speak more than you.
 
 Rules:
 - Never pretend that the lead called you.
@@ -12,6 +15,7 @@ Rules:
 - Do not promise a callback, booking, transfer, email, payment, or any action
   unless the system has a real tool for that action.
 - Do not request card details, passwords, API keys, or other sensitive data.
+- Never invent prices, integrations, guarantees, results, or business facts.
 - If asked for a human, explain that you can take a short message for the team.
 - If the caller asks to end the call, say a brief goodbye and use end_call.
 - Use save_call_note only to save a brief factual summary after the caller has
@@ -48,16 +52,18 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {})
   const leadContext = companyName
     ? `\n\nCurrent CRM lead: ${companyName}. Use this name naturally, but do not invent any other facts about the business.`
     : '';
-  const think = {
-    provider: {
-      type: 'open_ai',
-      model: env.DEEPGRAM_AGENT_MODEL || 'gpt-4o-mini',
-    },
-    prompt: `${agentConfig?.prompt || DEFAULT_PROMPT}${leadContext}`,
-  };
+  const prompt = `${agentConfig?.prompt || DEFAULT_PROMPT}${leadContext}`;
+  const primaryModel = env.DEEPGRAM_AGENT_MODEL || 'gpt-5.6-luna';
+  const fallbackModel = env.DEEPGRAM_AGENT_FALLBACK_MODEL || 'gpt-5.4-mini';
+  const thinkProviders = [primaryModel, fallbackModel]
+    .filter((model, index, models) => model && models.indexOf(model) === index)
+    .map((model) => ({
+      provider: { type: 'open_ai', model },
+      prompt,
+    }));
 
   if (includeTools) {
-    think.functions = [
+    const functions = [
       {
         name: 'end_call',
         description: 'End this active phone call after a polite goodbye.',
@@ -80,17 +86,22 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {})
         },
       },
     ];
+    thinkProviders.forEach((provider) => {
+      provider.functions = functions;
+    });
   }
+
+  const voice = agentConfig?.voice || env.DEEPGRAM_AGENT_VOICE || 'flux-kit-en';
 
   return {
     language: agentConfig?.language || 'en',
     listen: { provider: buildListenProvider() },
-    think,
+    think: thinkProviders.length === 1 ? thinkProviders[0] : thinkProviders,
     speak: {
       provider: {
         type: 'deepgram',
-        version: 'v1',
-        model: agentConfig?.voice || env.DEEPGRAM_AGENT_VOICE || 'aura-2-thalia-en',
+        version: voice.startsWith('flux-') ? 'v2' : 'v1',
+        model: voice,
       },
     },
     greeting,

@@ -91,18 +91,27 @@ function extractConversationText(event) {
   };
 }
 
-async function enforceDailyLimit() {
+async function enforceDailyLimit(tenantId) {
   const { rows } = await query(
     `SELECT
-       COALESCE((SELECT SUM(duration_sec) FROM ai_call_sessions WHERE started_at >= date_trunc('day', NOW())), 0)::int AS seconds_today,
-       COALESCE((SELECT SUM(cost_estimate_usd) FROM ai_call_sessions WHERE started_at >= date_trunc('day', NOW())), 0)::numeric AS call_cost,
-       COALESCE((SELECT SUM(estimated_cost_usd) FROM ai_usage_ledger WHERE created_at >= date_trunc('day', NOW())), 0)::numeric AS preview_cost`,
+       COALESCE(c.max_minutes_per_day, $2)::int AS max_minutes,
+       COALESCE(c.max_cost_usd_per_day, $3)::numeric AS max_cost,
+       COALESCE((SELECT SUM(duration_sec) FROM ai_call_sessions
+                 WHERE tenant_id = $1 AND started_at >= date_trunc('day', NOW())), 0)::int AS seconds_today,
+       COALESCE((SELECT SUM(cost_estimate_usd) FROM ai_call_sessions
+                 WHERE tenant_id = $1 AND started_at >= date_trunc('day', NOW())), 0)::numeric AS call_cost,
+       COALESCE((SELECT SUM(estimated_cost_usd) FROM ai_usage_ledger
+                 WHERE tenant_id = $1 AND created_at >= date_trunc('day', NOW())), 0)::numeric AS preview_cost
+     FROM (SELECT 1) seed
+     LEFT JOIN ai_calling_controls c ON c.tenant_id = $1`,
+    [tenantId, env.AI_MAX_MINUTES_PER_DAY, env.AI_MAX_COST_USD_PER_DAY],
   );
   const usedSeconds = Number(rows[0]?.seconds_today || 0);
   const usedCost = Number(rows[0]?.call_cost || 0) + Number(rows[0]?.preview_cost || 0);
   const nextCallCost = (env.AI_MAX_SECONDS_PER_CALL / 60) * env.AI_ESTIMATED_COST_USD_PER_MINUTE;
-  return usedSeconds < env.AI_MAX_MINUTES_PER_DAY * 60
-    && usedCost + nextCallCost <= env.AI_MAX_COST_USD_PER_DAY;
+  const maxMinutes = Math.min(env.AI_MAX_MINUTES_PER_DAY, Number(rows[0]?.max_minutes || env.AI_MAX_MINUTES_PER_DAY));
+  const maxCost = Math.min(env.AI_MAX_COST_USD_PER_DAY, Number(rows[0]?.max_cost || env.AI_MAX_COST_USD_PER_DAY));
+  return usedSeconds < maxMinutes * 60 && usedCost + nextCallCost <= maxCost;
 }
 
 async function loadSessionContext(sessionId) {
@@ -271,13 +280,16 @@ export function attachDeepgramBridge(httpServer) {
     let pendingAudioFrames = [];
     let agentConfig = null;
     let callTimer = null;
+    let detectionWindowTimer = null;
     let streamRegistered = false;
     let agentStartedAt = null;
     const context = { signalWireWs, streamSid, callSid, sessionId, deepgramWs, agentConfig, detectionLocked: false };
 
     const cleanup = async (state = 'stopped') => {
       if (callTimer) clearTimeout(callTimer);
+      if (detectionWindowTimer) clearTimeout(detectionWindowTimer);
       callTimer = null;
+      detectionWindowTimer = null;
       if (streamRegistered && streamSid) activeStreamSids.delete(streamSid);
       streamRegistered = false;
       if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) deepgramWs.close();
@@ -321,16 +333,16 @@ export function attachDeepgramBridge(httpServer) {
             return;
           }
 
-          if (!(await enforceDailyLimit())) {
-            console.warn('[deepgram-bridge] AI daily minutes cap reached; rejecting stream.');
-            await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'daily-minute-limit' });
-            return;
-          }
-
           const session = await loadSessionContext(sessionId);
           if (!session?.agent_config?.id) {
             console.error('[deepgram-bridge] No active agent configuration for session; closing stream.');
             await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'missing-agent-config' });
+            return;
+          }
+
+          if (!(await enforceDailyLimit(session.tenant_id))) {
+            console.warn('[deepgram-bridge] AI daily budget cap reached; rejecting stream.');
+            await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'daily-budget-limit' });
             return;
           }
 
@@ -340,6 +352,9 @@ export function attachDeepgramBridge(httpServer) {
           context.callSid = callSid;
           context.sessionId = sessionId;
           context.agentConfig = agentConfig;
+          detectionWindowTimer = setTimeout(() => {
+            context.detectionLocked = true;
+          }, 10000);
 
           activeStreamSids.add(streamSid);
           streamRegistered = true;

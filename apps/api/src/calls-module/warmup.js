@@ -10,9 +10,11 @@ async function processWarmup() {
   if (isWarmupRunning) return;
   isWarmupRunning = true;
 
-  const client = await getPool().connect();
+  let client = null;
 
   try {
+    client = await getPool().connect();
+
     // We want to send a warmup email from one account to another account belonging to the same user.
     // To keep it simple: find two active accounts.
     const accountsRes = await client.query(`
@@ -89,10 +91,12 @@ async function processWarmup() {
   } finally {
     // A failed connection can already be returned by pg-pool. Do not let its
     // duplicate-release guard terminate the whole API process.
-    try {
-      client.release();
-    } catch (releaseErr) {
-      console.warn('[Warmup] Database client was already released:', releaseErr.message);
+    if (client) {
+      try {
+        client.release();
+      } catch (releaseErr) {
+        console.warn('[Warmup] Database client was already released:', releaseErr.message);
+      }
     }
     isWarmupRunning = false;
   }

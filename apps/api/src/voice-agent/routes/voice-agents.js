@@ -14,7 +14,7 @@ const agentSchema = z.object({
   name: z.string().trim().min(2).max(80),
   mode: z.enum(['browser_preview', 'inbound', 'outbound']).default('outbound'),
   isActive: z.boolean().default(true),
-  voice: z.string().trim().min(2).max(100).default('aura-2-thalia-en'),
+  voice: z.string().trim().min(2).max(100).default('flux-kit-en'),
   language: z.literal('en').default('en'),
   greeting: z.string().trim().min(3).max(500).default('Hello, thanks for calling Jento AI. How can I help you today?'),
   prompt: z.string().trim().min(40).max(8000),

@@ -10,20 +10,24 @@ import {
   type AgentSessionSummary,
 } from '../services/deepgramAgentsApi';
 
-const DEFAULT_PROMPT = `You are an outbound sales assistant calling a business lead on behalf of Jento AI.
+const DEFAULT_PROMPT = `You are Jento AI's outbound assistant for salons, spas, and beauty businesses.
 Introduce yourself and Jento AI clearly, ask whether this is a good time, and explain the reason for the call in one short sentence.
-Ask concise qualification questions, understand the lead's needs, and keep spoken replies short and natural.
+First ask for the owner or the person who handles calls and bookings.
+Ask one concise question at a time about missed calls, appointment booking, no-shows, or slow customer follow-up.
+Connect only the prospect's stated problem to one relevant benefit: fewer missed customers and less front-desk phone work.
+Keep spoken replies short and natural. Let the prospect speak more than you.
 Never pretend the lead called you. Never promise a booking, transfer, payment, or email unless the system has a real tool for it.
+Never invent prices, integrations, results, or facts about the salon.
 Never ask for passwords, card details, API keys, or other sensitive information.
 Respect a clear refusal immediately. If the lead asks not to be called again, apologize, end the call, and record that outcome.
 If the lead is interested, collect a preferred callback time and save a short factual note.
 If the lead asks to end the call, say a short goodbye and end the call.`;
 
 const newDraft = (): DeepgramAgentDraft => ({
-  name: 'Jento Outbound Sales Agent',
+  name: 'Jento Salon Outbound Agent',
   mode: 'outbound',
   isActive: true,
-  voice: 'aura-2-thalia-en',
+  voice: 'flux-kit-en',
   language: 'en',
   greeting: 'Hi, am I speaking with someone from {company_name}? This is the Jento AI assistant. Is now a good time for a quick conversation?',
   prompt: DEFAULT_PROMPT,
@@ -201,6 +205,8 @@ export default function DeepgramAgents() {
               </label>}
               <label className="block text-sm text-slate-700">Voice
                 <select value={draft.voice} onChange={(event) => set('voice', event.target.value)} className="mt-1 w-full h-10 px-3 border border-slate-300 rounded-md text-sm bg-white">
+                  <option value="flux-kit-en">Flux Kit (recommended)</option>
+                  <option value="flux-alexis-en">Flux Alexis</option>
                   <option value="aura-2-thalia-en">Aura Thalia</option>
                   <option value="aura-2-asteria-en">Aura Asteria</option>
                 </select>

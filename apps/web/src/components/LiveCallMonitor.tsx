@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { Bot, Headphones, SkipForward, User, VolumeX, X } from 'lucide-react';
 
 interface LiveCallMonitorProps {
   callSid: string | null;
@@ -15,14 +16,6 @@ interface TranscriptEntry {
   speaker: 'ai' | 'prospect';
   text: string;
   timestamp: string;
-}
-
-function decodeMuLawSample(byte: number) {
-  const MULAW_BIAS = 0x84;
-  const uVal = (~byte) & 0xff;
-  let sample = ((uVal & 0x0f) << 3) + MULAW_BIAS;
-  sample <<= (uVal & 0x70) >> 4;
-  return (uVal & 0x80) ? (MULAW_BIAS - sample) : (sample - MULAW_BIAS);
 }
 
 export default function LiveCallMonitor({
@@ -119,9 +112,10 @@ export default function LiveCallMonitor({
       await audioContextRef.current.resume();
 
       const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const token = localStorage.getItem('enr_token') || localStorage.getItem('call_token');
       socketRef.current = io(`${SOCKET_URL}/call-monitor`, {
-        transports: ['polling'],
-        upgrade: false,
+        auth: { token },
+        transports: ['websocket', 'polling'],
         timeout: 10000,
         reconnectionAttempts: 3,
       });
@@ -151,8 +145,12 @@ export default function LiveCallMonitor({
 
       socketRef.current.on('connect_error', (err) => {
         console.error('Socket connect error:', err);
-        setError('Failed to connect to live stream server.');
+        setError(err.message || 'Failed to connect to live stream server.');
         setIsListening(false);
+      });
+
+      socketRef.current.on('monitor_error', (data: { error?: string }) => {
+        setError(data.error || 'Live call access could not be verified.');
       });
 
     } catch (err: any) {
@@ -201,15 +199,20 @@ export default function LiveCallMonitor({
     }
   };
 
-  const playAudioChunk = (base64MuLaw: string, speaker: string) => {
+  const playAudioChunk = (base64Pcm: string, _speaker: string) => {
     if (!audioContextRef.current) return;
     
     try {
-      const binaryStr = atob(base64MuLaw);
+      const binaryStr = atob(base64Pcm);
       const len = binaryStr.length;
-      const float32Array = new Float32Array(len);
-      for (let i = 0; i < len; i++) {
-        float32Array[i] = decodeMuLawSample(binaryStr.charCodeAt(i) & 0xff) / 32768.0;
+      const sampleCount = Math.floor(len / 2);
+      const float32Array = new Float32Array(sampleCount);
+      for (let i = 0; i < sampleCount; i += 1) {
+        const low = binaryStr.charCodeAt(i * 2) & 0xff;
+        const high = binaryStr.charCodeAt(i * 2 + 1) & 0xff;
+        const unsigned = low | (high << 8);
+        const signed = unsigned >= 0x8000 ? unsigned - 0x10000 : unsigned;
+        float32Array[i] = signed / 32768;
       }
 
       const audioBuffer = audioContextRef.current.createBuffer(1, float32Array.length, 8000);
@@ -220,13 +223,13 @@ export default function LiveCallMonitor({
       source.connect(audioContextRef.current.destination);
 
       const currentTime = audioContextRef.current.currentTime;
-      let nextStart = nextStartTimeRef.current[speaker] || currentTime;
+      let nextStart = nextStartTimeRef.current.all || currentTime;
       if (nextStart < currentTime) {
         nextStart = currentTime;
       }
       
       source.start(nextStart);
-      nextStartTimeRef.current[speaker] = nextStart + audioBuffer.duration;
+      nextStartTimeRef.current.all = nextStart + audioBuffer.duration;
     } catch (err) {
       console.error('Error decoding audio chunk:', err);
     }
@@ -248,11 +251,13 @@ export default function LiveCallMonitor({
       alignItems: 'center', justifyContent: 'center', zIndex: 1000
     }}>
       <div style={{
-        background: '#1F2937', color: '#F3F4F6', width: '500px',
-        borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column'
+        background: '#111827', color: '#F3F4F6', width: 'min(560px, calc(100vw - 32px))',
+        borderRadius: '8px', padding: '22px', display: 'flex', flexDirection: 'column',
+        border: '1px solid #374151', boxShadow: '0 24px 70px rgba(0,0,0,0.4)'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Headphones size={18} />
             <span style={{ 
               width: 10, height: 10, borderRadius: '50%', 
               backgroundColor: isListening ? '#10B981' : '#EF4444',
@@ -268,9 +273,10 @@ export default function LiveCallMonitor({
             }}>
               {statusLabel()}
             </span>
-            <button onClick={onClose} style={{
-              background: 'transparent', border: 'none', color: '#9CA3AF', cursor: 'pointer', fontSize: '16px'
-            }}>✕</button>
+            <button onClick={onClose} title="Close live monitor" style={{
+              background: 'transparent', border: 'none', color: '#9CA3AF', cursor: 'pointer', width: 32, height: 32,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+            }}><X size={18} /></button>
           </div>
         </div>
 
@@ -314,7 +320,10 @@ export default function LiveCallMonitor({
                 fontSize: '14px'
               }}>
                 <div style={{ fontSize: '11px', opacity: 0.6, marginBottom: '4px' }}>
-                  {t.speaker === 'ai' ? '🤖 AI Agent' : '👤 Prospect'}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    {t.speaker === 'ai' ? <Bot size={12} /> : <User size={12} />}
+                    {t.speaker === 'ai' ? 'AI Agent' : 'Prospect'}
+                  </span>
                 </div>
                 {t.text}
               </span>
@@ -335,7 +344,7 @@ export default function LiveCallMonitor({
             background: '#2563EB', color: 'white', padding: '12px', borderRadius: '8px',
             border: 'none', fontWeight: 'bold', cursor: 'pointer', width: '100%'
           }}>
-            ▶️ Connect Audio & Transcript
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Headphones size={16} /> Connect Audio & Transcript</span>
           </button>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: onSkipCurrentCall ? '1fr 1fr' : '1fr', gap: 10 }}>
@@ -344,14 +353,14 @@ export default function LiveCallMonitor({
                 background: skipping ? '#6B7280' : '#F59E0B', color: '#111827', padding: '12px', borderRadius: '8px',
                 border: 'none', fontWeight: 'bold', cursor: skipping ? 'default' : 'pointer', width: '100%'
               }}>
-                {skipping ? 'Skipping...' : 'Machine / Skip Next'}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><SkipForward size={16} /> {skipping ? 'Skipping...' : 'Machine / Skip Next'}</span>
               </button>
             )}
             <button onClick={stopListening} style={{
               background: '#DC2626', color: 'white', padding: '12px', borderRadius: '8px',
               border: 'none', fontWeight: 'bold', cursor: 'pointer', width: '100%'
             }}>
-              Disconnect
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><VolumeX size={16} /> Disconnect</span>
             </button>
           </div>
         )}
