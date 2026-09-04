@@ -44,6 +44,34 @@ async function runWorkerTick() {
     for (const control of controls) {
       let claimedLeadId = null;
       try {
+        const { rows: dailyRows } = await query(
+          `SELECT
+             (SELECT COUNT(*)::int
+              FROM enrichment_results
+              WHERE tenant_id = $1 AND assigned_to_ai = true
+                AND last_contacted_at >= date_trunc('day', NOW())) AS attempts,
+             COALESCE((SELECT SUM(duration_sec)
+                       FROM ai_call_sessions
+                       WHERE tenant_id = $1 AND started_at >= date_trunc('day', NOW())), 0)::int AS seconds,
+             COALESCE((SELECT SUM(cost_estimate_usd)
+                       FROM ai_call_sessions
+                       WHERE tenant_id = $1 AND started_at >= date_trunc('day', NOW())), 0)::numeric AS cost`,
+          [control.tenant_id],
+        );
+        const daily = dailyRows[0] || {};
+        const nextMaxCost = (env.AI_MAX_SECONDS_PER_CALL / 60) * env.AI_ESTIMATED_COST_USD_PER_MINUTE;
+        const dailyLimitReached = Number(daily.attempts || 0) >= env.AI_MAX_OUTBOUND_CALLS_PER_DAY
+          || Number(daily.seconds || 0) >= env.AI_MAX_MINUTES_PER_DAY * 60
+          || Number(daily.cost || 0) + nextMaxCost > env.AI_MAX_COST_USD_PER_DAY;
+        if (dailyLimitReached) {
+          await query(
+            `UPDATE ai_calling_controls SET is_running = false, updated_at = NOW() WHERE tenant_id = $1`,
+            [control.tenant_id],
+          );
+          console.warn(`[outbound-caller] Daily safety limit reached for tenant ${control.tenant_id}; calling paused.`);
+          continue;
+        }
+
         // A missing webhook must never block a tenant's campaign forever.
         await query(
           `UPDATE enrichment_results
@@ -71,6 +99,12 @@ async function runWorkerTick() {
                AND lead_stage IN ('assigned', 'followup')
                AND primary_phone IS NOT NULL AND primary_phone <> ''
                AND (next_followup_at IS NULL OR next_followup_at <= NOW())
+               AND EXISTS (
+                 SELECT 1 FROM ai_agent_configs ac
+                 WHERE ac.id = enrichment_results.assigned_ai_agent_id
+                   AND ac.tenant_id = enrichment_results.tenant_id
+                   AND ac.is_active = true AND ac.mode = 'outbound'
+               )
              ORDER BY CASE lead_stage WHEN 'followup' THEN 0 ELSE 1 END, created_at ASC
              FOR UPDATE SKIP LOCKED
              LIMIT 1

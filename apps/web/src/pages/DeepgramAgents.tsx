@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { Bot, Loader2, PhoneOutgoing, Plus, Save, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import DeepgramBrowserPreview from '../components/DeepgramBrowserPreview';
 import {
   deepgramAgentsApi,
@@ -9,21 +10,22 @@ import {
   type AgentSessionSummary,
 } from '../services/deepgramAgentsApi';
 
-const DEFAULT_PROMPT = `You are the inbound phone assistant for Jento AI.
-Welcome the caller, understand why they called, and answer only from information available in this conversation.
-Keep spoken replies short and natural.
-Never claim to have placed an outbound call. Never promise a callback, booking, transfer, payment, or email unless the system has a real tool for it.
+const DEFAULT_PROMPT = `You are an outbound sales assistant calling a business lead on behalf of Jento AI.
+Introduce yourself and Jento AI clearly, ask whether this is a good time, and explain the reason for the call in one short sentence.
+Ask concise qualification questions, understand the lead's needs, and keep spoken replies short and natural.
+Never pretend the lead called you. Never promise a booking, transfer, payment, or email unless the system has a real tool for it.
 Never ask for passwords, card details, API keys, or other sensitive information.
-If the caller asks for a human, say that you can take a short message for the team.
-If the caller asks to end the call, say a short goodbye and end the call.`;
+Respect a clear refusal immediately. If the lead asks not to be called again, apologize, end the call, and record that outcome.
+If the lead is interested, collect a preferred callback time and save a short factual note.
+If the lead asks to end the call, say a short goodbye and end the call.`;
 
 const newDraft = (): DeepgramAgentDraft => ({
-  name: 'Jento Inbound Test Agent',
-  mode: 'inbound',
+  name: 'Jento Outbound Sales Agent',
+  mode: 'outbound',
   isActive: true,
   voice: 'aura-2-thalia-en',
   language: 'en',
-  greeting: 'Hello, thanks for calling Jento AI. How can I help you today?',
+  greeting: 'Hi, am I speaking with someone from {company_name}? This is the Jento AI assistant. Is now a good time for a quick conversation?',
   prompt: DEFAULT_PROMPT,
   assignedPhoneNumber: null,
   maxCallDurationSec: 180,
@@ -48,6 +50,7 @@ function formatTime(value: string | null) {
 }
 
 export default function DeepgramAgents() {
+  const navigate = useNavigate();
   const [agents, setAgents] = useState<DeepgramAgent[]>([]);
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
   const [status, setStatus] = useState<DeepgramAgentStatus | null>(null);
@@ -138,13 +141,16 @@ export default function DeepgramAgents() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Deepgram AI Agents</h1>
-          <p className="mt-1 text-sm text-slate-500">Inbound test agent aur browser preview</p>
+          <p className="mt-1 text-sm text-slate-500">Outbound sales agent setup aur browser preview</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center gap-2 px-3 h-9 rounded-md text-sm font-medium ${status?.deepgramConfigured ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
             <span className={`w-2 h-2 rounded-full ${status?.deepgramConfigured ? 'bg-emerald-500' : 'bg-rose-500'}`} />
             {status?.deepgramConfigured ? 'Deepgram ready' : 'Deepgram not ready'}
           </span>
+          <button onClick={() => navigate('/pipeline')} className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-sky-200 bg-sky-50 text-sky-800 text-sm font-medium hover:bg-sky-100">
+            <PhoneOutgoing size={16} /> Select leads
+          </button>
           <button onClick={createNew} className="inline-flex items-center gap-2 h-9 px-3 rounded-md bg-slate-900 text-white text-sm font-medium hover:bg-slate-800">
             <Plus size={16} /> New agent
           </button>
@@ -169,7 +175,7 @@ export default function DeepgramAgents() {
                     <span className="text-sm font-medium text-slate-800 truncate">{agent.name}</span>
                     <span className={`w-2 h-2 rounded-full shrink-0 ${agent.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                   </div>
-                  <div className="mt-1 text-xs text-slate-500 truncate">{agent.mode === 'inbound' ? agent.assignedPhoneNumber || 'Number required' : 'Browser preview'}</div>
+                  <div className="mt-1 text-xs text-slate-500 truncate">{agent.mode === 'outbound' ? 'Outbound calling' : agent.mode === 'inbound' ? agent.assignedPhoneNumber || 'Inbound number required' : 'Browser preview'}</div>
                 </button>
               ))}
             </div>
@@ -186,7 +192,7 @@ export default function DeepgramAgents() {
               </label>
               <label className="block text-sm text-slate-700">Mode
                 <select value={draft.mode} onChange={(event) => set('mode', event.target.value as DeepgramAgentDraft['mode'])} className="mt-1 w-full h-10 px-3 border border-slate-300 rounded-md text-sm bg-white">
-                  <option value="inbound">SignalWire inbound test</option>
+                  <option value="outbound">Outbound calling</option>
                   <option value="browser_preview">Browser preview</option>
                 </select>
               </label>
@@ -225,7 +231,7 @@ export default function DeepgramAgents() {
 
       <section className="border border-slate-200 bg-white rounded-lg overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">Inbound Sessions</h2>
+          <h2 className="text-base font-semibold text-slate-900">Call Sessions</h2>
           <span className="text-xs text-slate-500">Latest {sessions.length}</span>
         </div>
         <div className="overflow-x-auto">
@@ -234,7 +240,7 @@ export default function DeepgramAgents() {
               <tr><th className="px-5 py-3 font-medium">Agent</th><th className="px-5 py-3 font-medium">Started</th><th className="px-5 py-3 font-medium">State</th><th className="px-5 py-3 font-medium">Duration</th><th className="px-5 py-3 font-medium">Outcome</th><th className="px-5 py-3 font-medium">Error</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {sessions.length === 0 ? <tr><td colSpan={6} className="px-5 py-8 text-slate-500">Abhi inbound session nahi hai.</td></tr> : sessions.map((session) => (
+              {sessions.length === 0 ? <tr><td colSpan={6} className="px-5 py-8 text-slate-500">Abhi koi call session nahi hai.</td></tr> : sessions.map((session) => (
                 <tr key={session.id} className="text-slate-700"><td className="px-5 py-3 font-medium">{session.agent_name || '-'}</td><td className="px-5 py-3 whitespace-nowrap">{formatTime(session.started_at)}</td><td className="px-5 py-3">{session.call_state || '-'}</td><td className="px-5 py-3">{session.duration_sec ?? 0}s</td><td className="px-5 py-3">{session.outcome || session.hangup_reason || '-'}</td><td className="px-5 py-3 max-w-[280px] truncate text-rose-700">{session.last_error || '-'}</td></tr>
               ))}
             </tbody>

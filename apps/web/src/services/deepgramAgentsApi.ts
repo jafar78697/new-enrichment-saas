@@ -1,6 +1,6 @@
 import { CALLS_API_BASE, CALL_TOKEN_KEY } from './callsApi';
 
-export type DeepgramAgentMode = 'browser_preview' | 'inbound';
+export type DeepgramAgentMode = 'browser_preview' | 'inbound' | 'outbound';
 
 export interface DeepgramAgent {
   id: string;
@@ -39,6 +39,7 @@ export interface DeepgramAgentStatus {
   maxActiveCalls: number;
   dailyMinuteLimit: number;
   dailyBudgetUsd: number;
+  dailyOutboundCallLimit: number;
 }
 
 export interface PreviewToken {

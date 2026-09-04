@@ -12,7 +12,7 @@ const activePreviews = new Map();
 
 const agentSchema = z.object({
   name: z.string().trim().min(2).max(80),
-  mode: z.enum(['browser_preview', 'inbound']).default('browser_preview'),
+  mode: z.enum(['browser_preview', 'inbound', 'outbound']).default('outbound'),
   isActive: z.boolean().default(true),
   voice: z.string().trim().min(2).max(100).default('aura-2-thalia-en'),
   language: z.literal('en').default('en'),
@@ -123,6 +123,7 @@ router.get('/status', asyncHandler(async (_req, res) => {
     browserPreviewMaxSeconds: env.DEEPGRAM_BROWSER_PREVIEW_MAX_SECONDS,
     inboundMaxSeconds: env.AI_MAX_SECONDS_PER_CALL,
     maxActiveCalls: env.AI_MAX_ACTIVE_CALLS,
+    dailyOutboundCallLimit: env.AI_MAX_OUTBOUND_CALLS_PER_DAY,
     dailyMinuteLimit: env.AI_MAX_MINUTES_PER_DAY,
     dailyBudgetUsd: env.AI_MAX_COST_USD_PER_DAY,
   });

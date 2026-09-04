@@ -95,11 +95,19 @@ router.post(
     if (payload.contactId) {
       // 1. Get provider
       const { rows } = await query(
-        'SELECT ai_agent_provider, assigned_ai_agent_id, tenant_id FROM enrichment_results WHERE id = $1',
+        `SELECT er.ai_agent_provider, er.assigned_ai_agent_id, er.tenant_id,
+                ac.id AS active_agent_id
+         FROM enrichment_results er
+         LEFT JOIN ai_agent_configs ac
+           ON ac.id = er.assigned_ai_agent_id
+          AND ac.tenant_id = er.tenant_id
+          AND ac.is_active = true
+          AND ac.mode = 'outbound'
+         WHERE er.id = $1`,
         [payload.contactId],
       );
       if (rows.length > 0) {
-        provider = rows[0].ai_agent_provider || null;
+        provider = rows[0].active_agent_id ? rows[0].ai_agent_provider || null : null;
         const tenantId = payload.tenantId || rows[0].tenant_id;
         // 2. Create ai_call_sessions record
         try {

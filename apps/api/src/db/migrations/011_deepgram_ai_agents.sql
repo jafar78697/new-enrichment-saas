@@ -1,5 +1,5 @@
--- Canonical Deepgram Voice Agent schema. This module is inbound/test only;
--- it intentionally contains no queue, subscriber creation, or auto-dial table.
+-- Canonical Deepgram Voice Agent schema. Outbound queue state remains in the
+-- existing CRM tables; this schema never creates SignalWire subscribers.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS ai_agent_configs (
   tenant_id UUID NOT NULL,
   name TEXT NOT NULL,
   provider TEXT NOT NULL DEFAULT 'deepgram_voice_agent',
-  mode TEXT NOT NULL DEFAULT 'browser_preview' CHECK (mode IN ('browser_preview', 'inbound')),
+  mode TEXT NOT NULL DEFAULT 'outbound' CHECK (mode IN ('browser_preview', 'inbound', 'outbound')),
   is_active BOOLEAN NOT NULL DEFAULT true,
   voice TEXT,
   language TEXT NOT NULL DEFAULT 'en',
@@ -29,11 +29,19 @@ ALTER TABLE ai_agent_configs
 ALTER TABLE ai_agent_configs
   DROP CONSTRAINT IF EXISTS ai_agent_configs_mode_check;
 ALTER TABLE ai_agent_configs
-  ADD CONSTRAINT ai_agent_configs_mode_check CHECK (mode IN ('browser_preview', 'inbound'));
+  ADD CONSTRAINT ai_agent_configs_mode_check CHECK (mode IN ('browser_preview', 'inbound', 'outbound'));
 
 CREATE UNIQUE INDEX IF NOT EXISTS ai_agent_configs_active_inbound_phone_unique
   ON ai_agent_configs ((regexp_replace(assigned_phone_number, '\\D', '', 'g')))
   WHERE is_active = true AND mode = 'inbound' AND assigned_phone_number IS NOT NULL;
+
+ALTER TABLE enrichment_results
+  ADD COLUMN IF NOT EXISTS ai_agent_provider TEXT,
+  ADD COLUMN IF NOT EXISTS assigned_ai_agent_id UUID;
+
+CREATE INDEX IF NOT EXISTS enrichment_results_assigned_ai_agent_idx
+  ON enrichment_results (tenant_id, assigned_ai_agent_id)
+  WHERE assigned_to_ai = true;
 
 CREATE TABLE IF NOT EXISTS ai_call_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

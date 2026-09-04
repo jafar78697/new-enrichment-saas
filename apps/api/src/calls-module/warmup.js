@@ -23,8 +23,6 @@ async function processWarmup() {
     `);
 
     if (accountsRes.rowCount < 2) {
-      isWarmupRunning = false;
-      client.release();
       return; // Need at least 2 accounts to warmup
     }
 
@@ -33,8 +31,6 @@ async function processWarmup() {
 
     // Check if sender has reached their total limits
     if (sender.sent_today >= sender.daily_limit) {
-      isWarmupRunning = false;
-      client.release();
       return;
     }
 
@@ -91,7 +87,13 @@ async function processWarmup() {
   } catch (err) {
     console.error('[Warmup] Loop error:', err);
   } finally {
-    client.release();
+    // A failed connection can already be returned by pg-pool. Do not let its
+    // duplicate-release guard terminate the whole API process.
+    try {
+      client.release();
+    } catch (releaseErr) {
+      console.warn('[Warmup] Database client was already released:', releaseErr.message);
+    }
     isWarmupRunning = false;
   }
 }

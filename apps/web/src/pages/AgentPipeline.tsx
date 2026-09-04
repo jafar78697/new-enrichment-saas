@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Mic, Phone, PhoneCall, RefreshCw, Search, Square, UserPlus, Volume2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bot, Phone, PhoneCall, RefreshCw, Search, Settings2, Square, UserPlus, Volume2 } from 'lucide-react';
 import { leadsApi, type CallingQueueLead, type CallingStatusResponse, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
+import { deepgramAgentsApi, type DeepgramAgent, type DeepgramAgentStatus } from '../services/deepgramAgentsApi';
 import LiveCallMonitor from '../components/LiveCallMonitor';
-import BrowserAgentTester from '../components/BrowserAgentTester';
 
 const AGENT_TABS = [
   { key: 'leads', label: 'Leads' },
@@ -98,8 +99,12 @@ function getLeadResultText(lead: Pick<CallingQueueLead, 'lead_stage' | 'lead_not
 }
 
 export default function AgentPipelinePage() {
+  const navigate = useNavigate();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [niches, setNiches] = useState<Niche[]>([]);
+  const [agents, setAgents] = useState<DeepgramAgent[]>([]);
+  const [agentStatus, setAgentStatus] = useState<DeepgramAgentStatus | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState('');
   const [nicheContacts, setNicheContacts] = useState<Contact[]>([]);
   const [selectedNicheId, setSelectedNicheId] = useState('');
   const [selectedContactIds, setSelectedContactIds] = useState<number[]>([]);
@@ -114,11 +119,19 @@ export default function AgentPipelinePage() {
   const [error, setError] = useState('');
   const [listenCallSid, setListenCallSid] = useState<string | null>(null);
   const [listeningEnabled, setListeningEnabled] = useState(false);
-  const [isTestingBrowser, setIsTestingBrowser] = useState(false);
   const [automationRunning, setAutomationRunning] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
   const [activeCallSid, setActiveCallSid] = useState<string | null>(null);
   const [callingStatus, setCallingStatus] = useState<CallingStatusResponse | null>(null);
+
+  const outboundAgents = useMemo(
+    () => agents.filter((agent) => agent.isActive && agent.mode === 'outbound'),
+    [agents],
+  );
+  const selectedAgent = useMemo(
+    () => outboundAgents.find((agent) => agent.id === selectedAgentId) || null,
+    [outboundAgents, selectedAgentId],
+  );
 
   const loadPipeline = async () => {
     try {
@@ -142,6 +155,14 @@ export default function AgentPipelinePage() {
   useEffect(() => {
     void loadPipeline();
     nichesApi.list().then((res) => setNiches(res.niches || [])).catch(() => setNiches([]));
+    Promise.all([deepgramAgentsApi.list(), deepgramAgentsApi.status()])
+      .then(([agentsResult, statusResult]) => {
+        const available = agentsResult.agents.filter((agent) => agent.isActive && agent.mode === 'outbound');
+        setAgents(agentsResult.agents);
+        setAgentStatus(statusResult);
+        setSelectedAgentId((current) => available.some((agent) => agent.id === current) ? current : available[0]?.id || '');
+      })
+      .catch((e: any) => setError(e?.message || 'Outbound agents load nahi ho sake'));
   }, []);
 
   useEffect(() => {
@@ -218,15 +239,20 @@ export default function AgentPipelinePage() {
 
   const queueContacts = async (contactIds: number[]) => {
     if (!selectedNicheId || !contactIds.length) return;
+    if (!selectedAgentId) {
+      setError('Pehle active outbound agent select karein.');
+      return;
+    }
     setQueueing(true);
     setMessage('');
     try {
       const result = await leadsApi.queueAi({
+        agent_id: selectedAgentId,
         niche_id: Number(selectedNicheId),
         contact_ids: contactIds,
         limit: contactIds.length,
       });
-      setMessage(`${result.totalQueued} lead${result.totalQueued === 1 ? '' : 's'} assigned to AI`);
+      setMessage(`${result.totalQueued} lead${result.totalQueued === 1 ? '' : 's'} ${selectedAgent?.name || 'outbound agent'} ko assign ho gayi`);
       setSelectedContactIds([]);
       await loadPipeline();
       const contacts = await callsApi.listContactsByNiche(Number(selectedNicheId));
@@ -246,6 +272,20 @@ export default function AgentPipelinePage() {
   };
 
   const toggleCalling = async () => {
+    if (!automationRunning) {
+      if (!selectedAgentId) {
+        setError('Pehle active outbound agent select karein.');
+        return;
+      }
+      if (!callingStatus?.queueCount) {
+        setError('Calling start karne se pehle kam az kam aik lead assign karein.');
+        return;
+      }
+      const confirmed = window.confirm(
+        `${callingStatus.queueCount} queued lead${callingStatus.queueCount === 1 ? '' : 's'} par outbound calling start karni hai? Aaj maximum ${agentStatus?.dailyOutboundCallLimit || 5} calls attempt hongi.`,
+      );
+      if (!confirmed) return;
+    }
     setControlBusy(true);
     setMessage('');
     setError('');
@@ -258,7 +298,8 @@ export default function AgentPipelinePage() {
         setActiveCallSid(null);
         setMessage(`Calling stopped${result.stoppedCalls ? `; ${result.stoppedCalls} live call ended` : ''}`);
       } else {
-        await leadsApi.startCalling();
+        const result = await leadsApi.startCalling();
+        if (!result.ok) throw new Error(result.message || 'AI outbound calling server policy se band hai.');
         setAutomationRunning(true);
         setMessage('Automatic calling started for assigned leads');
       }
@@ -360,11 +401,21 @@ export default function AgentPipelinePage() {
             <div className="p-2.5 bg-teal-50 border border-teal-100 rounded-2xl shadow-sm">
               <Bot size={28} className="text-teal-700" />
             </div>
-            AI Agent Pipeline
+            AI Calling
           </h1>
-          <p className="mt-2 text-sm text-gray-500 font-medium ml-1">Fully automated outbound calling pipeline</p>
+          <p className="mt-2 text-sm text-gray-500 font-medium ml-1">Agent select karein, leads assign karein, phir khud calling start karein</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          <select
+            value={selectedAgentId}
+            onChange={(event) => setSelectedAgentId(event.target.value)}
+            disabled={automationRunning}
+            aria-label="Select outbound AI agent"
+            className="w-60 h-10 px-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-gray-100"
+          >
+            <option value="">Select outbound agent</option>
+            {outboundAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+          </select>
           <select
             value={selectedNicheId}
             onChange={(event) => setSelectedNicheId(event.target.value)}
@@ -377,9 +428,9 @@ export default function AgentPipelinePage() {
             ))}
           </select>
           <button 
-            disabled={controlBusy} 
+            disabled={controlBusy || (!automationRunning && (!selectedAgentId || !callingStatus?.queueCount))}
             onClick={() => void toggleCalling()} 
-            className={`flex items-center gap-2 h-10 px-4 rounded-xl font-bold text-xs text-white shadow-sm hover:shadow-md transition-all duration-200 ${controlBusy ? 'bg-slate-400 cursor-not-allowed' : automationRunning ? 'bg-red-600 hover:bg-red-700 active:scale-95' : 'bg-teal-600 hover:bg-teal-700 active:scale-95'}`}
+            className={`flex items-center gap-2 h-10 px-4 rounded-xl font-bold text-xs text-white shadow-sm hover:shadow-md transition-all duration-200 ${controlBusy || (!automationRunning && (!selectedAgentId || !callingStatus?.queueCount)) ? 'bg-slate-400 cursor-not-allowed' : automationRunning ? 'bg-red-600 hover:bg-red-700 active:scale-95' : 'bg-teal-600 hover:bg-teal-700 active:scale-95'}`}
           >
             {automationRunning ? <Square size={14} fill="currentColor" /> : <PhoneCall size={15} />}
             {controlBusy ? 'Please wait...' : automationRunning ? 'Stop Calling' : 'Start Calling'}
@@ -391,14 +442,25 @@ export default function AgentPipelinePage() {
             {listeningEnabled ? <Square size={14} fill="currentColor" /> : <Volume2 size={16} />}
             {listeningEnabled ? 'Stop Listening' : 'Listen Live'}
           </button>
-          <button onClick={() => setIsTestingBrowser(true)} className="flex items-center gap-2 h-10 px-4 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 active:scale-95">
-            <Mic size={15} /> Test Agent
+          <button onClick={() => navigate('/ai-agent')} className="flex items-center gap-2 h-10 px-4 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 active:scale-95">
+            <Settings2 size={15} /> Agent Setup
           </button>
           <button onClick={() => void loadPipeline()} title="Refresh" className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900 transition-all duration-200">
             <RefreshCw size={16} />
           </button>
         </div>
       </div>
+
+      {!outboundAgents.length && (
+        <Alert
+          danger
+          text="Abhi active outbound agent nahi bana. Agent Setup khol kar agent save karein, phir yahan leads select hongi."
+          action={<button onClick={() => navigate('/ai-agent')} className="h-9 px-3 rounded-md bg-slate-900 text-white text-xs font-bold">Create agent</button>}
+        />
+      )}
+      {agentStatus && !agentStatus.outboundEnabled && (
+        <Alert danger text="Outbound calling server safety policy se paused hai. Leads assign ho sakti hain, lekin calls start nahi hongi." />
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Stat label="Assigned" value={stats.assigned} colorClass="text-slate-800" bgClass="bg-white border-slate-200 shadow-sm" />
@@ -587,6 +649,8 @@ export default function AgentPipelinePage() {
           )}
           onAssign={() => void queueContacts(selectedContactIds)}
           onAssignAll={() => void queueContacts(availableContacts.map((contact) => contact.id))}
+          canAssign={Boolean(selectedAgentId)}
+          agentName={selectedAgent?.name || null}
         />
       ) : (
         <PipelineLeadList
@@ -617,6 +681,8 @@ function AvailableLeadList({
   onSelectAll,
   onAssign,
   onAssignAll,
+  canAssign,
+  agentName,
 }: {
   selectedNicheId: string;
   contacts: Contact[];
@@ -631,6 +697,8 @@ function AvailableLeadList({
   onSelectAll: () => void;
   onAssign: () => void;
   onAssignAll: () => void;
+  canAssign: boolean;
+  agentName: string | null;
 }) {
   if (!selectedNicheId) return <Empty text="Select a niche to view leads" />;
   if (loading) return <Empty text="Loading leads..." />;
@@ -639,13 +707,14 @@ function AvailableLeadList({
   return (
     <>
       <div className="flex justify-end gap-3 flex-wrap mb-4">
+        <div className="mr-auto self-center text-sm font-semibold text-slate-700">Agent: {agentName || 'Select an outbound agent above'}</div>
         <button onClick={onSelectAll} className="h-10 px-4 border border-gray-300 rounded-xl bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 shadow-sm transition-all duration-200">
           {selectedIds.length === contacts.length ? 'Clear Selection' : 'Select All'}
         </button>
-        <button disabled={!selectedIds.length || queueing} onClick={onAssign} className={`flex items-center gap-2 h-10 px-4 rounded-xl text-xs font-bold text-white shadow-sm transition-all duration-200 ${selectedIds.length && !queueing ? 'bg-teal-600 hover:bg-teal-700 hover:shadow-md' : 'bg-slate-400 cursor-not-allowed'}`}>
+        <button disabled={!canAssign || !selectedIds.length || queueing} onClick={onAssign} className={`flex items-center gap-2 h-10 px-4 rounded-xl text-xs font-bold text-white shadow-sm transition-all duration-200 ${canAssign && selectedIds.length && !queueing ? 'bg-teal-600 hover:bg-teal-700 hover:shadow-md' : 'bg-slate-400 cursor-not-allowed'}`}>
           <UserPlus size={15} /> {queueing ? 'Assigning...' : `Assign Selected (${selectedIds.length})`}
         </button>
-        <button disabled={queueing} onClick={onAssignAll} className="h-10 px-4 border border-gray-300 rounded-xl bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 shadow-sm transition-all duration-200">Assign All</button>
+        <button disabled={!canAssign || queueing} onClick={onAssignAll} className="h-10 px-4 border border-gray-300 rounded-xl bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 shadow-sm transition-all duration-200">Assign All</button>
       </div>
       <div className="overflow-x-auto">
         <div className="min-w-[900px] flex flex-col gap-3">

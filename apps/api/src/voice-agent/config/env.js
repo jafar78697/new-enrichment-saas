@@ -51,6 +51,7 @@ const envSchema = z.object({
   DEEPGRAM_BROWSER_PREVIEW_MAX_ACTIVE_PER_USER: z.coerce.number().int().min(1).max(2).default(1),
   AI_MAX_SECONDS_PER_CALL: z.coerce.number().int().min(60).max(600).default(180),
   AI_MAX_ACTIVE_CALLS: z.coerce.number().int().min(1).max(5).default(1),
+  AI_MAX_OUTBOUND_CALLS_PER_DAY: z.coerce.number().int().min(1).max(500).default(5),
   AI_MAX_MINUTES_PER_DAY: z.coerce.number().int().min(1).max(1440).default(10),
   AI_MAX_COST_USD_PER_DAY: z.coerce.number().min(0.1).max(500).default(1),
   AI_ESTIMATED_COST_USD_PER_MINUTE: z.coerce.number().min(0.01).max(10).default(0.1),

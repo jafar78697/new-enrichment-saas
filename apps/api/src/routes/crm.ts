@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { RestClient } from '@signalwire/compatibility-api';
 import { normalizeUSPhone } from '../utils/us-phone.js';
 
 // Canonical pipeline stages. Frontend renders columns in this exact order.
@@ -38,6 +39,22 @@ async function writeAudit(
   }
 }
 
+function getSignalWireClient() {
+  const projectId = process.env.SIGNALWIRE_PROJECT_ID;
+  const apiToken = process.env.SIGNALWIRE_API_TOKEN;
+  const spaceUrl = process.env.SIGNALWIRE_SPACE_URL;
+  if (!projectId || !apiToken || !spaceUrl) return null;
+  return RestClient(projectId, apiToken, { signalwireSpaceUrl: spaceUrl });
+}
+
+async function terminateSignalWireCall(callSid: string) {
+  const client = getSignalWireClient();
+  if (!client) {
+    throw new Error('SignalWire is not configured');
+  }
+  await client.calls(callSid).update({ status: 'completed' });
+}
+
 export default async function crmRoutes(fastify: FastifyInstance) {
   // Ensure assigned_to_ai exists (runs once on boot)
   try {
@@ -63,7 +80,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     const { tenantId } = request.tenant;
     const q = request.query as any;
     const page = Math.max(1, parseInt(q.page || '1'));
-    const limit = Math.min(1000, parseInt(q.limit || '100'));
+    const limit = Math.min(10000, parseInt(q.limit || '100'));
     const offset = (page - 1) * limit;
 
     const where: string[] = ['tenant_id = $1'];
@@ -86,12 +103,12 @@ export default async function crmRoutes(fastify: FastifyInstance) {
              lead_stage, lead_owner_id, lead_priority, lead_notes,
              last_contacted_at, next_followup_at,
              ai_summary, ai_pain_points, ai_score, ai_updated_at,
-             assigned_to_ai, raw_data,
+             assigned_to_ai, ai_agent_provider, assigned_ai_agent_id, raw_data,
              created_at
       FROM enrichment_results
       WHERE ${where.join(' AND ')}
       ${q.assigned_to_ai 
-        ? `ORDER BY last_contacted_at DESC NULLS LAST, created_at ASC` 
+        ? `ORDER BY ai_updated_at DESC NULLS LAST, created_at DESC`
         : `ORDER BY created_at DESC`}
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
@@ -115,7 +132,23 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       ? body.contact_ids.map(Number).filter((id: number) => Number.isInteger(id) && id > 0)
       : [];
     const nicheId = body.niche_id ? Number(body.niche_id) : null;
+    const agentId = typeof body.agent_id === 'string' ? body.agent_id.trim() : '';
     const limit = Math.max(1, Math.min(500, Number(body.limit || 100)));
+
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(agentId)) {
+      return reply.code(400).send({ error: 'Select a valid outbound AI agent' });
+    }
+
+    const { rows: agentRows } = await fastify.db.query(
+      `SELECT id, name
+       FROM ai_agent_configs
+       WHERE id = $1 AND tenant_id = $2 AND is_active = true AND mode = 'outbound'
+       LIMIT 1`,
+      [agentId, tenantId],
+    );
+    if (!agentRows[0]) {
+      return reply.code(400).send({ error: 'Selected outbound AI agent is missing or inactive' });
+    }
 
     if (!leadIds.length && !nicheId && !contactIds.length) {
       return reply.code(400).send({ error: 'Provide lead_ids, contact_ids, or niche_id' });
@@ -128,13 +161,16 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       const { rowCount } = await fastify.db.query(
         `UPDATE enrichment_results
          SET assigned_to_ai = true,
+             ai_agent_provider = 'deepgram_voice_agent',
+             assigned_ai_agent_id = $3,
+             ai_updated_at = NOW(),
              lead_stage = CASE
                WHEN lead_stage IN ('calling', 'interested', 'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost')
                  THEN lead_stage
                ELSE 'assigned'
              END
          WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
-        [tenantId, leadIds],
+        [tenantId, leadIds, agentId],
       );
       queuedExisting += rowCount || 0;
     }
@@ -148,13 +184,16 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       );
       const jobId = jobRows[0].id;
 
-      const existingParams: any[] = [tenantId, nicheId];
+      const existingParams: any[] = [tenantId, nicheId, agentId];
       const selectedExistingFilter = contactIds.length
         ? `AND c.id = ANY($${existingParams.push(contactIds)}::int[])`
         : '';
       const { rowCount: updatedExisting } = await fastify.db.query(
         `UPDATE enrichment_results er
          SET assigned_to_ai = true,
+             ai_agent_provider = 'deepgram_voice_agent',
+             assigned_ai_agent_id = $3,
+             ai_updated_at = NOW(),
              lead_stage = CASE
                WHEN er.lead_stage IN ('calling', 'interested', 'demo_scheduled', 'proposal_sent', 'closed_won', 'closed_lost')
                  THEN er.lead_stage
@@ -171,7 +210,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       );
       queuedExisting += updatedExisting || 0;
 
-      const insertParams: any[] = [jobId, tenantId, nicheId];
+      const insertParams: any[] = [jobId, tenantId, nicheId, agentId];
       const selectedInsertFilter = contactIds.length
         ? `AND c.id = ANY($${insertParams.push(contactIds)}::int[])`
         : '';
@@ -180,7 +219,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         `INSERT INTO enrichment_results (
            job_id, tenant_id, domain, primary_email, primary_phone, company_name,
            industry_guess, one_line_pitch, confidence_level, raw_data,
-           lead_stage, assigned_to_ai, lead_priority
+           lead_stage, assigned_to_ai, ai_updated_at, lead_priority, ai_agent_provider, assigned_ai_agent_id
          )
          SELECT
            $1,
@@ -205,7 +244,10 @@ export default async function crmRoutes(fastify: FastifyInstance) {
            ),
            'assigned',
            true,
-           CASE WHEN COALESCE(c.score, 0) >= 70 THEN 'high' ELSE 'medium' END
+           NOW(),
+           CASE WHEN COALESCE(c.score, 0) >= 70 THEN 'high' ELSE 'medium' END,
+           'deepgram_voice_agent',
+           $4
          FROM contacts c
          JOIN niches n ON n.id = c.niche_id
          WHERE c.niche_id = $3
@@ -234,6 +276,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       leadIds,
       contactIds,
       nicheId,
+      agentId,
+      agentName: agentRows[0].name,
       queuedExisting,
       createdFromContacts,
     });
@@ -353,16 +397,50 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     };
   });
 
-  fastify.post('/v1/leads/ai-calling/start', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
+  fastify.post('/v1/leads/ai-calling/start', { preHandler: [fastify.authenticate as any] }, async (request: any, reply) => {
+    if (process.env.AI_OUTBOUND_ENABLED !== 'true') {
+      return reply.code(403).send({ ok: false, isRunning: false, message: 'AI outbound calling is disabled by the server safety policy.' });
+    }
     const { tenantId, userId } = request.tenant;
+    const dailyLimit = Math.max(1, Math.min(500, Number(process.env.AI_MAX_OUTBOUND_CALLS_PER_DAY || 5)));
+    const { rows: attemptRows } = await fastify.db.query(
+      `SELECT COUNT(*)::int AS count
+       FROM enrichment_results
+       WHERE tenant_id = $1 AND assigned_to_ai = true
+         AND last_contacted_at >= date_trunc('day', NOW())`,
+      [tenantId],
+    );
+    if ((attemptRows[0]?.count || 0) >= dailyLimit) {
+      return reply.code(429).send({ error: `Daily outbound limit of ${dailyLimit} calls is already reached` });
+    }
+
+    const { rows: readyRows } = await fastify.db.query(
+      `SELECT COUNT(*)::int AS count
+       FROM enrichment_results er
+       JOIN ai_agent_configs ac
+         ON ac.id = er.assigned_ai_agent_id AND ac.tenant_id = er.tenant_id
+       WHERE er.tenant_id = $1
+         AND er.assigned_to_ai = true
+         AND er.lead_stage IN ('assigned', 'followup')
+         AND er.primary_phone IS NOT NULL AND er.primary_phone <> ''
+         AND ac.is_active = true AND ac.mode = 'outbound'`,
+      [tenantId],
+    );
+    if ((readyRows[0]?.count || 0) < 1) {
+      return reply.code(400).send({ error: 'No queued lead has an active outbound agent' });
+    }
+
     await fastify.db.query(
       `INSERT INTO ai_calling_controls (tenant_id, is_running, updated_at)
        VALUES ($1, true, NOW())
        ON CONFLICT (tenant_id) DO UPDATE SET is_running = true, updated_at = NOW()`,
       [tenantId],
     );
-    await writeAudit(fastify, tenantId, userId, 'ai_calling.started', 'tenant', tenantId);
-    return { ok: true, isRunning: true };
+    await writeAudit(fastify, tenantId, userId, 'ai_calling.started', 'tenant', tenantId, {
+      queueCount: readyRows[0].count,
+      dailyLimit,
+    });
+    return { ok: true, isRunning: true, dailyLimit };
   });
 
   fastify.post('/v1/leads/ai-calling/stop', { preHandler: [fastify.authenticate as any] }, async (request: any) => {
@@ -380,58 +458,110 @@ export default async function crmRoutes(fastify: FastifyInstance) {
        WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'`,
       [tenantId],
     );
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    if (accountSid && authToken) {
-      const twilio = (await import('twilio')).default;
-      const client = twilio(accountSid, authToken);
-      await Promise.all(activeRows
-        .filter((row: any) => row.active_call_sid)
-        .map((row: any) => client.calls(row.active_call_sid).update({ status: 'completed' }).catch((err: any) => {
-          fastify.log.warn({ callSid: row.active_call_sid, err }, 'Could not terminate AI campaign call');
-        })));
-    }
+
+    await Promise.all(activeRows
+      .filter((row: any) => row.active_call_sid)
+      .map((row: any) => terminateSignalWireCall(row.active_call_sid).catch((err: any) => {
+        fastify.log.warn({ callSid: row.active_call_sid, err }, 'Could not terminate SignalWire AI campaign call');
+      })));
 
     await fastify.db.query(
       `UPDATE enrichment_results
        SET lead_stage = 'assigned',
            raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
-           lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Calling queue stopped before a live call SID was available.')
+           lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Calling queue stopped by operator; any live call was terminated.')
        WHERE tenant_id = $1
          AND assigned_to_ai = true
-         AND lead_stage = 'calling'
-         AND COALESCE(raw_data->>'active_call_sid', '') = ''`,
+         AND lead_stage = 'calling'`,
       [tenantId],
     );
     await writeAudit(fastify, tenantId, userId, 'ai_calling.stopped', 'tenant', tenantId, { stoppedCalls: activeRows.length });
     return { ok: true, isRunning: false, stoppedCalls: activeRows.length };
   });
 
+  // POST /v1/leads/ai-calling/skip-active → Supervisor skips one live call and keeps the dialer running
+  fastify.post('/v1/leads/ai-calling/skip-active', { preHandler: [fastify.authenticate as any] }, async (request: any, reply) => {
+    const { tenantId, userId } = request.tenant;
+    const { callSid, reason = 'operator_skip' } = request.body as { callSid?: string; reason?: string };
+    if (!callSid) return reply.code(400).send({ error: 'callSid is required' });
+
+    const { rows } = await fastify.db.query(
+      `SELECT id, company_name, domain, raw_data->>'active_call_sid' AS active_call_sid
+       FROM enrichment_results
+       WHERE tenant_id = $1
+         AND assigned_to_ai = true
+         AND (
+           raw_data->>'active_call_sid' = $2
+           OR (lead_stage = 'calling' AND COALESCE(raw_data->>'active_call_sid', '') = '')
+         )
+       ORDER BY last_contacted_at DESC NULLS LAST
+       LIMIT 1`,
+      [tenantId, callSid],
+    );
+    const lead = rows[0];
+    if (!lead) return reply.code(404).send({ error: 'Active AI call lead not found' });
+
+    try {
+      await terminateSignalWireCall(callSid);
+    } catch (err: any) {
+      fastify.log.warn({ callSid, leadId: lead.id, error: err.message }, 'Supervisor skip could not terminate SignalWire call');
+    }
+
+    await fastify.db.query(
+      `UPDATE enrichment_results
+       SET lead_stage = 'no_answer',
+           raw_data = (COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid')
+             || jsonb_build_object(
+                  'supervisor_skip_reason', $1::text,
+                  'supervisor_skip_at', NOW()::text
+                ),
+           lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $2::text)
+       WHERE id = $3`,
+      [
+        reason,
+        `[AI Call] Supervisor marked live call as ${reason}; call ended and dialer can move to next lead.`,
+        lead.id,
+      ],
+    );
+
+    await writeAudit(fastify, tenantId, userId, 'ai_calling.skip_active', 'lead', lead.id, { callSid, reason });
+    return { ok: true, leadId: lead.id, callSid, reason };
+  });
+
   // POST /v1/leads/:id/start-call → Manually trigger an outbound AI call to a specific lead
   fastify.post('/v1/leads/:id/start-call', { preHandler: [fastify.authenticate as any] }, async (request: any, reply) => {
+    if (process.env.AI_OUTBOUND_ENABLED !== 'true') {
+      return reply.code(403).send({ error: 'AI outbound calling is disabled by the server safety policy.' });
+    }
     const { tenantId, userId } = request.tenant;
     const leadId = request.params.id;
 
     // Fetch the lead
     const { rows } = await fastify.db.query(
-      `SELECT id, tenant_id, primary_phone, company_name, domain, lead_stage, assigned_to_ai
-       FROM enrichment_results WHERE id = $1 AND tenant_id = $2`,
+      `SELECT er.id, er.tenant_id, er.primary_phone, er.company_name, er.domain,
+              er.lead_stage, er.assigned_to_ai, ac.id AS agent_config_id
+       FROM enrichment_results er
+       LEFT JOIN ai_agent_configs ac
+         ON ac.id = er.assigned_ai_agent_id
+        AND ac.tenant_id = er.tenant_id
+        AND ac.is_active = true
+        AND ac.mode = 'outbound'
+       WHERE er.id = $1 AND er.tenant_id = $2`,
       [leadId, tenantId],
     );
     const lead = rows[0];
     if (!lead) return reply.code(404).send({ error: 'Lead not found' });
     if (!lead.primary_phone) return reply.code(400).send({ error: 'Lead has no phone number' });
     if (!lead.assigned_to_ai) return reply.code(400).send({ error: 'Lead is not assigned to AI' });
+    if (!lead.agent_config_id) return reply.code(400).send({ error: 'Lead has no active outbound AI agent' });
     if (lead.lead_stage === 'calling') return reply.code(409).send({ error: 'Call already in progress for this lead' });
 
-    // Check Twilio config
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const fromPhone = process.env.TWILIO_PHONE_NUMBER;
+    const signalWireClient = getSignalWireClient();
+    const fromPhone = normalizeUSPhone(process.env.SIGNALWIRE_PHONE_NUMBER);
     const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000';
 
-    if (!accountSid || !authToken || !fromPhone) {
-      return reply.code(503).send({ error: 'Twilio is not configured on this server' });
+    if (!signalWireClient || !fromPhone) {
+      return reply.code(503).send({ error: 'SignalWire is not configured on this server' });
     }
 
     // Mark lead as calling
@@ -442,8 +572,6 @@ export default async function crmRoutes(fastify: FastifyInstance) {
 
     let callSid: string | null = null;
     try {
-      const twilio = (await import('twilio')).default;
-      const client = twilio(accountSid, authToken);
       const webhookUrl = `${publicBaseUrl}/api/voice/twiml/outbound?contactId=${leadId}&tenantId=${tenantId}`;
       const normalizedPhone = normalizeUSPhone(lead.primary_phone);
       if (!normalizedPhone) {
@@ -457,7 +585,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         return reply.code(400).send({ error: 'Only valid USA numbers can be called' });
       }
 
-      const call = await client.calls.create({
+      const call = await signalWireClient.calls.create({
         url: webhookUrl,
         to: normalizedPhone,
         from: fromPhone,
@@ -465,22 +593,19 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         statusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
         statusCallbackMethod: 'POST',
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-        record: true,
-        recordingChannels: 'mono',
-        recordingTrack: 'both',
-        recordingStatusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
-        recordingStatusCallbackMethod: 'POST',
-        recordingStatusCallbackEvent: ['in-progress', 'completed', 'absent'],
-        trim: 'do-not-trim',
-        machineDetection: 'Enable',
-        machineDetectionTimeout: 8,
       });
       callSid = call.sid;
 
       // Update lead raw_data with active_call_sid
       await fastify.db.query(
         `UPDATE enrichment_results 
-         SET raw_data = jsonb_set(COALESCE(raw_data, '{}'::jsonb), '{active_call_sid}', concat('"', $1::text, '"')::jsonb)
+         SET raw_data = COALESCE(raw_data, '{}'::jsonb)
+             || jsonb_build_object(
+                  'active_call_sid', $1::text,
+                  'call_started_at', NOW()::text,
+                  'call_status', 'initiated',
+                  'call_duration_seconds', 0
+                )
          WHERE id = $2`,
         [callSid, leadId],
       );
@@ -489,10 +614,27 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     } catch (err: any) {
       // Roll back stage so the worker can retry
       await fastify.db.query(
-        `UPDATE enrichment_results SET lead_stage = 'assigned' WHERE id = $1 AND lead_stage = 'calling'`,
-        [leadId],
+        `UPDATE enrichment_results
+         SET lead_stage = 'assigned',
+             raw_data = COALESCE(raw_data, '{}'::jsonb)
+               || jsonb_strip_nulls(jsonb_build_object(
+                    'call_status', 'failed_to_create',
+                    'call_error_code', $1::text,
+                    'call_error_message', $2::text,
+                    'call_started_at', NOW()::text,
+                    'call_ended_at', NOW()::text,
+                    'call_duration_seconds', 0
+                  )),
+             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $3::text)
+         WHERE id = $4 AND lead_stage = 'calling'`,
+        [
+          err?.code ? String(err.code) : null,
+          err.message || 'SignalWire call create failed',
+          `[AI Call] Manual SignalWire call failed${err?.code ? ` (${err.code})` : ''}: ${err.message || 'call create failed'}`,
+          leadId,
+        ],
       );
-      return reply.code(502).send({ error: `Twilio call failed: ${err.message}` });
+      return reply.code(502).send({ error: `SignalWire call failed: ${err.message}` });
     }
 
     await writeAudit(fastify, tenantId, userId, 'lead.call_started', 'lead', leadId, { callSid });
@@ -524,20 +666,11 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       return { ok: true, message: 'No active call SID found, stage reset to assigned' };
     }
 
-    // Terminate call in Twilio
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    if (!accountSid || !authToken) {
-      return reply.code(503).send({ error: 'Twilio is not configured' });
-    }
-
     try {
-      const twilio = (await import('twilio')).default;
-      const client = twilio(accountSid, authToken);
-      await client.calls(activeCallSid).update({ status: 'completed' });
+      await terminateSignalWireCall(activeCallSid);
       fastify.log.info({ leadId, activeCallSid }, 'Manual outbound call terminated via API');
     } catch (err: any) {
-      fastify.log.warn({ leadId, activeCallSid, error: err.message }, 'Failed to terminate call in Twilio');
+      fastify.log.warn({ leadId, activeCallSid, error: err.message }, 'Failed to terminate call in SignalWire');
     }
 
     if (!activeCallSid) {
@@ -548,17 +681,17 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          WHERE id = $1`,
         [leadId],
       );
-      return { ok: true, message: 'No active Twilio SID found; lead moved back to assigned' };
+      return { ok: true, message: 'No active SignalWire SID found; lead moved back to assigned' };
     }
 
     await fastify.db.query(
       `UPDATE enrichment_results
-       SET lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Manual stop requested; waiting for final Twilio status.')
+       SET lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Manual stop requested; waiting for final SignalWire status.')
        WHERE id = $1`,
       [leadId],
     );
 
-    return { ok: true, message: 'Call stop requested; final stage will update from Twilio callback.' };
+    return { ok: true, message: 'Call stop requested; final stage will update from SignalWire callback.' };
   });
 
   // GET /v1/leads/active-calls -> Returns mapping of contactId -> callSid for live monitoring
@@ -659,6 +792,13 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     }
     if (typeof body.assigned_to_ai === 'boolean') {
       params.push(body.assigned_to_ai); updates.push(`assigned_to_ai = $${params.length}`);
+    }
+    if (typeof body.ai_agent_provider === 'string') {
+      params.push(body.ai_agent_provider === 'openai_realtime' ? 'deepgram_voice_agent' : body.ai_agent_provider);
+      updates.push(`ai_agent_provider = $${params.length}`);
+    }
+    if (typeof body.assigned_ai_agent_id === 'string' || body.assigned_ai_agent_id === null) {
+      params.push(body.assigned_ai_agent_id); updates.push(`assigned_ai_agent_id = $${params.length}`);
     }
     if (!updates.length) return reply.code(400).send({ error: 'No valid fields to update' });
 

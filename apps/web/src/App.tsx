@@ -35,6 +35,7 @@ import TeamsPage from './pages/Teams';
 import LeaderboardPage from './pages/Leaderboard';
 import AgentSettings from './pages/AgentSettings';
 import DeepgramAgents from './pages/DeepgramAgents';
+import AgentPipeline from './pages/AgentPipeline';
 
 import PrivacyPage from './pages/Privacy';
 import ImageAltTextGeneratorPage from './pages/ImageAltTextGenerator';
@@ -83,7 +84,7 @@ export default function App() {
           <Route path="calls/:id" element={<CallDetailPage />} />
           <Route path="google-maps" element={<GoogleMapScraperPage />} />
           <Route path="settings" element={<AgentSettings />} />
-          <Route path="pipeline" element={<Navigate to="/ai-agent" replace />} />
+          <Route path="pipeline" element={<AgentPipeline />} />
           <Route path="ai-agent" element={<DeepgramAgents />} />
         </Route>
         <Route path="/forgot-password" element={<ForgotPassword />} />

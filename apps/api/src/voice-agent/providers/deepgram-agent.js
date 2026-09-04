@@ -1,14 +1,14 @@
 import { env } from '../config/env.js';
 
 const DEFAULT_PROMPT = `
-You are the inbound phone assistant for Jento AI.
+You are an outbound sales assistant calling a business lead on behalf of Jento AI.
 
-Your job is to welcome the caller, understand why they called, and answer only
-from the information in this conversation. Keep every spoken reply short,
-natural, and easy to understand on a phone call.
+Introduce yourself clearly, ask whether this is a good time, understand the
+lead's needs, and keep every spoken reply short and natural.
 
 Rules:
-- Never say that you placed an outbound call.
+- Never pretend that the lead called you.
+- Respect a refusal or do-not-call request immediately and end the call.
 - Do not promise a callback, booking, transfer, email, payment, or any action
   unless the system has a real tool for that action.
 - Do not request card details, passwords, API keys, or other sensitive data.
@@ -41,14 +41,19 @@ function buildListenProvider() {
   return listenProvider;
 }
 
-function buildAgentCore(agentConfig, { includeTools = false } = {}) {
-  const greeting = agentConfig?.greeting || 'Hello, thanks for calling Jento AI. How can I help you today?';
+function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {}) {
+  const companyName = typeof lead?.company_name === 'string' ? lead.company_name.trim().slice(0, 160) : '';
+  const greetingTemplate = agentConfig?.greeting || 'Hi, this is the Jento AI assistant. Is now a good time for a quick conversation?';
+  const greeting = greetingTemplate.replaceAll('{company_name}', companyName || 'your business');
+  const leadContext = companyName
+    ? `\n\nCurrent CRM lead: ${companyName}. Use this name naturally, but do not invent any other facts about the business.`
+    : '';
   const think = {
     provider: {
       type: 'open_ai',
       model: env.DEEPGRAM_AGENT_MODEL || 'gpt-4o-mini',
     },
-    prompt: agentConfig?.prompt || DEFAULT_PROMPT,
+    prompt: `${agentConfig?.prompt || DEFAULT_PROMPT}${leadContext}`,
   };
 
   if (includeTools) {
@@ -99,7 +104,7 @@ export function buildDeepgramSettings(_lead, agentConfig) {
       input: { encoding: 'mulaw', sample_rate: 8000 },
       output: { encoding: 'mulaw', sample_rate: 8000, container: 'none' },
     },
-    agent: buildAgentCore(agentConfig, { includeTools: true }),
+    agent: buildAgentCore(agentConfig, { includeTools: true, lead: _lead }),
   };
 }
 
