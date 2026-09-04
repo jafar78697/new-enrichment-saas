@@ -43,7 +43,7 @@ export interface Agent {
   id: number;
   name: string;
   email: string;
-  twilio_identity: string;
+  signalwire_identity: string;
   is_available: boolean;
   created_at: string;
   updated_at: string;
@@ -284,7 +284,19 @@ export const callsApi = {
     `${CALLS_API_BASE}/calls/${id}/recording/stream`,
 
   getToken: (agentId: number) =>
-    request<{ token: string; agent: Agent }>(`/twilio/token?agentId=${agentId}`),
+    request<{
+      token: string;
+      projectId: string;
+      callerId: string;
+      maxCallSeconds: number;
+      agent: Agent;
+    }>(`/signalwire/token?agentId=${agentId}`),
+
+  logOutboundCall: (payload: { to: string; agentId: number; contactId?: number | string | null; callSid: string; record?: boolean }) =>
+    request<{ success: boolean; callId: string }>(`/signalwire/log-outbound`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   transferCall: (callSid: string, targetAgentId: number) =>
     request<{ success: boolean; message: string }>(`/calls/${callSid}/transfer`, {
@@ -315,6 +327,20 @@ export const callsApi = {
     request<any>(path, {
       method,
       body: body ? JSON.stringify(body) : undefined,
+    }),
+
+  initiateOutboundCall: (payload: { to: string; agentId: number; contactId?: number; record?: boolean }) =>
+    request<{ callSid: string; status: string }>(`/signalwire/call-outbound`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getCallStatus: (callSid: string) =>
+    request<{ callSid: string; status: string }>(`/signalwire/call-status/${encodeURIComponent(callSid)}`),
+
+  endCall: (callSid: string) =>
+    request<{ success: boolean }>(`/signalwire/call-end/${encodeURIComponent(callSid)}`, {
+      method: 'POST',
     }),
 };
 

@@ -112,6 +112,14 @@ export interface CallingQueueLead {
   raw_data?: {
     recording_url?: string;
     recording_status?: string;
+    active_call_sid?: string;
+    call_sid?: string;
+    call_started_at?: string;
+    call_updated_at?: string;
+    call_ended_at?: string;
+    call_status?: string;
+    call_duration_seconds?: number | string;
+    answered_by?: string;
     [key: string]: unknown;
   } | null;
 }
@@ -135,6 +143,11 @@ export const leadsApi = {
   callingStatus: () => api.get<CallingStatusResponse>('/leads/ai-calling/status').then((r) => r.data),
   startCalling: () => api.post<{ ok: boolean; isRunning: boolean }>('/leads/ai-calling/start').then((r) => r.data),
   stopCalling: () => api.post<{ ok: boolean; isRunning: boolean; stoppedCalls: number }>('/leads/ai-calling/stop').then((r) => r.data),
+  skipActiveCall: (body: { callSid: string; reason: string }) =>
+    api.post<{ ok: boolean; leadId: string; callSid: string; reason: string }>(
+      '/leads/ai-calling/skip-active',
+      body,
+    ).then((r) => r.data),
   queueAi: (body: { lead_ids?: string[]; contact_ids?: number[]; niche_id?: number; limit?: number }) =>
     api.post<{ ok: boolean; queuedExisting: number; createdFromContacts: number; totalQueued: number }>(
       '/leads/queue-ai',

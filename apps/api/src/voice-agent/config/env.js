@@ -31,20 +31,32 @@ const envSchema = z.object({
   TWILIO_API_KEY: z.preprocess(emptyIfPlaceholder, z.string().optional()),
   TWILIO_API_SECRET: z.preprocess(emptyIfPlaceholder, z.string().optional()),
 
-  // Google Cloud
-  GOOGLE_APPLICATION_CREDENTIALS: z.preprocess(emptyIfPlaceholder, z.string().optional()),
-  VERTEX_AI_PROJECT: z.preprocess(emptyIfPlaceholder, z.string().optional()),
-  VERTEX_AI_LOCATION: z.preprocess(emptyIfPlaceholder, z.string().default('us-central1')),
-  DEEPSEEK_API_KEY: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+  // SignalWire
+  SIGNALWIRE_PROJECT_ID: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+  SIGNALWIRE_API_TOKEN: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+  SIGNALWIRE_SPACE_URL: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+  SIGNALWIRE_PHONE_NUMBER: z.preprocess(emptyIfPlaceholder, z.string().optional()),
 
-  // LLMs / API Keys
-  OPENAI_API_KEY: z.preprocess(emptyIfPlaceholder, z.string().optional()),
-  OPENAI_REALTIME_MODEL: z.string().default('gpt-realtime-mini'),
-  OPENAI_ANALYSIS_MODEL: z.string().default('gpt-4.1-mini'),
-  OPENAI_TRANSCRIPTION_MODEL: z.string().default('gpt-4o-mini-transcribe'),
-  OPENAI_REALTIME_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(64).max(4096).default(160),
-  ELEVENLABS_API_KEY: z.preprocess(emptyIfPlaceholder, z.string().optional()),
-  ELEVENLABS_VOICE_ID: z.string().default('f0ign4OCWcX0pECFZyU2'),
+  // Deepgram owns STT, LLM orchestration, TTS, and turn taking for this module.
+  // The older Google/OpenAI/ElevenLabs variables may remain in the deployment
+  // environment, but no active Deepgram voice-agent path reads them.
+  DEEPGRAM_API_KEY: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+  DEEPGRAM_AGENT_MODEL: z.preprocess(emptyIfPlaceholder, z.string().default('gpt-4o-mini')),
+  DEEPGRAM_AGENT_LISTEN_MODEL: z.preprocess(emptyIfPlaceholder, z.string().default('flux-general-en')),
+  DEEPGRAM_AGENT_EOT_THRESHOLD: z.coerce.number().min(0.5).max(0.9).default(0.75),
+  DEEPGRAM_AGENT_EAGER_EOT_THRESHOLD: z.coerce.number().min(0.3).max(0.9).default(0.45),
+  DEEPGRAM_AGENT_EOT_TIMEOUT_MS: z.coerce.number().int().min(300).max(5000).default(1200),
+  DEEPGRAM_AGENT_VOICE: z.preprocess(emptyIfPlaceholder, z.string().default('aura-2-thalia-en')),
+  DEEPGRAM_BROWSER_PREVIEW_MAX_SECONDS: z.coerce.number().int().min(60).max(600).default(120),
+  DEEPGRAM_BROWSER_PREVIEW_MAX_ACTIVE_PER_USER: z.coerce.number().int().min(1).max(2).default(1),
+  AI_MAX_SECONDS_PER_CALL: z.coerce.number().int().min(60).max(600).default(180),
+  AI_MAX_ACTIVE_CALLS: z.coerce.number().int().min(1).max(5).default(1),
+  AI_MAX_MINUTES_PER_DAY: z.coerce.number().int().min(1).max(1440).default(10),
+  AI_MAX_COST_USD_PER_DAY: z.coerce.number().min(0.1).max(500).default(1),
+  AI_ESTIMATED_COST_USD_PER_MINUTE: z.coerce.number().min(0.01).max(10).default(0.1),
+  VOICE_AGENT_TENANT_ID: z.preprocess(emptyIfPlaceholder, z.string().uuid().optional()),
+  AI_OUTBOUND_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean().default(false)),
 
   // N8N
   N8N_WEBHOOK_URL: z.preprocess(emptyIfPlaceholder, z.string().optional()),
@@ -76,5 +88,4 @@ if (!parsed.success) {
 export const env = parsed.data;
 export const isProduction = env.NODE_ENV === 'production';
 
-// Voice agent is forcefully enabled for testing
-export const VOICE_AGENT_ENABLED = true;
+export const VOICE_AGENT_ENABLED = env.VOICE_AGENT_ENABLED;

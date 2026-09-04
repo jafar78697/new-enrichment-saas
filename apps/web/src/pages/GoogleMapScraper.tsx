@@ -34,13 +34,15 @@ export default function GoogleMapScraper() {
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [bulkKeywords, setBulkKeywords] = useState('');
-  const [location, setLocation] = useState('');
+  const [location, setLocation] = useState('United States');
   
   // Niche selection logic
   const [selectedNiche, setSelectedNiche] = useState('');
   const [newNicheName, setNewNicheName] = useState('');
   const [niches, setNiches] = useState<Niche[]>([]);
   
+  const [googleCloudAccount, setGoogleCloudAccount] = useState('account_1');
+  const [accountUsage, setAccountUsage] = useState({ account_1: 0, account_2: 0 });
   const [isScraping, setIsScraping] = useState(false);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   
@@ -73,18 +75,26 @@ export default function GoogleMapScraper() {
   }
   const [scrapeJobs, setScrapeJobs] = useState<ScrapeJob[]>([]);
 
+  const fetchUsage = () => {
+    scraperApi.getUsage().then(res => {
+      if (res.success && res.usage) setAccountUsage(res.usage);
+    }).catch(err => console.error("Failed to fetch usage", err));
+  };
+
   useEffect(() => {
     // All users can access scraper and niches
     setIsAdmin(true);
     nichesApi.list().then(res => {
       if (res.niches) setNiches(res.niches);
     }).catch(err => console.error("Failed to fetch niches", err));
+    fetchUsage();
   }, []);
 
   const handleScrape = async (e: React.FormEvent) => {
     e.preventDefault();
     const keywords = bulkKeywords.split('\n').map(k => k.trim()).filter(k => k);
     if (keywords.length === 0) return;
+    const requestedLocation = location.trim() || 'United States';
 
     // Determine the final niche name to send to backend
     let finalNicheName = '';
@@ -103,7 +113,7 @@ export default function GoogleMapScraper() {
 
     const newJobs: ScrapeJob[] = keywords.map(kw => ({
       keyword: kw,
-      location,
+      location: requestedLocation,
       status: 'pending',
       leadsFound: 0,
       startedAt: new Date().toISOString()
@@ -123,9 +133,10 @@ export default function GoogleMapScraper() {
         toast(`Scraping: ${keyword}... (Fetching all available pages)`);
         const response = await scraperApi.scrapeGoogleMaps({ 
           keywords: [keyword], 
-          location, 
+          location: requestedLocation,
           // limit is intentionally removed from payload to scrape maximum possible
-          niche_name: finalNicheName !== '' ? finalNicheName : undefined
+          niche_name: finalNicheName !== '' ? finalNicheName : undefined,
+          google_cloud_account: googleCloudAccount
         });
         
         if (response.success && response.leads) {
@@ -144,6 +155,7 @@ export default function GoogleMapScraper() {
               : job
           ));
         }
+        fetchUsage(); // update usage counter after each keyword
       }
       toast.success('All keywords processed successfully! Scraped maximum available leads.');
 
@@ -248,7 +260,7 @@ export default function GoogleMapScraper() {
               borderRadius: 16, 
               padding: 32, 
               marginBottom: 32,
-              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 0 20px rgba(16, 185, 129, 0.05)'
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
             }}>
               <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 20, fontWeight: 700, color: '#111827', margin: '0 0 8px' }}>
                 Bulk Scraper Engine
@@ -259,6 +271,25 @@ export default function GoogleMapScraper() {
               
               <form onSubmit={handleScrape} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                 
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                      Select Google Cloud Account API
+                    </label>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: (accountUsage[googleCloudAccount as 'account_1' | 'account_2'] || 0) >= 200 ? '#DC2626' : '#059669', background: (accountUsage[googleCloudAccount as 'account_1' | 'account_2'] || 0) >= 200 ? '#FEE2E2' : '#D1FAE5', padding: '2px 8px', borderRadius: 12 }}>
+                      Today's Usage: {accountUsage[googleCloudAccount as 'account_1' | 'account_2'] || 0} / 200 keywords
+                    </span>
+                  </div>
+                  <select 
+                    value={googleCloudAccount}
+                    onChange={(e) => setGoogleCloudAccount(e.target.value)}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }}
+                  >
+                    <option value="account_1">Account 1 (S)</option>
+                    <option value="account_2">Account 2 (Z)</option>
+                  </select>
+                </div>
+
                 <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
                   <div style={{ flex: '1 1 300px' }}>
                     <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
@@ -286,13 +317,13 @@ export default function GoogleMapScraper() {
                   <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <div>
                       <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
-                        Location Filter <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(Optional - Applies to all keywords)</span>
+                        US Location <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(US-only - applies to all keywords)</span>
                       </label>
                       <input
                         type="text"
                         value={location}
                         onChange={(e) => setLocation(e.target.value)}
-                        placeholder="e.g. New York, London"
+                        placeholder="e.g. Miami, Florida"
                         style={{ width: '100%', padding: '10px 14px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, fontFamily: 'inherit' }}
                       />
                     </div>

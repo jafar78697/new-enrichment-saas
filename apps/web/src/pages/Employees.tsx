@@ -119,7 +119,7 @@ export default function EmployeesPage() {
                   <div style={{ fontWeight: 700, fontSize: 16, color: '#14202B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.name}</div>
                   <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.email}</div>
                   <div style={{ fontSize: 12, color: '#0F766E', fontWeight: 600, marginBottom: 4 }}>
-                    {emp.twilio_phone_number ? `📱 ${emp.twilio_phone_number}` : 'No Twilio Number'}
+                    {emp.signalwire_phone_number ? `📱 ${emp.signalwire_phone_number}` : 'No Twilio Number'}
                   </div>
                   {(emp as any).team_name && (
                     <div style={{ fontSize: 11, background: '#F5F3FF', color: '#6D28D9', padding: '2px 8px', borderRadius: 4, display: 'inline-block', fontWeight: 600 }}>

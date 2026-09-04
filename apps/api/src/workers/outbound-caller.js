@@ -1,24 +1,43 @@
 import { query } from '../calls-module/db/index.js';
-import twilio from 'twilio';
+import { RestClient } from '@signalwire/compatibility-api';
 import { env } from '../voice-agent/config/env.js';
 import { normalizeUSPhone } from '../utils/us-phone.js';
 
-// Setup Twilio Client
-const accountSid = env.TWILIO_ACCOUNT_SID;
-const authToken = env.TWILIO_AUTH_TOKEN;
-const fromPhone = env.TWILIO_PHONE_NUMBER;
+// Setup SignalWire Client
+const projectId = env.SIGNALWIRE_PROJECT_ID;
+const apiToken = env.SIGNALWIRE_API_TOKEN;
+const spaceUrl = env.SIGNALWIRE_SPACE_URL;
+const fromPhone = normalizeUSPhone(env.SIGNALWIRE_PHONE_NUMBER);
 
-let twilioClient = null;
-if (accountSid && authToken) {
-  twilioClient = twilio(accountSid, authToken);
+let signalwireClient = null;
+if (projectId && apiToken && spaceUrl) {
+  signalwireClient = RestClient(projectId, apiToken, { signalwireSpaceUrl: spaceUrl });
 }
 
 const PUBLIC_BASE_URL = env.PUBLIC_BASE_URL || 'http://localhost:3000';
 let workerStarted = false;
 let workerTickRunning = false;
+let workerConfigWarned = false;
+
+function getWorkerConfigError() {
+  if (!signalwireClient) return 'SignalWire credentials missing.';
+  if (!fromPhone) return 'SIGNALWIRE_PHONE_NUMBER is missing or is not a valid US E.164 number.';
+  if (!env.PUBLIC_BASE_URL) return 'PUBLIC_BASE_URL is missing.';
+  if (!PUBLIC_BASE_URL.startsWith('https://')) return 'PUBLIC_BASE_URL must be a public HTTPS URL reachable by SignalWire.';
+  return null;
+}
 
 async function runWorkerTick() {
+  if (process.env.ENABLE_AI_OUTBOUND_CALLER !== 'true' || process.env.AI_OUTBOUND_ENABLED !== 'true') return;
   if (workerTickRunning) return;
+  const configError = getWorkerConfigError();
+  if (configError) {
+    if (!workerConfigWarned) {
+      console.error(`[outbound-caller] ${configError} Worker paused before claiming leads.`);
+      workerConfigWarned = true;
+    }
+    return;
+  }
   workerTickRunning = true;
   try {
     const { rows: controls } = await query('SELECT tenant_id FROM ai_calling_controls WHERE is_running = true');
@@ -78,7 +97,7 @@ async function runWorkerTick() {
 
         console.log(`[outbound-caller] Initiating call to lead: ${lead.company_name || lead.domain} (${normalizedPhone})`);
         const webhookUrl = `${PUBLIC_BASE_URL}/api/voice/twiml/outbound?contactId=${lead.id}&tenantId=${lead.tenant_id}`;
-        const call = await twilioClient.calls.create({
+        const call = await signalwireClient.calls.create({
           url: webhookUrl,
           to: normalizedPhone,
           from: fromPhone,
@@ -86,35 +105,58 @@ async function runWorkerTick() {
           statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
           statusCallbackMethod: 'POST',
           statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-          record: true,
-          recordingChannels: 'mono',
-          recordingTrack: 'both',
-          recordingStatusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
-          recordingStatusCallbackMethod: 'POST',
-          recordingStatusCallbackEvent: ['in-progress', 'completed', 'absent'],
-          trim: 'do-not-trim',
-          machineDetection: 'Enable',
-          machineDetectionTimeout: 8,
         });
 
         await query(
           `UPDATE enrichment_results
-           SET raw_data = jsonb_set(
-                 jsonb_set(COALESCE(raw_data, '{}'::jsonb), '{active_call_sid}', to_jsonb($1::text)),
-                 '{recording_enabled}',
-                 'true'::jsonb
-               )
+           SET raw_data = COALESCE(raw_data, '{}'::jsonb)
+               || jsonb_build_object(
+                    'active_call_sid', $1::text,
+                    'call_started_at', NOW()::text,
+                    'call_status', 'initiated',
+                    'call_duration_seconds', 0,
+                    'recording_enabled', false
+                  )
            WHERE id = $2`,
           [call.sid, lead.id],
         );
-        console.log(`[outbound-caller] Twilio call created for lead ${lead.id}: ${call.sid}.`);
+        console.log(`[outbound-caller] SignalWire call created for lead ${lead.id}: ${call.sid}.`);
       } catch (err) {
         console.error('[outbound-caller] Error during tenant call loop:', err);
         if (claimedLeadId) {
+          const errorCode = err?.code ? String(err.code) : null;
+          const errorMessage = err?.message || 'SignalWire call create failed';
           await query(
-            `UPDATE enrichment_results SET lead_stage = 'no_answer' WHERE id = $1 AND lead_stage = 'calling'`,
-            [claimedLeadId],
+            `UPDATE enrichment_results
+             SET lead_stage = 'no_answer',
+                 raw_data = COALESCE(raw_data, '{}'::jsonb)
+                   || jsonb_strip_nulls(jsonb_build_object(
+                        'call_status', 'failed_to_create',
+                        'call_error_code', $1::text,
+                        'call_error_message', $2::text,
+                        'call_started_at', NOW()::text,
+                        'call_ended_at', NOW()::text,
+                        'call_duration_seconds', 0
+                      )),
+                 lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $3::text)
+             WHERE id = $4 AND lead_stage = 'calling'`,
+            [
+              errorCode,
+              errorMessage,
+              `[AI Call] SignalWire could not create call${errorCode ? ` (${errorCode})` : ''}: ${errorMessage}`,
+              claimedLeadId,
+            ],
           ).catch((resetErr) => console.error('[outbound-caller] Failed to reset lead stage:', resetErr.message));
+
+          if (errorCode === '21611') {
+            await query(
+              `UPDATE ai_calling_controls
+               SET is_running = false, updated_at = NOW()
+               WHERE tenant_id = $1`,
+              [control.tenant_id],
+            ).catch((pauseErr) => console.error('[outbound-caller] Failed to pause after SignalWire queue limit:', pauseErr.message));
+            console.error('[outbound-caller] SignalWire outbound queue limit hit. Paused calling for tenant.');
+          }
         }
       }
     }
@@ -130,8 +172,18 @@ async function runWorkerTick() {
  */
 export async function runOutboundCallerLoop() {
   if (workerStarted) return;
-  if (!twilioClient) {
-    console.log('[outbound-caller] Twilio credentials missing. Skipping worker.');
+  if (process.env.ENABLE_AI_OUTBOUND_CALLER !== 'true' || process.env.AI_OUTBOUND_ENABLED !== 'true') {
+    console.log('[outbound-caller] Disabled. ENABLE_AI_OUTBOUND_CALLER=true and AI_OUTBOUND_ENABLED=true are both required.');
+    return;
+  }
+  if (!signalwireClient) {
+    console.log('[outbound-caller] SignalWire credentials missing. Skipping worker.');
+    return;
+  }
+
+  const configError = getWorkerConfigError();
+  if (configError) {
+    console.log(`[outbound-caller] ${configError} Skipping worker.`);
     return;
   }
 
@@ -147,7 +199,7 @@ export async function runOutboundCallerLoop() {
   workerStarted = true;
   const schedule = async () => {
     await runWorkerTick();
-    setTimeout(schedule, 3000);
+    setTimeout(schedule, 20000);
   };
   void schedule();
 }

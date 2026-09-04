@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import twilio from 'twilio';
+import { RestClient } from '@signalwire/compatibility-api';
 import { env, VOICE_AGENT_ENABLED } from '../config/env.js';
 import { asyncHandler, AppError } from '../utils/errors.js';
 import { validateTwilioSignature } from '../middleware/twilio-signature.js';
@@ -11,6 +11,18 @@ import axios from 'axios';
 import { normalizeUSPhone } from '../../utils/us-phone.js';
 
 const router = Router();
+
+function connectDeepgramStream(response, req, sessionId) {
+  const stream = response.connect().stream({
+    url: wsUrl(req, '/api/voice/signalwire/deepgram-stream'),
+    track: 'inbound_track',
+    codec: 'PCMU@8000h',
+    realtime: true,
+  });
+  // SignalWire does not accept query parameters in a Stream URL. The nested
+  // Parameter is delivered as start.customParameters on the WebSocket.
+  stream.parameter({ name: 'sessionId', value: String(sessionId) });
+}
 
 /**
  * POST /api/voice/twiml/outbound
@@ -23,8 +35,18 @@ router.post(
   '/twiml/outbound',
   validateTwilioSignature,
   asyncHandler(async (req, res) => {
+    console.log('[voice-agent] /twiml/outbound received req.body:', req.body);
+    console.log('[voice-agent] /twiml/outbound received req.query:', req.query);
     if (!VOICE_AGENT_ENABLED) {
       throw new AppError('Voice Agent is not configured on this server', 503);
+    }
+
+    // There is deliberately no route that can start AI outbound calls unless
+    // an operator explicitly switches this server-side flag on.
+    if (!env.AI_OUTBOUND_ENABLED) {
+      const response = new RestClient.LaML.VoiceResponse();
+      response.hangup();
+      return res.type('text/xml').send(response.toString());
     }
 
     const payload = z.object({
@@ -41,7 +63,7 @@ router.post(
     const toStr = normalizeUSPhone(payload.To);
 
     if (!toStr || toStr.length < 4) {
-      const errResponse = new twilio.twiml.VoiceResponse();
+      const errResponse = new RestClient.LaML.VoiceResponse();
       errResponse.say({ voice: 'alice' }, 'Sorry, only valid USA numbers are supported for this call.');
       errResponse.hangup();
       return res.type('text/xml').send(errResponse.toString());
@@ -49,17 +71,17 @@ router.post(
 
     console.log(`[voice-agent] Outbound AI call to: ${toStr} (CallSid: ${payload.CallSid})`);
 
-    const response = new twilio.twiml.VoiceResponse();
+    const response = new RestClient.LaML.VoiceResponse();
 
-    if (payload.AnsweredBy?.startsWith('machine') || payload.AnsweredBy === 'fax') {
+    if (payload.AnsweredBy === 'fax') {
       if (payload.contactId) {
         await query(
           `UPDATE enrichment_results
            SET lead_stage = 'no_answer',
                raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
-               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1)
-           WHERE id = $2`,
-          [`[AI Call] ${payload.AnsweredBy === 'fax' ? 'Fax' : 'Voicemail'} detected by Twilio; call ended automatically.`, payload.contactId],
+               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1::text)
+           WHERE id = $2::uuid`,
+          ['[AI Call] Fax detected by SignalWire; call ended automatically.', payload.contactId],
         );
       }
       console.log(`[voice-agent] ${payload.AnsweredBy} detected for ${payload.CallSid}; hanging up before AI stream.`);
@@ -67,13 +89,38 @@ router.post(
       return res.type('text/xml').send(response.toString());
     }
 
-    // Connect to Media Streams WebSocket for AI conversation
-    const stream = response.connect().stream({
-      url: wsUrl(req, '/api/voice/media'),
-      track: 'inbound_track',
-    });
-    if (payload.contactId) stream.parameter({ name: 'contactId', value: payload.contactId });
-    if (payload.tenantId) stream.parameter({ name: 'tenantId', value: payload.tenantId });
+    let provider = null;
+    let sessionId = null;
+
+    if (payload.contactId) {
+      // 1. Get provider
+      const { rows } = await query(
+        'SELECT ai_agent_provider, assigned_ai_agent_id, tenant_id FROM enrichment_results WHERE id = $1',
+        [payload.contactId],
+      );
+      if (rows.length > 0) {
+        provider = rows[0].ai_agent_provider || null;
+        const tenantId = payload.tenantId || rows[0].tenant_id;
+        // 2. Create ai_call_sessions record
+        try {
+          const res = await query(`
+            INSERT INTO ai_call_sessions (tenant_id, lead_id, provider, signalwire_call_sid, agent_config_id, started_at)
+            VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id
+          `, [tenantId, payload.contactId, provider, payload.CallSid, rows[0].assigned_ai_agent_id || null]);
+          sessionId = res.rows[0].id;
+        } catch (e) {
+          console.error('[voice-agent] Failed to create call session:', e.message);
+        }
+      }
+    }
+
+    if (provider !== 'deepgram_voice_agent' || !sessionId || !env.DEEPGRAM_API_KEY) {
+      console.error(`[voice-agent] Outbound AI request rejected: provider=${provider || 'none'}, session=${Boolean(sessionId)}.`);
+      response.hangup();
+      return res.type('text/xml').send(response.toString());
+    }
+
+    connectDeepgramStream(response, req, sessionId);
 
     const twiml = response.toString();
     console.log('[voice-agent] TwiML:', twiml);
@@ -90,7 +137,7 @@ router.post(
   validateTwilioSignature,
   asyncHandler(async (req, res) => {
     if (!VOICE_AGENT_ENABLED) {
-      const response = new twilio.twiml.VoiceResponse();
+      const response = new RestClient.LaML.VoiceResponse();
       response.say({ voice: 'alice' }, 'Sorry, the AI Voice Agent is not available right now.');
       response.hangup();
       return res.type('text/xml').send(response.toString());
@@ -104,14 +151,40 @@ router.post(
 
     console.log(`[voice-agent] Inbound call from: ${payload.From} (CallSid: ${payload.CallSid})`);
 
-    const response = new twilio.twiml.VoiceResponse();
+    const response = new RestClient.LaML.VoiceResponse();
 
-    const streamUrl = wsUrl(req, '/api/voice/media');
+    if (!env.DEEPGRAM_API_KEY) {
+      response.say({ voice: 'alice' }, 'Sorry, the voice agent is not available right now.');
+      response.hangup();
+      return res.type('text/xml').send(response.toString());
+    }
 
-    response.connect().stream({
-      url: streamUrl,
-      track: 'inbound_track',
-    });
+    const { rows: agents } = await query(
+      `SELECT id, tenant_id
+       FROM ai_agent_configs
+       WHERE is_active = true
+         AND mode = 'inbound'
+         AND regexp_replace(COALESCE(assigned_phone_number, ''), '\\D', '', 'g') = regexp_replace(COALESCE($1, ''), '\\D', '', 'g')
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [payload.To || ''],
+    );
+    const agent = agents[0];
+    if (!agent) {
+      console.warn(`[voice-agent] No inbound Deepgram agent is mapped to ${payload.To || 'the called number'}.`);
+      response.say({ voice: 'alice' }, 'Sorry, this phone assistant is not configured yet.');
+      response.hangup();
+      return res.type('text/xml').send(response.toString());
+    }
+
+    const { rows: sessions } = await query(
+      `INSERT INTO ai_call_sessions (tenant_id, lead_id, agent_config_id, provider, signalwire_call_sid, started_at, call_state)
+       VALUES ($1, NULL, $2, 'deepgram_voice_agent', $3, NOW(), 'starting')
+       RETURNING id`,
+      [agent.tenant_id, agent.id, payload.CallSid || null],
+    );
+
+    connectDeepgramStream(response, req, sessions[0].id);
 
     const twiml = response.toString();
     console.log('[voice-agent] TwiML (inbound):', twiml);
@@ -142,14 +215,48 @@ router.post(
       }
     }
 
+    if (contactId && req.body.CallSid) {
+      await query(
+        `UPDATE enrichment_results
+         SET raw_data = COALESCE(raw_data, '{}'::jsonb)
+             || jsonb_strip_nulls(jsonb_build_object(
+                  'active_call_sid', $1::text,
+                  'call_sid', $1::text,
+                  'call_status', $2::text,
+                  'call_duration_seconds', NULLIF($3::text, '')::int,
+                  'answered_by', $4::text,
+                  'call_started_at', COALESCE(raw_data->>'call_started_at', NOW()::text),
+                  'call_updated_at', NOW()::text
+                ))
+         WHERE id = $5::uuid`,
+        [
+          req.body.CallSid,
+          req.body.CallStatus || null,
+          req.body.CallDuration || req.body.Duration || null,
+          req.body.AnsweredBy || null,
+          contactId,
+        ],
+      );
+    }
+
     if (contactId && ['busy', 'failed', 'no-answer', 'canceled'].includes(req.body.CallStatus)) {
       await query(
         `UPDATE enrichment_results
          SET lead_stage = 'no_answer',
-             raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
-             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1::text)
-         WHERE id = $2::uuid AND lead_stage = 'calling'`,
-        [`[AI Call] Twilio status: ${req.body.CallStatus}`, contactId],
+             raw_data = (COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid')
+               || jsonb_build_object(
+                    'call_status', $1::text,
+                    'call_ended_at', NOW()::text,
+                    'call_duration_seconds', COALESCE(NULLIF($2::text, '')::int, COALESCE((raw_data->>'call_duration_seconds')::int, 0))
+                  ),
+             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $3::text)
+         WHERE id = $4::uuid AND lead_stage = 'calling'`,
+        [
+          req.body.CallStatus,
+          req.body.CallDuration || req.body.Duration || null,
+          `[AI Call] SignalWire status: ${req.body.CallStatus}${req.body.CallDuration ? ` (${req.body.CallDuration}s)` : ''}.`,
+          contactId,
+        ],
       );
     }
 
@@ -157,10 +264,19 @@ router.post(
       await query(
         `UPDATE enrichment_results
          SET lead_stage = 'called',
-             raw_data = COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid',
-             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $1::text)
-         WHERE id = $2::uuid AND lead_stage = 'calling'`,
-        [`[AI Call] Completed${req.body.CallDuration ? ` (${req.body.CallDuration}s)` : ''}.`, contactId],
+             raw_data = (COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid')
+               || jsonb_build_object(
+                    'call_status', 'completed',
+                    'call_ended_at', NOW()::text,
+                    'call_duration_seconds', COALESCE(NULLIF($1::text, '')::int, COALESCE((raw_data->>'call_duration_seconds')::int, 0))
+                  ),
+             lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $2::text)
+         WHERE id = $3::uuid AND lead_stage = 'calling'`,
+        [
+          req.body.CallDuration || req.body.Duration || null,
+          `[AI Call] Completed${req.body.CallDuration ? ` (${req.body.CallDuration}s)` : ''}.`,
+          contactId,
+        ],
       );
     }
 

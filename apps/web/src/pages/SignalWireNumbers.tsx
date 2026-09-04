@@ -9,7 +9,7 @@ interface PoolNumber {
   assigned: { agent_id: number; name: string; email: string } | null;
 }
 
-export default function TwilioNumbersPage() {
+export default function SignalWireNumbersPage() {
   const [pool, setPool] = useState<PoolNumber[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -24,8 +24,8 @@ export default function TwilioNumbersPage() {
       const response = await employeesApi.numbersPool();
       setPool(response.numbers || []);
     } catch (err: any) {
-      console.error('Failed to load Twilio numbers:', err);
-      setError(err.message || 'Failed to load numbers from Twilio');
+      console.error('Failed to load SignalWire numbers:', err);
+      setError(err.message || 'Failed to load numbers from SignalWire');
     } finally {
       setLoading(false);
     }
@@ -38,7 +38,7 @@ export default function TwilioNumbersPage() {
     return (
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
         <div style={{ textAlign: 'center', padding: 40, color: '#7B8794' }}>
-          <div style={{ fontSize: 16 }}>Loading Twilio numbers...</div>
+          <div style={{ fontSize: 16 }}>Loading SignalWire numbers...</div>
         </div>
       </div>
     );
@@ -49,7 +49,7 @@ export default function TwilioNumbersPage() {
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
         <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 8, padding: 16 }}>
           <div style={{ color: '#991B1B', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-            ⚠️ Error Loading Twilio Numbers
+            ⚠️ Error Loading SignalWire Numbers
           </div>
           <div style={{ color: '#7F1D1D', fontSize: 13, marginBottom: 12 }}>
             {error}
@@ -79,10 +79,10 @@ export default function TwilioNumbersPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 28, fontWeight: 700, color: '#14202B', margin: '0 0 8px' }}>
-            📞 Twilio Numbers
+            📞 SignalWire Numbers
           </h1>
           <p style={{ color: '#52606D', fontSize: 15, margin: 0 }}>
-            View all purchased Twilio phone numbers and their assignments
+            View all purchased SignalWire phone numbers and their assignments
           </p>
         </div>
         
@@ -132,10 +132,10 @@ export default function TwilioNumbersPage() {
         <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 10, padding: 40, textAlign: 'center' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📱</div>
           <div style={{ fontSize: 16, fontWeight: 600, color: '#14202B', marginBottom: 8 }}>
-            No Twilio Numbers Found
+            No SignalWire Numbers Found
           </div>
           <div style={{ fontSize: 14, color: '#7B8794' }}>
-            You haven't purchased any Twilio numbers yet, or Twilio credentials are not configured.
+            You haven't purchased any SignalWire numbers yet, or SignalWire credentials are not configured.
           </div>
           <div style={{ marginTop: 16, padding: 12, background: '#F3F4F6', borderRadius: 6, fontSize: 12, color: '#52606D' }}>
             <strong>Tip:</strong> Make sure your backend has TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN configured in the .env file.
@@ -218,9 +218,9 @@ export default function TwilioNumbersPage() {
             <br />
             • Numbers marked "Available" are not assigned to any employee and can be reassigned
             <br />
-            • When you delete an employee, their number returns to the pool (not released from Twilio)
+            • When you delete an employee, their number returns to the pool (not released from SignalWire)
             <br />
-            • All numbers in this list are purchased and owned by your Twilio account
+            • All numbers in this list are purchased and owned by your SignalWire account
           </div>
         </div>
       )}

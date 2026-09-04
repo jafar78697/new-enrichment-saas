@@ -6,12 +6,9 @@ import express from 'express';
 import morgan from 'morgan';
 import twimlRoutes from './routes/twiml.js';
 import voiceAgentsRoutes from './routes/voice-agents.js';
-import promptsRoutes from './routes/prompts.js';
 import analyticsRoutes from './routes/analytics.js';
-import knowledgeBaseRoutes from './routes/knowledge-base.js';
-import campaignsRoutes from './routes/campaigns.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
-import { softAuth } from './middleware/auth.js';
+import { requireAuth, requireManager, softAuth } from '../calls-module/middleware/auth.js';
 import { VOICE_AGENT_ENABLED } from './config/env.js';
 
 export function createVoiceAgentApp() {
@@ -36,11 +33,8 @@ export function createVoiceAgentApp() {
 
   // All management routes require auth
   app.use('/api/voice', softAuth);
-  app.use('/api/voice/agents', voiceAgentsRoutes);
-  app.use('/api/voice/prompts', promptsRoutes);
-  app.use('/api/voice/analytics', analyticsRoutes);
-  app.use('/api/voice/knowledge', knowledgeBaseRoutes);
-  app.use('/api/voice/outbound', campaignsRoutes);
+  app.use('/api/voice/agents', requireAuth, requireManager, voiceAgentsRoutes);
+  app.use('/api/voice/analytics', requireAuth, requireManager, analyticsRoutes);
 
   // 404 + error tail
   app.use('/api/voice', notFoundHandler);

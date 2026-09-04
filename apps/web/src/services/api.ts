@@ -173,7 +173,7 @@ export const aiMediaApi = {
 };
 
 export const scraperApi = {
-  scrapeGoogleMaps: async (payload: { keywords: string[]; location?: string; limit?: number; niche_name?: string }) => {
+  scrapeGoogleMaps: async (payload: { keywords: string[]; location?: string; limit?: number; niche_name?: string; google_cloud_account?: string }) => {
     // Use the calls-module API (Express, /api/*) instead of enrichment API (/v1/*)
     const BASE = import.meta.env.VITE_API_URL || '';
     const token = localStorage.getItem('call_token');
@@ -181,6 +181,14 @@ export const scraperApi = {
       headers: { Authorization: `Bearer ${token}` }
     });
     return res.data as { success: boolean; leads: any[] };
+  },
+  getUsage: async () => {
+    const BASE = import.meta.env.VITE_API_URL || '';
+    const token = localStorage.getItem('call_token');
+    const res = await axios.get(`${BASE}/api/google-maps/usage`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return res.data as { success: boolean; usage: { account_1: number; account_2: number } };
   }
 };
 

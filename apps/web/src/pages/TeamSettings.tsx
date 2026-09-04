@@ -60,7 +60,7 @@ export default function TeamSettingsPage() {
     for (const e of employees) {
       if (e.status === 'active') totals.active++;
       else if (e.status === 'suspended') totals.suspended++;
-      if (e.twilio_phone_number) totals.withNumber++;
+      if (e.signalwire_phone_number) totals.withNumber++;
     }
     return totals;
   }, [employees]);
@@ -77,7 +77,7 @@ export default function TeamSettingsPage() {
   };
 
   const handleRelease = async (e: CallEmployee) => {
-    if (!confirm(`Release ${e.twilio_phone_number} from ${e.email}? It returns to your Twilio pool but stays purchased.`)) return;
+    if (!confirm(`Release ${e.signalwire_phone_number} from ${e.email}? It returns to your Twilio pool but stays purchased.`)) return;
     try {
       await employeesApi.releaseNumber(e.id);
       setStatus({ kind: 'ok', msg: `Number released from ${e.email}` });
@@ -99,8 +99,8 @@ export default function TeamSettingsPage() {
   };
 
   const handleRemove = async (e: CallEmployee) => {
-    const msg = e.twilio_phone_number
-      ? `Remove ${e.email}? Their access is revoked. The Twilio number ${e.twilio_phone_number} stays purchased and returns to your pool so you can assign it to a new employee.`
+    const msg = e.signalwire_phone_number
+      ? `Remove ${e.email}? Their access is revoked. The Twilio number ${e.signalwire_phone_number} stays purchased and returns to your pool so you can assign it to a new employee.`
       : `Remove ${e.email}? Their access is revoked permanently.`;
     if (!confirm(msg)) return;
     try {
@@ -211,8 +211,8 @@ export default function TeamSettingsPage() {
                     )}
                   </td>
                   <td style={{ ...td, fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>
-                    {e.twilio_phone_number ? (
-                      <span>{e.twilio_phone_number}</span>
+                    {e.signalwire_phone_number ? (
+                      <span>{e.signalwire_phone_number}</span>
                     ) : (
                       <span style={{ color: '#B45309', fontSize: 11, fontFamily: 'Manrope, sans-serif' }}>Not assigned</span>
                     )}
@@ -237,7 +237,7 @@ export default function TeamSettingsPage() {
                   </td>
                   <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button onClick={() => handleViewActivity(e)} style={btn}>Activity</button>
-                    {!e.twilio_phone_number ? (
+                    {!e.signalwire_phone_number ? (
                       <button onClick={() => setShowAssign({ employee: e })} style={btnPrimary}>Assign number</button>
                     ) : (
                       <button onClick={() => handleRelease(e)} style={btn}>Release</button>
@@ -493,7 +493,7 @@ function AssignNumberModal({
   const assignFromPool = async (sid: string) => {
     setBusy(true); setErr(null);
     try {
-      await employeesApi.assignNumber(employee.id, { twilioSid: sid });
+      await employeesApi.assignNumber(employee.id, { signalwireSid: sid });
       onAssigned();
     } catch (e: any) {
       setErr(e?.message || 'Assign failed');

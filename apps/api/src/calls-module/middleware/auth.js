@@ -33,7 +33,7 @@ export async function softAuth(req, _res, next) {
     // Step 1: Try as a regular Calls-module JWT token
     try {
       const payload = verifyToken(token);
-      const { rows: agents } = await query('SELECT id, name, email, role, status, twilio_identity, twilio_phone_number FROM agents WHERE id = $1', [payload.sub]);
+      const { rows: agents } = await query('SELECT id, name, email, role, status, signalwire_identity, signalwire_phone_number FROM agents WHERE id = $1', [payload.sub]);
       const user = agents[0];
       if (user && user.status !== 'suspended') {
         req.user = user;
@@ -65,6 +65,7 @@ export async function softAuth(req, _res, next) {
           role: 'manager',
           status: 'active'
         };
+        req.tenantId = enrichmentPayload.tenantId || enrichmentPayload.tenant_id || null;
         return next();
       }
     } catch (_enrichmentErr) {
@@ -84,6 +85,7 @@ export async function softAuth(req, _res, next) {
             role: 'manager',
             status: 'active'
           };
+          req.tenantId = decoded.tenantId || decoded.tenant_id || null;
           return next();
         }
       }

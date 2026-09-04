@@ -117,9 +117,9 @@ export default function TeamWorkPage() {
                 </span>
               </div>
 
-              {emp.twilio_phone_number && (
+              {emp.signalwire_phone_number && (
                 <div style={{ fontSize: 11, color: '#52606D', marginBottom: 12, fontFamily: 'monospace' }}>
-                  {emp.twilio_phone_number}
+                  {emp.signalwire_phone_number}
                 </div>
               )}
 

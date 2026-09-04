@@ -7,7 +7,8 @@
     "build": "tsc --noEmit || true",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "compile": "tsc --noEmit false --skipLibCheck true --outDir dist --rootDir src"
+    "compile": "tsc --noEmit false --skipLibCheck true --outDir dist --rootDir src",
+    "migrate:deepgram-agent": "node scripts/apply-deepgram-agent-migration.mjs"
   },
   "dependencies": {
     "@enrichment-saas/auth": "workspace:*",
@@ -22,6 +23,7 @@
     "@google-cloud/text-to-speech": "^6.4.1",
     "@google/genai": "^2.8.0",
     "@google/generative-ai": "^0.24.1",
+    "@signalwire/compatibility-api": "^3.2.0",
     "axios": "^1.15.2",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.10.0",

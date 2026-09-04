@@ -29,7 +29,7 @@ async function request<T = any>(path: string, init?: RequestInit): Promise<T> {
 export interface LeaderboardEntry {
   id: number;
   name: string;
-  twilio_phone_number: string | null;
+  signalwire_phone_number: string | null;
   team_name: string | null;
   total_calls: number;
   connected_calls: number;

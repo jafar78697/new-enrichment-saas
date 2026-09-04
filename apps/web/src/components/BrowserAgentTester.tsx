@@ -16,6 +16,7 @@ export default function BrowserAgentTester({ voiceAgentId = '1', onClose }: Brow
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const callActiveRef = useRef(false);
   const nextStartTimeRef = useRef<number>(0);
   const sessionIdRef = useRef<string>(`session_${Date.now()}`);
 
@@ -36,6 +37,7 @@ export default function BrowserAgentTester({ voiceAgentId = '1', onClose }: Brow
 
       socketRef.current.on('connect', () => {
         setStatus('Connected to Agent...');
+        callActiveRef.current = true;
         setIsCalling(true);
         socketRef.current?.emit('start_session', { sessionId: sessionIdRef.current, voiceAgentId });
       });
@@ -48,7 +50,10 @@ export default function BrowserAgentTester({ voiceAgentId = '1', onClose }: Brow
       processorRef.current = processor;
       
       processor.onaudioprocess = (e) => {
-        if (!isCalling) return;
+        // React state inside this callback is captured from the first render.
+        // Keep the microphone gate in a ref so speech keeps flowing after the
+        // socket marks the call active.
+        if (!callActiveRef.current) return;
         const inputData = e.inputBuffer.getChannelData(0); // Float32Array
         // Convert Float32 to Int16
         const pcm16 = new Int16Array(inputData.length);
@@ -58,7 +63,9 @@ export default function BrowserAgentTester({ voiceAgentId = '1', onClose }: Brow
         }
         socketRef.current?.emit('audio_stream', { 
           sessionId: sessionIdRef.current, 
-          audio: Buffer.from(pcm16.buffer) 
+          // Socket.IO transports ArrayBuffer natively; do not rely on Node's
+          // Buffer global being available in the browser.
+          audio: pcm16.buffer
         });
       };
 
@@ -115,6 +122,7 @@ export default function BrowserAgentTester({ voiceAgentId = '1', onClose }: Brow
   };
 
   const endCall = () => {
+    callActiveRef.current = false;
     setIsCalling(false);
     setStatus('Idle');
     if (processorRef.current) {

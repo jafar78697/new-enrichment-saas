@@ -90,7 +90,7 @@ export default function DashboardPage() {
           <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, padding: 24 }}>
             <div style={{ fontSize: 13, color: '#7B8794', marginBottom: 8 }}>Assigned Number</div>
             <div style={{ fontFamily: 'Space Grotesk, sans-serif', fontSize: 24, fontWeight: 700, color: '#14202B', marginTop: 8 }}>
-              {user?.twilio_phone_number || 'None'}
+              {user?.signalwire_phone_number || 'None'}
             </div>
           </div>
         </div>
@@ -254,8 +254,8 @@ export default function DashboardPage() {
                     <td style={{ padding: '16px' }}>
                       <div style={{ fontWeight: 600, color: '#14202B' }}>{emp.name}</div>
                       <div style={{ fontSize: 12, color: '#7B8794' }}>@{emp.username || emp.email.split('@')[0]}</div>
-                      {emp.twilio_phone_number && (
-                        <div style={{ fontSize: 11, color: '#0F766E', marginTop: 4 }}>📞 {emp.twilio_phone_number}</div>
+                      {emp.signalwire_phone_number && (
+                        <div style={{ fontSize: 11, color: '#0F766E', marginTop: 4 }}>📞 {emp.signalwire_phone_number}</div>
                       )}
                     </td>
                     <td style={{ textAlign: 'center', padding: '16px', fontFamily: 'Space Grotesk, sans-serif', fontSize: 20, fontWeight: 700, color: '#0F766E' }}>

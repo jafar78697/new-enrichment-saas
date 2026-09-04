@@ -140,16 +140,16 @@ async function mountCallsModule() {
 }
 
 // ── Voice Agent module mount ─────────────────────────────────────────────
-// Mounts the AI Voice Agent Express app (Twilio Media Streams, STT, LLM, TTS)
-// at /api/voice/* on the same host. The WebSocket server for media streams
-// shares the Fastify HTTP server.
+// Deepgram owns STT, turn taking, LLM orchestration, and TTS in one WebSocket.
+// Keep the legacy pipelines out of this mount so enabling a test agent cannot
+// also start old Google/OpenAI/ElevenLabs services or an outbound worker.
 async function mountVoiceAgent() {
   try {
     // @ts-ignore — JS interop
     const { VOICE_AGENT_ENABLED } = await import('./voice-agent/config/env.js');
 
     if (!VOICE_AGENT_ENABLED) {
-      fastify.log.info('voice-agent disabled (set GOOGLE_APPLICATION_CREDENTIALS, VERTEX_AI_PROJECT, ELEVENLABS_API_KEY, TWILIO_* env vars to enable)');
+      fastify.log.info('voice-agent disabled (set VOICE_AGENT_ENABLED=true and server-side DEEPGRAM_API_KEY to enable)');
       return;
     }
 
@@ -160,24 +160,23 @@ async function mountVoiceAgent() {
     fastify.use(createVoiceAgentApp());
     fastify.log.info('voice-agent Express routes mounted at /api/voice/*');
 
-    // Attach Twilio Media Streams WebSocket server to the HTTP server
+    // Attach Deepgram <-> SignalWire WebSocket Bridge
     try {
-      const { attachMediaServer } = await import('./voice-agent/websocket/media-server.js');
-      attachMediaServer(fastify.server);
-      fastify.log.info('voice-agent Media Streams WebSocket server attached at /media');
-    } catch (wsErr: any) {
-      fastify.log.warn({ err: wsErr }, 'voice-agent WebSocket init failed');
+      const { attachDeepgramBridge } = await import('./voice-agent/orchestrator/deepgram-signalwire-bridge.js');
+      attachDeepgramBridge(fastify.server);
+      fastify.log.info('voice-agent Deepgram-SignalWire bridge attached at /api/voice/signalwire/deepgram-stream');
+    } catch (bridgeErr: any) {
+      fastify.log.warn({ err: bridgeErr }, 'voice-agent Deepgram bridge init failed');
     }
 
-    // Attach Browser Voice Socket.IO gateway
+    // Browser previews use a short-lived server ticket. The permanent Deepgram
+    // key stays on this server and is never returned to app.jentoai.pro.
     try {
-      // @ts-ignore — JS interop
-      const { initBrowserVoiceSocket } = await import('./voice-agent/websocket/browser-gateway.js');
-      // @ts-ignore
-      initBrowserVoiceSocket(fastify.io);
-      fastify.log.info('voice-agent Browser Socket.IO gateway attached at /voice-browser');
-    } catch (socErr: any) {
-      fastify.log.warn({ err: socErr }, 'voice-agent Browser Socket.IO init failed');
+      const { attachDeepgramBrowserPreviewBridge } = await import('./voice-agent/websocket/deepgram-browser-preview.js');
+      attachDeepgramBrowserPreviewBridge(fastify.server);
+      fastify.log.info('voice-agent secure Deepgram browser-preview bridge attached');
+    } catch (previewErr: any) {
+      fastify.log.warn({ err: previewErr }, 'voice-agent browser-preview bridge init failed');
     }
 
     // Attach Call Monitor Socket.IO gateway
@@ -190,23 +189,6 @@ async function mountVoiceAgent() {
       fastify.log.warn({ err: monErr }, 'voice-agent Call Monitor init failed');
     }
 
-    // Initialize the orchestrator (wires STT → LLM → TTS pipeline)
-    try {
-      const { initOrchestrator } = await import('./voice-agent/orchestrator/call-pipeline.js');
-      initOrchestrator();
-      fastify.log.info('voice-agent orchestrator initialized');
-    } catch (orchErr: any) {
-      fastify.log.warn({ err: orchErr }, 'voice-agent orchestrator init failed');
-    }
-
-    // Start supervisor monitoring
-    try {
-      const { startSupervisor } = await import('./voice-agent/services/supervisor/sentiment-monitor.js');
-      startSupervisor();
-      fastify.log.info('voice-agent supervisor monitor started');
-    } catch (supErr: any) {
-      fastify.log.warn({ err: supErr }, 'voice-agent supervisor init failed');
-    }
   } catch (err: any) {
     fastify.log.warn({ err }, 'voice-agent mount failed — voice features disabled');
   }
@@ -218,9 +200,11 @@ import { startWarmupScheduler } from './calls-module/warmup.js';
 
 const start = async () => {
   try {
-    if (process.env.DISABLE_OUTBOUND_WORKER !== 'true') {
+    if (process.env.ENABLE_AI_OUTBOUND_CALLER === 'true' && process.env.AI_OUTBOUND_ENABLED === 'true') {
       const { runOutboundCallerLoop } = await import('./workers/outbound-caller.js');
       runOutboundCallerLoop().catch(err => console.error('[startup] Outbound caller error:', err));
+    } else {
+      fastify.log.info('AI outbound caller disabled. ENABLE_AI_OUTBOUND_CALLER=true and AI_OUTBOUND_ENABLED=true are both required.');
     }
 
     // Register expressPlugin for Express middleware support required by both Voice and Calls modules
@@ -230,6 +214,8 @@ const start = async () => {
     const { Server } = await import('socket.io');
     const io = new Server(fastify.server, {
       cors: { origin: true, credentials: true },
+      perMessageDeflate: false,
+      httpCompression: false,
     });
     // @ts-ignore
     fastify.io = io;

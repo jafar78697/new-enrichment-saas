@@ -1,7 +1,7 @@
-// DialerPopup — floating mobile-dialer-style softphone overlay powered by Twilio Voice SDK.
+// DialerPopup - floating mobile-dialer-style softphone overlay powered by SignalWire.
 // Built for inline use on Funnel Intelligence page (pass a lead/phone to kick off a call).
 import { useEffect, useMemo, useState } from 'react';
-import { useTwilioDevice, type CallStatus, type DeviceStatus } from '../hooks/useTwilioDevice';
+import useSignalWireDevice, { type CallStatus, type DeviceStatus } from '../hooks/useSignalWireDevice';
 import { callsApi, type Agent } from '../services/callsApi';
 import { toast } from 'sonner';
 
@@ -12,8 +12,6 @@ export interface DialerPopupProps {
   contactCompany?: string | null;
   onClose: () => void;
   onEnded?: (context: { callSid: string | null; connected: boolean; seconds: number }) => void;
-  autoStart?: boolean; // auto-start call on mount
-  record?: boolean;
   isOpen?: boolean; // Controls visual visibility while keeping hook mounted
 }
 
@@ -33,13 +31,28 @@ const DTMF_KEYS: Array<{ digit: string; letters: string }> = [
 ];
 
 function smartClean(raw: string): string {
-  const trimmed = String(raw || '').trim();
-  const hasLeadingPlus = trimmed.startsWith('+');
-  const digitsOnly = trimmed.replace(/\D/g, '');
-  if (digitsOnly.length === 10 && !hasLeadingPlus) return '+1' + digitsOnly;
-  if (digitsOnly.length === 11 && digitsOnly.startsWith('1') && !hasLeadingPlus) return '+' + digitsOnly;
-  if (hasLeadingPlus) return `+${digitsOnly}`;
-  return trimmed.replace(/[^\d*#]/g, '');
+  if (!raw) return '';
+  // Strip common extension formats (e.g., "x123", "ext. 123")
+  const noExt = raw.split(/(?:x|ext)[ .]?\d+/i)[0].trim();
+  const digitsOnly = noExt.replace(/\D/g, '');
+
+  // 00 is an international dial prefix, not part of an E.164 number.
+  if (digitsOnly.startsWith('00')) return `+${digitsOnly.substring(2)}`;
+
+  if (noExt.startsWith('+')) return `+${digitsOnly}`;
+
+  // The CRM is configured for US leads. Only a valid 10-digit US number is
+  // automatically given the +1 country code.
+  if (/^[2-9]\d{9}$/.test(digitsOnly)) return `+1${digitsOnly}`;
+
+  if (/^1[2-9]\d{9}$/.test(digitsOnly)) return `+${digitsOnly}`;
+
+  // Never guess a country code from malformed scraped data.
+  return digitsOnly.length >= 10 ? `+${digitsOnly}` : digitsOnly;
+}
+
+function isValidUSNumber(phoneNumber: string): boolean {
+  return /^\+1[2-9]\d{9}$/.test(phoneNumber);
 }
 
 function formatTimer(totalSeconds: number): string {
@@ -95,15 +108,12 @@ export default function DialerPopup({
   contactCompany,
   onClose,
   onEnded,
-  autoStart = true,
-  record = true,
   isOpen = true,
 }: DialerPopupProps) {
   const agentId = useResolvedAgentId();
   const [manualPhone, setManualPhone] = useState<string>(() => smartClean(phone));
   const [dtmfLog, setDtmfLog] = useState('');
   const [minimized, setMinimized] = useState(false);
-  const [autoStarted, setAutoStarted] = useState(false);
   const [lastCallSid, setLastCallSid] = useState<string | null>(null);
   const [endedReported, setEndedReported] = useState(false);
   const [showWrapUp, setShowWrapUp] = useState(false);
@@ -125,28 +135,17 @@ export default function DialerPopup({
     sendDtmf,
     acceptIncoming,
     rejectIncoming,
-  } = useTwilioDevice(agentId);
+  } = useSignalWireDevice(agentId);
 
   const isInCall = callStatus === 'dialing' || callStatus === 'ringing' || callStatus === 'connected' || callStatus === 'incoming';
   const isIdle = callStatus === 'idle' || callStatus === 'ended';
   const cleanPhone = smartClean(manualPhone);
-  const canCall = cleanPhone.replace(/[^\d*#]/g, '').length >= 3 && deviceStatus === 'ready' && isIdle;
+  const hasInvalidUSNumber = Boolean(manualPhone) && !isValidUSNumber(cleanPhone);
+  const canCall = isValidUSNumber(cleanPhone) && deviceStatus === 'ready' && isIdle;
 
   useEffect(() => {
     if (activeCallSid) setLastCallSid(activeCallSid);
   }, [activeCallSid]);
-
-  // Kick off the call automatically once device is ready
-  useEffect(() => {
-    if (!autoStart) return;
-    if (autoStarted) return;
-    if (deviceStatus !== 'ready') return;
-    if (!canCall) return;
-    setAutoStarted(true);
-    startCall({ phoneNumber: cleanPhone, contactId, record }).catch(() => {
-      /* error is surfaced via hook */
-    });
-  }, [autoStart, autoStarted, canCall, cleanPhone, contactId, deviceStatus, record, startCall]);
 
   // Report end-of-call outcome exactly once
   useEffect(() => {
@@ -191,7 +190,8 @@ export default function DialerPopup({
   const handleStart = () => {
     if (!canCall) return;
     setEndedReported(false);
-    startCall({ phoneNumber: cleanPhone, contactId, record }).catch(() => {});
+    setManualPhone(cleanPhone);
+    startCall({ phoneNumber: cleanPhone, contactId, record: false }).catch(() => {});
   };
 
   const handleTransferClick = async () => {
@@ -226,7 +226,7 @@ export default function DialerPopup({
   const displayName = contactName || 'Manual dial';
   const displayMeta = contactCompany || cleanPhone;
 
-  // If not open and idle, return null to hide UI but keep Twilio hook active
+  // If not open and idle, return null to hide UI but keep the SignalWire hook active.
   if (!isOpen && isIdle) {
     return null;
   }
@@ -422,7 +422,7 @@ export default function DialerPopup({
             onChange={(e) => setManualPhone(e.target.value)}
             onBlur={() => setManualPhone(smartClean(manualPhone))}
             disabled={isInCall}
-            placeholder="+1 555 123 4567"
+            placeholder="+1 203 204 7415"
             className="w-full text-center text-2xl font-bold tracking-wider bg-transparent border-0 focus:outline-none text-slate-900 font-mono disabled:opacity-70"
           />
           {callStatus === 'connected' && (
@@ -430,6 +430,11 @@ export default function DialerPopup({
           )}
           {isInCall && dtmfLog && (
             <div className="text-xs text-slate-500 mt-1">Keys: {dtmfLog}</div>
+          )}
+          {hasInvalidUSNumber && !isInCall && (
+            <div className="text-xs text-rose-600 mt-2">
+              This lead has no valid US number. Enter +1 followed by a 10-digit US number before calling.
+            </div>
           )}
         </div>
 
@@ -497,12 +502,11 @@ export default function DialerPopup({
           )}
 
           <button
-            disabled={callStatus !== 'connected'}
-            onClick={handleTransferClick}
+            disabled
             className={`w-14 h-14 rounded-full flex items-center justify-center transition shadow-sm ${
-              callStatus === 'connected' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+              'bg-slate-100 text-slate-400 cursor-not-allowed'
             }`}
-            title="Transfer Call"
+            title="Transfer is unavailable for protected browser calls"
           >
             ↪️
           </button>
@@ -516,7 +520,7 @@ export default function DialerPopup({
         )}
         {!agentId && (
           <div className="px-5 py-3 bg-amber-50 border-t border-amber-100 text-xs text-amber-800">
-            No Twilio agent configured yet. Add one on the Employees page.
+            No calling agent is configured yet. Add one on the Employees page.
           </div>
         )}
           </>

@@ -40,7 +40,7 @@ export default function AccessSystemPage() {
 
   const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
 
-  // Twilio state
+  // SignalWire state
   const [assigningEmpId, setAssigningEmpId] = useState<number | null>(null);
   const [assignmentMode, setAssignmentMode] = useState<'pool' | 'new' | ''>('');
   const [buyAreaCode, setBuyAreaCode] = useState('415');
@@ -53,7 +53,7 @@ export default function AccessSystemPage() {
   const [showNichesDropdown, setShowNichesDropdown] = useState(false);
 
   const { data: poolData } = useQuery({
-    queryKey: ['twilio-pool'],
+    queryKey: ['signalwire-pool'],
     queryFn: () => employeesApi.numbersPool()
   });
 
@@ -74,13 +74,13 @@ export default function AccessSystemPage() {
   });
 
   const assignNumberMutation = useMutation({
-    mutationFn: ({ empId, areaCode, twilioSid }: { empId: number, areaCode?: string, twilioSid?: string }) => 
-      employeesApi.assignNumber(empId, areaCode ? { areaCode } : { twilioSid }),
+    mutationFn: ({ empId, areaCode, signalwireSid }: { empId: number, areaCode?: string, signalwireSid?: string }) => 
+      employeesApi.assignNumber(empId, areaCode ? { areaCode } : { signalwireSid }),
     onSuccess: () => {
       setAssigningEmpId(null);
       queryClient.invalidateQueries({ queryKey: ['employees'] });
-      queryClient.invalidateQueries({ queryKey: ['twilio-pool'] });
-      showAlert('Success', 'Twilio number successfully assigned!');
+      queryClient.invalidateQueries({ queryKey: ['signalwire-pool'] });
+      showAlert('Success', 'SignalWire number successfully assigned!');
     },
     onError: (err: any) => showAlert('Error', err.message || 'Failed to assign number')
   });
@@ -89,7 +89,7 @@ export default function AccessSystemPage() {
     mutationFn: (id: number) => employeesApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
-      queryClient.invalidateQueries({ queryKey: ['twilio-pool'] });
+      queryClient.invalidateQueries({ queryKey: ['signalwire-pool'] });
     },
     onError: (err: any) => showAlert('Error', err.message || 'Failed to revoke access')
   });
@@ -174,7 +174,7 @@ export default function AccessSystemPage() {
             🔐 Access System
           </h1>
           <p style={{ color: '#52606D', fontSize: 15, margin: 0 }}>
-            Manage employee access and purchase/assign Twilio phone numbers
+            Manage employee access and purchase/assign SignalWire phone numbers
           </p>
         </div>
         
@@ -315,7 +315,7 @@ export default function AccessSystemPage() {
           <thead>
             <tr style={{ background: '#F6F7F2', borderBottom: '2px solid #D8E1D7' }}>
               <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794' }}>Employee</th>
-              <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794' }}>Twilio Number</th>
+              <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794' }}>SignalWire Number</th>
               <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794' }}>Modules</th>
               <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794' }}>Niches</th>
               <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794' }}>Status</th>
@@ -334,13 +334,13 @@ export default function AccessSystemPage() {
                   <div style={{ fontSize: 13, color: '#7B8794' }}>@{emp.username || emp.email.split('@')[0]}</div>
                 </td>
                 <td style={{ padding: '16px' }}>
-                  {emp.twilio_phone_number ? (
+                  {emp.signalwire_phone_number ? (
                     <div>
                       <div style={{ fontWeight: 600, color: '#0F766E', fontFamily: 'monospace', fontSize: 15 }}>
-                        {emp.twilio_phone_number}
+                        {emp.signalwire_phone_number}
                       </div>
                       <div style={{ fontSize: 11, color: '#7B8794' }}>
-                        Purchased: {new Date(emp.twilio_phone_purchased_at).toLocaleDateString()}
+                        Purchased: {new Date(emp.signalwire_phone_purchased_at).toLocaleDateString()}
                       </div>
                     </div>
                   ) : (
@@ -353,7 +353,7 @@ export default function AccessSystemPage() {
                               const val = e.target.value as any;
                               setAssignmentMode(val);
                               if (val && val !== 'new') {
-                                assignNumberMutation.mutate({ empId: emp.id, twilioSid: val });
+                                assignNumberMutation.mutate({ empId: emp.id, signalwireSid: val });
                               }
                             }}
                             style={{ padding: '6px 10px', border: '1px solid #D8E1D7', borderRadius: 6, fontSize: 13 }}
@@ -553,8 +553,8 @@ export default function AccessSystemPage() {
         </table>
       </div>
 
-      {/* Twilio Numbers Pool */}
-      <h3 style={{ margin: '0 0 16px', fontSize: 20, fontWeight: 700, color: '#14202B' }}>Twilio Numbers Pool</h3>
+      {/* SignalWire Numbers Pool */}
+      <h3 style={{ margin: '0 0 16px', fontSize: 20, fontWeight: 700, color: '#14202B' }}>SignalWire Numbers Pool</h3>
       <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>

@@ -44,6 +44,52 @@ function formatDateTime(value?: string | null) {
   return new Date(value).toLocaleString();
 }
 
+function formatCallClock(value?: string | null) {
+  if (!value) return 'No call time';
+  return new Date(value).toLocaleString();
+}
+
+function readNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
+function getCallStartedAt(lead: Pick<CallingQueueLead, 'last_contacted_at' | 'raw_data'> | Pick<Lead, 'last_contacted_at' | 'raw_data'> | null) {
+  const rawStartedAt = lead?.raw_data?.call_started_at;
+  return typeof rawStartedAt === 'string' && rawStartedAt ? rawStartedAt : lead?.last_contacted_at || null;
+}
+
+function getCallStatusText(lead: Pick<CallingQueueLead, 'lead_stage' | 'raw_data'> | Pick<Lead, 'lead_stage' | 'raw_data'> | null) {
+  const status = lead?.raw_data?.call_status;
+  if (typeof status === 'string' && status) return status;
+  return lead ? STAGE_LABELS[lead.lead_stage] : 'No status';
+}
+
+function getCallDurationSeconds(lead: Pick<CallingQueueLead, 'last_contacted_at' | 'raw_data'> | Pick<Lead, 'last_contacted_at' | 'raw_data'> | null, live = false) {
+  const stored = readNumber(lead?.raw_data?.call_duration_seconds);
+  if (stored !== null && stored > 0) return Math.max(0, Math.round(stored));
+  const startedAt = getCallStartedAt(lead);
+  if (live && startedAt) {
+    return Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+  }
+  return stored ?? 0;
+}
+
+function formatDurationSeconds(seconds: number | null) {
+  if (seconds === null || !Number.isFinite(seconds)) return '0s';
+  if (seconds < 60) return `${Math.max(0, Math.round(seconds))}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return `${mins}m ${secs}s`;
+}
+
+function formatCallTiming(lead: Pick<CallingQueueLead, 'last_contacted_at' | 'raw_data'> | Pick<Lead, 'last_contacted_at' | 'raw_data'> | null, live = false) {
+  const startedAt = getCallStartedAt(lead);
+  const duration = getCallDurationSeconds(lead, live);
+  return `Call time: ${formatCallClock(startedAt)} | Duration: ${formatDurationSeconds(duration)}`;
+}
+
 function getLeadResultText(lead: Pick<CallingQueueLead, 'lead_stage' | 'lead_notes' | 'ai_summary'> | null) {
   if (!lead) return 'No result yet';
   if (lead.ai_summary) return lead.ai_summary;
@@ -59,12 +105,15 @@ export default function AgentPipelinePage() {
   const [selectedContactIds, setSelectedContactIds] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState<AgentTab>('leads');
   const [q, setQ] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
   const [loading, setLoading] = useState(true);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [queueing, setQueueing] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [listenCallSid, setListenCallSid] = useState<string | null>(null);
+  const [listeningEnabled, setListeningEnabled] = useState(false);
   const [isTestingBrowser, setIsTestingBrowser] = useState(false);
   const [automationRunning, setAutomationRunning] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
@@ -74,7 +123,7 @@ export default function AgentPipelinePage() {
   const loadPipeline = async () => {
     try {
       const [leadResult, activeResult, callingStatus] = await Promise.all([
-        leadsApi.list({ limit: 500, assigned_to_ai: true }),
+        leadsApi.list({ limit: 5000, assigned_to_ai: true }),
         leadsApi.activeCalls(),
         leadsApi.callingStatus(),
       ]);
@@ -99,6 +148,15 @@ export default function AgentPipelinePage() {
     const timer = window.setInterval(() => void loadPipeline(), 5000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!listeningEnabled) return;
+    setListenCallSid(activeCallSid || null);
+  }, [activeCallSid, listeningEnabled]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, q, selectedNicheId]);
 
   useEffect(() => {
     setSelectedContactIds([]);
@@ -139,6 +197,16 @@ export default function AgentPipelinePage() {
         .some((value) => value?.toLowerCase().includes(term));
     });
   }, [leads, activeTab, selectedNicheId, q]);
+
+  const paginatedAvailableContacts = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return availableContacts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [availableContacts, currentPage]);
+
+  const paginatedVisibleLeads = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return visibleLeads.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [visibleLeads, currentPage]);
 
   const tabCount = (tab: AgentTab) => {
     if (tab === 'leads') return availableContacts.length;
@@ -185,6 +253,7 @@ export default function AgentPipelinePage() {
       if (automationRunning) {
         const result = await leadsApi.stopCalling();
         setAutomationRunning(false);
+        setListeningEnabled(false);
         setListenCallSid(null);
         setActiveCallSid(null);
         setMessage(`Calling stopped${result.stoppedCalls ? `; ${result.stoppedCalls} live call ended` : ''}`);
@@ -203,12 +272,14 @@ export default function AgentPipelinePage() {
   };
 
   const toggleLiveListen = async () => {
-    if (listenCallSid) {
+    if (listeningEnabled) {
+      setListeningEnabled(false);
       setListenCallSid(null);
       return;
     }
     setError('');
     if (activeCallSid) {
+      setListeningEnabled(true);
       setListenCallSid(activeCallSid);
       return;
     }
@@ -218,15 +289,24 @@ export default function AgentPipelinePage() {
       const freshMap = activeResult.activeCalls || {};
       const status = await leadsApi.callingStatus();
       const freshCallSid = status.activeCallSid || Object.values(freshMap)[0];
+      setListeningEnabled(true);
       if (freshCallSid) {
         setActiveCallSid(freshCallSid);
         setListenCallSid(freshCallSid);
         return;
       }
-      setError('Abhi koi live call nahi hai. Start Calling dabao aur call connect hone ke baad Listen Live dabao.');
+      setListenCallSid(null);
+      setMessage('Listen Live ON hai. Next call connect hoti hi audio aur transcript yahan aa jayegi.');
     } catch (e: any) {
       setError(e?.response?.data?.error || e?.message || 'Live call info load nahi ho saki');
     }
+  };
+
+  const skipLiveCall = async (callSid: string, reason: string) => {
+    await leadsApi.skipActiveCall({ callSid, reason });
+    setMessage('Current call machine/bad call mark ho gayi. Dialer next assigned lead par move karega.');
+    setListenCallSid(null);
+    await loadPipeline();
   };
 
   const stats = useMemo(() => ({
@@ -273,125 +353,160 @@ export default function AgentPipelinePage() {
   const recentActivity = callingStatus?.recentActivity || [];
 
   return (
-    <div style={{ fontFamily: 'Manrope, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
+    <div className="max-w-[1400px] mx-auto space-y-8 pb-12 font-sans">
+      <div className="flex flex-wrap justify-between items-start gap-6 mb-2">
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, margin: 0, fontSize: 27, color: '#14202B' }}>
-            <Bot size={27} color="#0F766E" /> AI Agent Pipeline
+          <h1 className="flex items-center gap-3 text-3xl font-extrabold text-gray-900 m-0">
+            <div className="p-2.5 bg-teal-50 border border-teal-100 rounded-2xl shadow-sm">
+              <Bot size={28} className="text-teal-700" />
+            </div>
+            AI Agent Pipeline
           </h1>
-          <p style={{ margin: '5px 0 0', color: '#52606D', fontSize: 14 }}>Automated calling pipeline</p>
+          <p className="mt-2 text-sm text-gray-500 font-medium ml-1">Fully automated outbound calling pipeline</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div className="flex items-center gap-3 flex-wrap">
           <select
             value={selectedNicheId}
             onChange={(event) => setSelectedNicheId(event.target.value)}
             aria-label="Select niche"
-            style={{ width: 235, height: 40, padding: '0 11px', border: '1px solid #D8E1D7', borderRadius: 8, background: '#fff', color: '#14202B', fontSize: 13 }}
+            className="w-56 h-10 px-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all cursor-pointer hover:border-gray-300"
           >
             <option value="">All niches</option>
             {niches.map((niche) => (
               <option key={niche.id} value={niche.id}>{niche.name} ({niche.contact_count || 0})</option>
             ))}
           </select>
-          <button disabled={controlBusy} onClick={() => void toggleCalling()} style={actionButton(controlBusy ? '#94A3B8' : automationRunning ? '#DC2626' : '#0F766E')}>
+          <button 
+            disabled={controlBusy} 
+            onClick={() => void toggleCalling()} 
+            className={`flex items-center gap-2 h-10 px-4 rounded-xl font-bold text-xs text-white shadow-sm hover:shadow-md transition-all duration-200 ${controlBusy ? 'bg-slate-400 cursor-not-allowed' : automationRunning ? 'bg-red-600 hover:bg-red-700 active:scale-95' : 'bg-teal-600 hover:bg-teal-700 active:scale-95'}`}
+          >
             {automationRunning ? <Square size={14} fill="currentColor" /> : <PhoneCall size={15} />}
             {controlBusy ? 'Please wait...' : automationRunning ? 'Stop Calling' : 'Start Calling'}
           </button>
-          <button onClick={() => void toggleLiveListen()} style={actionButton(listenCallSid ? '#DC2626' : '#7C3AED')}>
-            {listenCallSid ? <Square size={14} fill="currentColor" /> : <Volume2 size={16} />}
-            {listenCallSid ? 'Stop Listening' : 'Listen Live'}
+          <button 
+            onClick={() => void toggleLiveListen()} 
+            className={`flex items-center gap-2 h-10 px-4 rounded-xl font-bold text-xs text-white shadow-sm hover:shadow-md transition-all duration-200 active:scale-95 ${listeningEnabled ? 'bg-red-600 hover:bg-red-700' : 'bg-violet-600 hover:bg-violet-700'}`}
+          >
+            {listeningEnabled ? <Square size={14} fill="currentColor" /> : <Volume2 size={16} />}
+            {listeningEnabled ? 'Stop Listening' : 'Listen Live'}
           </button>
-          <button onClick={() => setIsTestingBrowser(true)} style={actionButton('#2563EB')}>
+          <button onClick={() => setIsTestingBrowser(true)} className="flex items-center gap-2 h-10 px-4 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 active:scale-95">
             <Mic size={15} /> Test Agent
           </button>
-          <button onClick={() => void loadPipeline()} title="Refresh" style={iconButton}>
+          <button onClick={() => void loadPipeline()} title="Refresh" className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900 transition-all duration-200">
             <RefreshCw size={16} />
           </button>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(120px, 1fr))', gap: 14, marginBottom: 28 }}>
-        <Stat label="Assigned" value={stats.assigned} color="#14202B" background="#FFFFFF" />
-        <Stat label="Active Calls" value={stats.calling} color="#1D4ED8" background="#EFF6FF" />
-        <Stat label="Called" value={stats.called} color="#4F46E5" background="#EEF2FF" />
-        <Stat label="No Answer" value={stats.noAnswer} color="#C2410C" background="#FFF7ED" />
-        <Stat label="Interested" value={stats.interested} color="#047857" background="#ECFDF5" />
-        <Stat label="Closed Won" value={stats.won} color="#4D7C0F" background="#F7FEE7" />
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <Stat label="Assigned" value={stats.assigned} colorClass="text-slate-800" bgClass="bg-white border-slate-200 shadow-sm" />
+        <Stat label="Active Calls" value={stats.calling} colorClass="text-blue-700" bgClass="bg-blue-50/80 border-blue-200 shadow-sm" />
+        <Stat label="Called" value={stats.called} colorClass="text-indigo-700" bgClass="bg-indigo-50/80 border-indigo-200 shadow-sm" />
+        <Stat label="No Answer" value={stats.noAnswer} colorClass="text-orange-700" bgClass="bg-orange-50/80 border-orange-200 shadow-sm" />
+        <Stat label="Interested" value={stats.interested} colorClass="text-emerald-700" bgClass="bg-emerald-50/80 border-emerald-200 shadow-sm" />
+        <Stat label="Closed Won" value={stats.won} colorClass="text-lime-700" bgClass="bg-lime-50/80 border-lime-200 shadow-sm" />
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <div style={{ position: 'relative', width: 300, maxWidth: '100%' }}>
-          <Search size={15} style={{ position: 'absolute', left: 11, top: 12, color: '#94A3B8' }} />
+      <div className="flex justify-end relative">
+        <div className="relative w-full max-w-[320px]">
+          <Search size={16} className="absolute left-3.5 top-3 text-gray-400" />
           <input
             value={q}
             onChange={(event) => setQ(event.target.value)}
-            placeholder="Search leads"
-            style={{ width: '100%', height: 40, boxSizing: 'border-box', padding: '0 12px 0 34px', border: '1px solid #D8E1D7', borderRadius: 8, background: '#fff', fontSize: 13 }}
+            placeholder="Search leads..."
+            className="w-full h-11 pl-10 pr-4 bg-white border border-gray-200 rounded-xl text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
           />
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 22, overflowX: 'auto', borderBottom: '1px solid #D8E1D7', marginBottom: 24 }}>
+      <div className="flex gap-2 overflow-x-auto pb-2 border-b border-gray-200 hide-scrollbar">
         {AGENT_TABS.map((tab) => {
           const selected = activeTab === tab.key;
           return (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              style={{ flexShrink: 0, padding: '10px 0 11px', border: 0, borderBottom: selected ? '2px solid #0F766E' : '2px solid transparent', background: 'transparent', color: selected ? '#0F766E' : '#52606D', fontSize: 13, fontWeight: selected ? 700 : 600, cursor: 'pointer' }}
+              className={`flex-shrink-0 px-4 py-2.5 text-sm font-bold border-b-2 transition-all duration-200 ${selected ? 'border-teal-600 text-teal-700' : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'}`}
             >
-              {tab.label} <span style={{ marginLeft: 4, color: selected ? '#0F766E' : '#94A3B8' }}>{tabCount(tab.key)}</span>
+              {tab.label} <span className={`ml-1.5 rounded-full px-2 py-0.5 text-xs font-bold transition-all ${selected ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-600'}`}>{tabCount(tab.key)}</span>
             </button>
           );
         })}
       </div>
 
-      {listenCallSid && <LiveCallMonitor callSid={listenCallSid} autoStart onClose={() => setListenCallSid(null)} />}
-      {isTestingBrowser && <BrowserAgentTester onClose={() => setIsTestingBrowser(false)} />}
+      {listeningEnabled && (
+        <LiveCallMonitor
+          callSid={listenCallSid}
+          autoStart
+          autoFollow
+          activeLeadName={activeLead ? activeLead.company_name || activeLead.domain : null}
+          onClose={() => {
+            setListeningEnabled(false);
+            setListenCallSid(null);
+          }}
+          onCallEnded={(callSid, status) => {
+            setMessage(`Live listen: call ${callSid.slice(0, 8)} ${status}. Waiting for next call.`);
+            setListenCallSid(null);
+            void loadPipeline();
+          }}
+          onSkipCurrentCall={skipLiveCall}
+        />
+      )}
       {error && <Alert text={error} danger />}
       {message && <Alert text={message} />}
       {!!bannerText && (
         <Alert
           text={bannerText}
           action={callingStatus ? (
-            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', color: 'inherit' }}>
+            <div className="flex gap-4 flex-wrap font-medium">
               <span>Queue: {callingStatus.queueCount}</span>
               {callingStatus.lastCall?.last_contacted_at && (
-                <span>Last update: {new Date(callingStatus.lastCall.last_contacted_at).toLocaleString()}</span>
+                <span>Last call: {formatCallClock(getCallStartedAt(callingStatus.lastCall))}</span>
+              )}
+              {callingStatus.lastCall && (
+                <span>Duration: {formatDurationSeconds(getCallDurationSeconds(callingStatus.lastCall))}</span>
               )}
             </div>
           ) : null}
         />
       )}
-      {callingStatus && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>
+      
+      {activeTab === 'calling' && (
+        <>
+          {callingStatus && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <StatusStripCard
             title="Current Lead"
-            accent="#2563EB"
+            accentClass="text-blue-600"
+            borderClass="border-blue-200"
             name={activeLead ? activeLead.company_name || activeLead.domain : 'No live call'}
             detail={activeLead?.primary_phone || (callingStatus.isRunning ? 'Waiting for live call connect' : 'Calling is currently stopped')}
-            helper={activeLead ? `${STAGE_LABELS[activeLead.lead_stage]} | ${formatDateTime(activeLead.last_contacted_at)}` : callingStatus.isRunning ? 'Auto dialer is on' : 'Press Start Calling to resume'}
+            helper={activeLead ? `${STAGE_LABELS[activeLead.lead_stage]} | ${formatCallTiming(activeLead, true)}` : callingStatus.isRunning ? 'Auto dialer is on' : 'Press Start Calling to resume'}
           />
           <StatusStripCard
             title="Next Lead"
-            accent="#0F766E"
+            accentClass="text-teal-600"
+            borderClass="border-teal-200"
             name={callingStatus.nextLead ? callingStatus.nextLead.company_name || callingStatus.nextLead.domain : 'No lead in queue'}
             detail={callingStatus.nextLead?.primary_phone || `Queue count: ${callingStatus.queueCount}`}
             helper={callingStatus.nextLead ? `Stage: ${STAGE_LABELS[callingStatus.nextLead.lead_stage]}` : 'Assign more leads or start follow-up queue'}
           />
           <StatusStripCard
             title="Last Call"
-            accent="#D97706"
+            accentClass="text-amber-600"
+            borderClass="border-amber-200"
             name={callingStatus.lastCall ? callingStatus.lastCall.company_name || callingStatus.lastCall.domain : 'No previous call'}
             detail={callingStatus.lastCall?.primary_phone || 'No phone available'}
-            helper={callingStatus.lastCall ? `${STAGE_LABELS[callingStatus.lastCall.lead_stage]} | ${formatDateTime(callingStatus.lastCall.last_contacted_at)}` : 'Result will appear here'}
+            helper={callingStatus.lastCall ? `${getCallStatusText(callingStatus.lastCall)} | ${formatCallTiming(callingStatus.lastCall)}` : 'Result will appear here'}
           />
         </div>
       )}
 
-      <div style={{ marginBottom: 18, padding: 16, border: '1px solid #D8E1D7', borderRadius: 10, background: '#FFFFFF' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#52606D', marginBottom: 12 }}>CALL RECORDINGS</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(240px, 1fr))', gap: 12 }}>
+      <div className="p-5 border border-gray-200 rounded-2xl bg-white shadow-sm">
+        <div className="text-xs font-bold text-gray-500 mb-4 tracking-wider">CALL RECORDINGS</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <RecordingPanel
             title="Current Call Recording"
             subtitle={activeLead ? activeLead.company_name || activeLead.domain : 'No active lead'}
@@ -409,33 +524,38 @@ export default function AgentPipelinePage() {
         </div>
       </div>
 
-      <div style={{ marginBottom: 18, padding: 16, border: '1px solid #D8E1D7', borderRadius: 10, background: '#FFFFFF' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#52606D', marginBottom: 12 }}>RECENT CALL ACTIVITY</div>
+      <div className="p-5 border border-gray-200 rounded-2xl bg-white shadow-sm">
+        <div className="text-xs font-bold text-gray-500 mb-4 tracking-wider">RECENT CALL ACTIVITY</div>
         {recentActivity.length ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="flex flex-col gap-3">
             {recentActivity.map((lead) => (
-              <div key={lead.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 1.4fr) minmax(140px, 0.8fr) minmax(120px, 0.8fr) minmax(180px, 1fr) minmax(120px, 0.8fr)', gap: 12, alignItems: 'center', padding: '12px 14px', border: '1px solid #E5E7EB', borderRadius: 8, background: '#F8FAFC' }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ color: '#14202B', fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div key={lead.id} className="grid grid-cols-[1.5fr_0.8fr_0.8fr_1.3fr_0.9fr] gap-4 items-center p-4 border border-gray-100 rounded-xl bg-gray-50/50 hover:bg-white hover:shadow-sm transition-all duration-200">
+                <div className="min-w-0">
+                  <div className="text-gray-900 text-sm font-bold truncate">
                     {lead.company_name || lead.domain}
                   </div>
-                  <div style={{ ...mutedText, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div className="text-gray-500 text-xs font-medium mt-1 truncate">
                     {lead.primary_email || lead.domain}
                   </div>
                 </div>
                 <PhoneValue value={lead.primary_phone || 'No phone'} />
-                <span style={badge(STAGE_COLORS[lead.lead_stage])}>{STAGE_LABELS[lead.lead_stage]}</span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ color: '#334155', fontSize: 12, fontWeight: 600 }}>{formatDateTime(lead.last_contacted_at)}</div>
-                  <div style={{ ...mutedText, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {getLeadResultText(lead)}
+                <div>
+                   <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap" style={{ backgroundColor: `${STAGE_COLORS[lead.lead_stage]}20`, color: STAGE_COLORS[lead.lead_stage] }}>{STAGE_LABELS[lead.lead_stage]}</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-gray-700 text-xs font-semibold">Called: {formatCallClock(getCallStartedAt(lead))}</div>
+                  <div className="text-gray-600 text-xs font-bold mt-1">
+                    Duration: {formatDurationSeconds(getCallDurationSeconds(lead))}
+                  </div>
+                  <div className="text-gray-500 text-xs font-medium mt-1 truncate">
+                    {getCallStatusText(lead)} | {getLeadResultText(lead)}
                   </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <div className="flex justify-end">
                   {getRecordingUrl(lead) ? (
-                    <audio controls preload="none" style={{ width: 180, maxWidth: '100%' }} src={getRecordingUrl(lead)!} />
+                    <audio controls preload="none" className="w-full max-w-[180px] h-8 rounded" src={getRecordingUrl(lead)!} />
                   ) : (
-                    <span style={badge(getRecordingStatus(lead) === 'in-progress' ? '#2563EB' : '#94A3B8')}>
+                    <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap ${getRecordingStatus(lead) === 'in-progress' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
                       {getRecordingStatus(lead) === 'in-progress' ? 'Recording...' : 'No recording'}
                     </span>
                   )}
@@ -447,11 +567,17 @@ export default function AgentPipelinePage() {
           <Empty text="Abhi recent call activity available nahi hai." />
         )}
       </div>
+        </>
+      )}
 
       {activeTab === 'leads' ? (
         <AvailableLeadList
           selectedNicheId={selectedNicheId}
-          contacts={availableContacts}
+          contacts={paginatedAvailableContacts}
+          totalItems={availableContacts.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          itemsPerPage={ITEMS_PER_PAGE}
           loading={contactsLoading}
           selectedIds={selectedContactIds}
           queueing={queueing}
@@ -464,7 +590,11 @@ export default function AgentPipelinePage() {
         />
       ) : (
         <PipelineLeadList
-          leads={visibleLeads}
+          leads={paginatedVisibleLeads}
+          totalItems={visibleLeads.length}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          itemsPerPage={ITEMS_PER_PAGE}
           loading={loading}
           emptyText={activeTab === 'calling' ? callingEmptyText : 'No leads in this stage'}
         />
@@ -476,6 +606,10 @@ export default function AgentPipelinePage() {
 function AvailableLeadList({
   selectedNicheId,
   contacts,
+  totalItems,
+  currentPage,
+  onPageChange,
+  itemsPerPage,
   loading,
   selectedIds,
   queueing,
@@ -486,6 +620,10 @@ function AvailableLeadList({
 }: {
   selectedNicheId: string;
   contacts: Contact[];
+  totalItems: number;
+  currentPage: number;
+  onPageChange: (page: number) => void;
+  itemsPerPage: number;
   loading: boolean;
   selectedIds: number[];
   queueing: boolean;
@@ -500,39 +638,48 @@ function AvailableLeadList({
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        <button onClick={onSelectAll} style={secondaryButton}>
+      <div className="flex justify-end gap-3 flex-wrap mb-4">
+        <button onClick={onSelectAll} className="h-10 px-4 border border-gray-300 rounded-xl bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 shadow-sm transition-all duration-200">
           {selectedIds.length === contacts.length ? 'Clear Selection' : 'Select All'}
         </button>
-        <button disabled={!selectedIds.length || queueing} onClick={onAssign} style={actionButton(selectedIds.length && !queueing ? '#0F766E' : '#94A3B8')}>
+        <button disabled={!selectedIds.length || queueing} onClick={onAssign} className={`flex items-center gap-2 h-10 px-4 rounded-xl text-xs font-bold text-white shadow-sm transition-all duration-200 ${selectedIds.length && !queueing ? 'bg-teal-600 hover:bg-teal-700 hover:shadow-md' : 'bg-slate-400 cursor-not-allowed'}`}>
           <UserPlus size={15} /> {queueing ? 'Assigning...' : `Assign Selected (${selectedIds.length})`}
         </button>
-        <button disabled={queueing} onClick={onAssignAll} style={secondaryButton}>Assign All</button>
+        <button disabled={queueing} onClick={onAssignAll} className="h-10 px-4 border border-gray-300 rounded-xl bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 shadow-sm transition-all duration-200">Assign All</button>
       </div>
-      <div style={{ overflowX: 'auto' }}>
-        <div style={{ minWidth: 900, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="overflow-x-auto">
+        <div className="min-w-[900px] flex flex-col gap-3">
           {contacts.map((contact) => (
-            <label key={contact.id} style={leadRow(false)}>
-            <input type="checkbox" checked={selectedIds.includes(contact.id)} onChange={() => onToggle(contact.id)} style={{ width: 18, height: 18, accentColor: '#0F766E', cursor: 'pointer' }} />
+            <label key={contact.id} className="grid grid-cols-[1.6fr_48px_0.8fr_0.7fr_1fr_0.9fr] gap-4 items-center min-h-[74px] p-4 border border-gray-200 rounded-xl bg-white hover:bg-gray-50 hover:shadow-sm transition-all duration-200 cursor-pointer">
+            <input type="checkbox" checked={selectedIds.includes(contact.id)} onChange={() => onToggle(contact.id)} className="w-5 h-5 accent-teal-600 cursor-pointer justify-self-center" />
             <LeadIdentity name={contact.company || contact.name} niche={contact.niche_name} detail={contact.name} />
             <Score value={contact.score || 0} />
             <PhoneValue value={contact.phone_number} />
-            <span style={mutedText}>{contact.email || 'No email'}</span>
-            <span style={{ ...badge('#0F766E'), justifySelf: 'end' }}>Ready</span>
+            <span className="text-gray-500 text-xs font-medium">{contact.email || 'No email'}</span>
+            <span className="justify-self-end px-3 py-1.5 text-xs font-bold rounded-full bg-teal-100 text-teal-800 uppercase tracking-wide">Ready</span>
             </label>
           ))}
         </div>
       </div>
+      <Pagination currentPage={currentPage} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={onPageChange} />
     </>
   );
 }
 
 function PipelineLeadList({
   leads,
+  totalItems,
+  currentPage,
+  onPageChange,
+  itemsPerPage,
   loading,
   emptyText,
 }: {
   leads: Lead[];
+  totalItems: number;
+  currentPage: number;
+  onPageChange: (page: number) => void;
+  itemsPerPage: number;
   loading: boolean;
   emptyText: string;
 }) {
@@ -540,27 +687,28 @@ function PipelineLeadList({
   if (!leads.length) return <Empty text={emptyText} />;
 
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <div style={{ minWidth: 900, display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="overflow-x-auto">
+      <div className="min-w-[900px] flex flex-col gap-3">
         {leads.map((lead) => (
-          <div key={lead.id} style={leadRow(lead.lead_stage === 'calling')}>
+          <div key={lead.id} className={`grid grid-cols-[1.6fr_48px_0.8fr_0.7fr_1fr_0.9fr] gap-4 items-center min-h-[74px] p-4 border rounded-xl transition-all duration-200 ${lead.lead_stage === 'calling' ? 'bg-amber-50 border-amber-300 shadow-md' : 'bg-white border-gray-200 hover:shadow-md'}`}>
           <LeadIdentity name={lead.company_name || lead.domain} niche={lead.raw_data?.niche_name || lead.industry_guess} detail={lead.primary_email || lead.domain} />
           <Score value={lead.ai_score || 0} />
           <PhoneValue value={lead.primary_phone || 'No phone'} />
-          <div style={{ minWidth: 0 }}>
-            <span style={{ ...badge(STAGE_COLORS[lead.lead_stage]), justifySelf: 'start' }}>{STAGE_LABELS[lead.lead_stage]}</span>
-            <div style={{ ...mutedText, marginTop: 6 }}>{formatDateTime(lead.last_contacted_at)}</div>
+          <div className="min-w-0">
+            <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap" style={{ backgroundColor: `${STAGE_COLORS[lead.lead_stage]}20`, color: STAGE_COLORS[lead.lead_stage] }}>{STAGE_LABELS[lead.lead_stage]}</span>
+            <div className="text-gray-600 text-xs font-semibold mt-1.5">{formatCallClock(getCallStartedAt(lead))}</div>
+            <div className="text-gray-500 text-xs font-medium mt-0.5">{formatDurationSeconds(getCallDurationSeconds(lead, lead.lead_stage === 'calling'))}</div>
           </div>
-          <span style={{ ...mutedText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span className="text-gray-600 text-xs font-medium truncate">
             {getMeetingTime(lead)
               ? `Meeting: ${new Date(getMeetingTime(lead) as string).toLocaleString()}`
               : lead.ai_summary || lead.lead_notes || 'No notes yet'}
           </span>
-          <div style={{ justifySelf: 'end' }}>
+          <div className="justify-self-end w-full max-w-[180px]">
             {getRecordingUrl(lead) ? (
-              <audio controls preload="none" style={{ width: 180, maxWidth: '100%' }} src={getRecordingUrl(lead)!} />
+              <audio controls preload="none" className="w-full h-8 rounded" src={getRecordingUrl(lead)!} />
             ) : (
-              <span style={badge(getRecordingStatus(lead) === 'in-progress' ? '#2563EB' : '#94A3B8')}>
+              <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap float-right ${getRecordingStatus(lead) === 'in-progress' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
                 {getRecordingStatus(lead) === 'in-progress' ? 'Recording...' : 'No recording'}
               </span>
             )}
@@ -568,58 +716,109 @@ function PipelineLeadList({
           </div>
         ))}
       </div>
+      <Pagination currentPage={currentPage} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={onPageChange} />
+    </div>
+  );
+}
+
+function Pagination({
+  currentPage,
+  totalItems,
+  itemsPerPage,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalItems: number;
+  itemsPerPage: number;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200 mt-4 rounded-xl">
+      <div className="flex-1 flex items-center justify-between">
+        <div>
+          <p className="text-sm text-gray-700">
+            Showing <span className="font-bold">{(currentPage - 1) * itemsPerPage + 1}</span> to <span className="font-bold">{Math.min(currentPage * itemsPerPage, totalItems)}</span> of <span className="font-bold">{totalItems}</span> leads
+          </p>
+        </div>
+        <div>
+          <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+            <button
+              onClick={() => onPageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className={`relative inline-flex items-center px-3 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-bold ${currentPage === 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-50'}`}
+            >
+              Previous
+            </button>
+            <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-gray-50 text-sm font-bold text-gray-700">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => onPageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className={`relative inline-flex items-center px-3 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-bold ${currentPage === totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-50'}`}
+            >
+              Next
+            </button>
+          </nav>
+        </div>
+      </div>
     </div>
   );
 }
 
 function LeadIdentity({ name, niche, detail }: { name: string; niche?: string | null; detail?: string | null }) {
   return (
-    <div style={{ minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <strong style={{ color: '#14202B', fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</strong>
-        {niche && <span style={badge('#7E22CE')}>{niche}</span>}
+    <div className="min-w-0">
+      <div className="flex items-center gap-2 min-w-0 mb-1">
+        <strong className="text-gray-900 text-sm font-bold truncate">{name}</strong>
+        {niche && <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-purple-100 text-purple-800 uppercase tracking-wide shrink-0">{niche}</span>}
       </div>
-      <div style={{ ...mutedText, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail || 'No details'}</div>
+      <div className="text-gray-500 text-xs font-medium truncate">{detail || 'No details'}</div>
     </div>
   );
 }
 
 function Score({ value }: { value: number }) {
-  return <span style={{ width: 40, height: 40, display: 'grid', placeItems: 'center', borderRadius: '50%', background: '#FEF3C7', color: '#B45309', fontSize: 13, fontWeight: 800 }}>{value}</span>;
+  return <span className="w-10 h-10 flex items-center justify-center rounded-full bg-amber-100 text-amber-700 text-sm font-black shadow-sm">{value}</span>;
 }
 
 function PhoneValue({ value }: { value: string }) {
-  return <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#14202B', fontSize: 13, fontWeight: 600 }}><Phone size={14} color="#0F766E" /> {value}</span>;
+  return <span className="flex items-center gap-2 text-gray-900 text-sm font-bold"><Phone size={14} className="text-teal-600" /> {value}</span>;
 }
 
-function Stat({ label, value, color, background }: { label: string; value: number; color: string; background: string }) {
+function Stat({ label, value, colorClass, bgClass }: { label: string; value: number; colorClass: string; bgClass: string }) {
   return (
-    <div style={{ minHeight: 82, padding: '15px 18px', border: '1px solid #D8E1D7', borderRadius: 8, background }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color, textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ marginTop: 8, fontSize: 23, fontWeight: 700, color }}>{value}</div>
+    <div className={`p-4 rounded-2xl border transition-all duration-300 hover:shadow-md hover:-translate-y-1 ${bgClass}`}>
+      <div className={`text-[11px] font-bold uppercase tracking-wider ${colorClass}`}>{label}</div>
+      <div className={`mt-2 text-2xl font-black ${colorClass}`}>{value}</div>
     </div>
   );
 }
 
 function StatusStripCard({
   title,
-  accent,
+  accentClass,
+  borderClass,
   name,
   detail,
   helper,
 }: {
   title: string;
-  accent: string;
+  accentClass: string;
+  borderClass: string;
   name: string;
   detail: string;
   helper: string;
 }) {
   return (
-    <div style={{ minHeight: 92, padding: '14px 16px', border: `1px solid ${accent}30`, borderRadius: 8, background: '#fff' }}>
-      <div style={{ fontSize: 11, fontWeight: 800, color: accent, textTransform: 'uppercase' }}>{title}</div>
-      <div style={{ marginTop: 8, color: '#14202B', fontSize: 15, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
-      <div style={{ marginTop: 6, color: '#334155', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{detail}</div>
-      <div style={{ marginTop: 6, color: '#64748B', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{helper}</div>
+    <div className={`p-5 rounded-2xl bg-white border shadow-sm transition-all duration-300 hover:shadow-md ${borderClass}`}>
+      <div className={`text-[11px] font-bold uppercase tracking-wider ${accentClass}`}>{title}</div>
+      <div className="mt-2.5 text-gray-900 text-[15px] font-extrabold truncate">{name}</div>
+      <div className="mt-1.5 text-slate-700 text-[13px] font-bold truncate">{detail}</div>
+      <div className="mt-1.5 text-slate-500 text-xs font-medium truncate">{helper}</div>
     </div>
   );
 }
@@ -638,16 +837,16 @@ function RecordingPanel({
   emptyText: string;
 }) {
   return (
-    <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, padding: 12, background: '#F8FAFC', minHeight: 112 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#14202B' }}>{title}</div>
-        {status && <span style={badge(status === 'completed' ? '#047857' : status === 'in-progress' ? '#2563EB' : '#94A3B8')}>{status}</span>}
+    <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 min-h-[112px]">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="text-xs font-bold text-gray-900">{title}</div>
+        {status && <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-wide ${status === 'completed' ? 'bg-emerald-100 text-emerald-800' : status === 'in-progress' ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-600'}`}>{status}</span>}
       </div>
-      <div style={{ fontSize: 13, color: '#52606D', marginBottom: 10 }}>{subtitle}</div>
+      <div className="text-xs text-gray-600 font-medium mb-3">{subtitle}</div>
       {url ? (
-        <audio controls preload="none" style={{ width: '100%' }} src={url} />
+        <audio controls preload="none" className="w-full h-9 rounded" src={url} />
       ) : (
-        <div style={{ fontSize: 13, color: '#94A3B8' }}>{emptyText}</div>
+        <div className="text-xs text-gray-400 font-medium">{emptyText}</div>
       )}
     </div>
   );
@@ -655,7 +854,7 @@ function RecordingPanel({
 
 function Alert({ text, danger = false, action = null }: { text: string; danger?: boolean; action?: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 14, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, border: `1px solid ${danger ? '#FCA5A5' : '#A7F3D0'}`, borderRadius: 8, background: danger ? '#FEF2F2' : '#ECFDF5', color: danger ? '#991B1B' : '#047857', fontSize: 13 }}>
+    <div className={`mb-4 p-4 flex items-center justify-between gap-4 border rounded-xl text-sm font-medium shadow-sm ${danger ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
       <span>{text}</span>
       {action}
     </div>
@@ -663,72 +862,5 @@ function Alert({ text, danger = false, action = null }: { text: string; danger?:
 }
 
 function Empty({ text }: { text: string }) {
-  return <div style={{ padding: 42, border: '1px solid #D8E1D7', borderRadius: 8, background: '#fff', textAlign: 'center', color: '#64748B', fontSize: 13 }}>{text}</div>;
+  return <div className="p-10 border border-dashed border-gray-300 rounded-2xl bg-gray-50 text-center text-gray-500 text-sm font-semibold">{text}</div>;
 }
-
-const mutedText: React.CSSProperties = { color: '#64748B', fontSize: 12 };
-
-const leadRow = (calling: boolean): React.CSSProperties => ({
-  minHeight: 74,
-  padding: '12px 18px',
-  display: 'grid',
-  gridTemplateColumns: 'minmax(220px, 1.6fr) 48px minmax(150px, 0.8fr) minmax(115px, 0.7fr) minmax(170px, 1fr) minmax(190px, 0.9fr)',
-  gap: 16,
-  alignItems: 'center',
-  border: calling ? '1px solid #F59E0B' : '1px solid #D8E1D7',
-  borderRadius: 8,
-  background: calling ? '#FFFBEB' : '#fff',
-  boxShadow: '0 2px 4px rgba(15, 23, 42, 0.04)',
-});
-
-const badge = (color: string): React.CSSProperties => ({
-  width: 'fit-content',
-  padding: '3px 8px',
-  borderRadius: 999,
-  background: `${color}18`,
-  color,
-  fontSize: 10,
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  whiteSpace: 'nowrap',
-});
-
-const actionButton = (background: string): React.CSSProperties => ({
-  minHeight: 38,
-  padding: '0 14px',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 7,
-  border: 0,
-  borderRadius: 8,
-  background,
-  color: '#fff',
-  fontSize: 12,
-  fontWeight: 700,
-  cursor: 'pointer',
-});
-
-const secondaryButton: React.CSSProperties = {
-  minHeight: 38,
-  padding: '0 13px',
-  border: '1px solid #CBD5E1',
-  borderRadius: 8,
-  background: '#fff',
-  color: '#334155',
-  fontSize: 12,
-  fontWeight: 700,
-  cursor: 'pointer',
-};
-
-const iconButton: React.CSSProperties = {
-  width: 40,
-  height: 40,
-  display: 'grid',
-  placeItems: 'center',
-  border: 0,
-  borderRadius: 8,
-  background: '#0F766E',
-  color: '#fff',
-  cursor: 'pointer',
-};

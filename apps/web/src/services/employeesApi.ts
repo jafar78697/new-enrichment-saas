@@ -41,11 +41,11 @@ export interface Employee {
   email: string;
   role: UserRole;
   status: EmployeeStatus;
-  twilio_identity: string;
-  twilio_phone_number: string | null;
-  twilio_phone_sid: string | null;
-  twilio_phone_area_code: string | null;
-  twilio_phone_purchased_at: string | null;
+  signalwire_identity: string;
+  signalwire_phone_number: string | null;
+  signalwire_phone_sid: string | null;
+  signalwire_phone_area_code: string | null;
+  signalwire_phone_purchased_at: string | null;
   is_available: number | boolean;
   last_login_at: string | null;
   invite_accepted_at: string | null;
@@ -77,8 +77,8 @@ export interface AuthUser {
   email: string;
   role: UserRole;
   status: EmployeeStatus;
-  twilio_identity?: string | null;
-  twilio_phone_number?: string | null;
+  signalwire_identity?: string | null;
+  signalwire_phone_number?: string | null;
   assigned_modules?: string[]; // NEW
 }
 
@@ -90,7 +90,7 @@ export interface CreateEmployeePayload {
 
 export interface AssignNumberPayload {
   phoneNumber?: string;
-  twilioSid?: string;
+  signalwireSid?: string;
   areaCode?: string;
 }
 
@@ -174,7 +174,7 @@ export const employeesApi = {
       email: string;
       username?: string;
       status: string;
-      twilio_phone_number: string | null;
+      signalwire_phone_number: string | null;
       last_login_at: string | null;
       calls_in_period: number;
       talk_time_in_period: number;

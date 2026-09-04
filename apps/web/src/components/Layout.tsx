@@ -192,9 +192,9 @@ export default function Layout() {
           {callUser && (
             <div style={{ fontSize: 11, color: '#52606D', marginBottom: 8 }}>
               Call-center: <b>{callUser.email}</b>
-              {callUser.twilio_phone_number && (
+              {callUser.signalwire_phone_number && (
                 <div style={{ marginTop: 4, color: '#0F766E' }}>
-                  Phone: <b style={{ fontFamily: 'Space Grotesk, sans-serif' }}>{callUser.twilio_phone_number}</b>
+                  Phone: <b style={{ fontFamily: 'Space Grotesk, sans-serif' }}>{callUser.signalwire_phone_number}</b>
                 </div>
               )}
             </div>
@@ -293,7 +293,6 @@ export default function Layout() {
           <DialerPopup
             phone=""
             onClose={() => setQuickDial(false)}
-            autoStart={false}
             isOpen={quickDial}
           />
         </>

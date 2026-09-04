@@ -31,7 +31,11 @@ function SocialIcon({ platform, url, count, onClick, disabled, badgeText }: { pl
   return (
     <div style={{ position: 'relative', display: 'inline-block', marginRight: 10 }}>
       <a 
-        href={hasUrl && !onClick ? (platform === 'email' && !url?.startsWith('mailto:') ? `mailto:${url}` : url!) : '#'} 
+        href={hasUrl && !onClick ? (
+          platform === 'email' && !url?.startsWith('mailto:') ? `mailto:${url}` :
+          platform === 'website' && !url?.match(/^https?:\/\//) ? `https://${url}` : 
+          url!
+        ) : '#'} 
         target={hasUrl && platform !== 'email' ? "_blank" : undefined} 
         rel="noopener noreferrer" 
         title={hasUrl ? `${platform} link` : `No ${platform} found`} 

@@ -29,14 +29,15 @@ import YouTubeDashboard from './pages/YouTubeDashboard';
 import YouTubeCallback from './pages/YouTubeCallback';
 import AccessSystemPage from './pages/AccessSystem';
 import EmployeesPage from './pages/Employees';
-import TwilioNumbersPage from './pages/TwilioNumbers';
+import SignalWireNumbers from './pages/SignalWireNumbers';
 import GoogleMapScraperPage from './pages/GoogleMapScraper';
 import TeamsPage from './pages/Teams';
 import LeaderboardPage from './pages/Leaderboard';
 import AgentSettings from './pages/AgentSettings';
-import AgentPipeline from './pages/AgentPipeline';
+import DeepgramAgents from './pages/DeepgramAgents';
 
 import PrivacyPage from './pages/Privacy';
+import ImageAltTextGeneratorPage from './pages/ImageAltTextGenerator';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -54,6 +55,8 @@ export default function App() {
       <Toaster richColors position="top-right" />
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/tools/image-alt-text-generator" element={<ImageAltTextGeneratorPage />} />
+        <Route path="/tool/image-alt-text-generator" element={<ImageAltTextGeneratorPage />} />
         <Route path="/real-estate-ai" element={<RealEstateLanding />} />
         <Route path="/real-estate-demo" element={<RealEstateDemo />} />
         <Route path="/privacy" element={<PrivacyPage />} />
@@ -75,13 +78,13 @@ export default function App() {
           <Route path="employees" element={<EmployeesPage />} />
           <Route path="teams" element={<TeamsPage />} />
           <Route path="leaderboard" element={<LeaderboardPage />} />
-          <Route path="twilio-numbers" element={<TwilioNumbersPage />} />
+          <Route path="numbers" element={<SignalWireNumbers />} />
           <Route path="calls" element={<CallLogsPage />} />
           <Route path="calls/:id" element={<CallDetailPage />} />
           <Route path="google-maps" element={<GoogleMapScraperPage />} />
           <Route path="settings" element={<AgentSettings />} />
           <Route path="pipeline" element={<Navigate to="/ai-agent" replace />} />
-          <Route path="ai-agent" element={<AgentPipeline />} />
+          <Route path="ai-agent" element={<DeepgramAgents />} />
         </Route>
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
