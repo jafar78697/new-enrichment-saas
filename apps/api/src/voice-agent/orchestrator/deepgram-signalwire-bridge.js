@@ -119,6 +119,8 @@ async function loadSessionContext(sessionId) {
     `SELECT
        acs.*,
        er.company_name,
+       er.industry_guess,
+       er.raw_data->>'niche_name' AS niche_name,
        jsonb_build_object(
          'id', ac.id,
          'name', ac.name,
@@ -443,7 +445,7 @@ export function attachDeepgramBridge(httpServer) {
 
           const sendSettings = () => {
             if (settingsSent || deepgramWs?.readyState !== WebSocket.OPEN) return;
-            deepgramWs.send(JSON.stringify(buildDeepgramSettings({ company_name: session.company_name }, agentConfig)));
+            deepgramWs.send(JSON.stringify(buildDeepgramSettings({ company_name: session.company_name, niche_name: session.niche_name || session.industry_guess }, agentConfig)));
             settingsSent = true;
           };
 
