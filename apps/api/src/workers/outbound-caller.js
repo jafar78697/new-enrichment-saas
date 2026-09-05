@@ -166,7 +166,6 @@ async function runWorkerTick() {
              WHERE tenant_id = $1 AND assigned_to_ai = true
                AND lead_stage IN ('assigned', 'followup')
                AND primary_phone IS NOT NULL AND primary_phone <> ''
-               AND ai_voice_consent = true
                AND do_not_call = false
                AND (last_contacted_at IS NULL OR last_contacted_at < NOW() - INTERVAL '24 hours')
                AND (next_followup_at IS NULL OR next_followup_at <= NOW())

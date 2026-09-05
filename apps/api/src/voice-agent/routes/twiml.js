@@ -87,7 +87,7 @@ router.post(
                       'call_ended_at', NOW()::text
                     ),
                lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $2::text)
-           WHERE id = $3::uuid AND ai_voice_consent = true AND do_not_call = false`,
+           WHERE id = $3::uuid AND do_not_call = false`,
           [
             answeredBy,
             `[AI Call] ${answeredBy || 'machine'} detected by SignalWire in the first 10 seconds; call ended before Deepgram started.`,
@@ -116,7 +116,6 @@ router.post(
           AND ac.is_active = true
           AND ac.mode = 'outbound'
          WHERE er.id = $1
-           AND er.ai_voice_consent = true
            AND er.do_not_call = false`,
         [payload.contactId],
       );

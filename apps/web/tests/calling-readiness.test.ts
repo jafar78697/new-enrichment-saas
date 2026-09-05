@@ -15,10 +15,10 @@ test('empty queue gives an actionable reason instead of a dead button', () => {
 test('ready queue can start without relaxing safety checks', () => {
   assert.equal(getCallingBlocker(status, 'agent', true), null);
 });
-test('assigned leads with pending consent remain blocked from starting calls', () => {
+test('assigned leads are callable after manual enable even when consent metadata is empty', () => {
   const blocker = getCallingBlocker({ ...status, queueCount: 0, pendingConsentCount: 3 }, 'agent');
-  assert.equal(blocker?.action, 'consent');
-  assert.match(blocker!.message, /3 leads assigned/);
+  assert.equal(blocker?.action, 'leads');
+  assert.match(blocker!.message, /queue khali/);
 });
 test('saved timezone window blocks start', () => {
   const blocker = getCallingBlocker({ ...status, withinCallingWindow: false }, 'agent');

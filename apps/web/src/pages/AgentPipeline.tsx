@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { parsePhoneNumberFromString } from 'libphonenumber-js/min';
-import { Bot, Clock3, DollarSign, Gauge, Phone, PhoneCall, RefreshCw, Search, Settings2, ShieldCheck, Square, UserPlus, Volume2, X } from 'lucide-react';
+import { Bot, Clock3, DollarSign, Gauge, Phone, PhoneCall, RefreshCw, Search, Settings2, ShieldCheck, Square, UserPlus, Volume2 } from 'lucide-react';
 import { leadsApi, type CallingQueueLead, type CallingSettings, type CallingStatusResponse, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
@@ -139,9 +139,6 @@ export default function AgentPipelinePage() {
     callingWindowEndHour: 17,
   });
   const [settingsBusy, setSettingsBusy] = useState(false);
-  const [consentContact, setConsentContact] = useState<Pick<Contact, 'id' | 'name' | 'company' | 'phone_number'> | null>(null);
-  const [consentSource, setConsentSource] = useState('');
-  const [consentBusy, setConsentBusy] = useState(false);
   const settingsLoadedRef = useRef(false);
   const nicheSelectRef = useRef<HTMLSelectElement>(null);
   const leadListRef = useRef<HTMLDivElement>(null);
@@ -251,11 +248,6 @@ export default function AgentPipelinePage() {
       .map((contact) => contact.id),
   ), [availableContacts]);
 
-  const consentRequiredCount = useMemo(() => marketContacts.filter((contact) => (
-    contact.ai_voice_consent !== true
-    && contact.do_not_call !== true
-    && contact.unsubscribed !== true
-  )).length, [marketContacts]);
 
   const blockedContactCount = useMemo(() => marketContacts.filter((contact) => (
     contact.do_not_call === true || contact.unsubscribed === true
@@ -320,8 +312,7 @@ export default function AgentPipelinePage() {
         limit: safeContactIds.length,
       });
       const skipped = result.invalidRegionCount + result.blockedCount;
-      const pending = result.pendingConsentCount || 0;
-      setMessage(`${result.totalQueued} leads ${selectedAgent?.name || 'outbound agent'} ko assign ho gayi. ${pending ? `${pending} consent pending: calls paused.` : 'Consent verified.'}${skipped ? ` ${skipped} blocked/invalid leads skip hui.` : ''}`);
+      setMessage(`${result.totalQueued} leads ${selectedAgent?.name || 'outbound agent'} ko assign ho gayi. Enable Calling dabane par calls limits ke andar start hongi.${skipped ? ` ${skipped} blocked/invalid leads skip hui.` : ''}`);
       setSelectedContactIds([]);
       await loadPipeline();
       const contacts = await callsApi.listContactsByNiche(Number(selectedNicheId));
@@ -331,30 +322,6 @@ export default function AgentPipelinePage() {
       setError(e?.response?.data?.error || e?.message || 'Failed to assign leads');
     } finally {
       setQueueing(false);
-    }
-  };
-
-  const verifyConsent = async () => {
-    if (!consentContact || consentSource.trim().length < 3) {
-      setError('Consent ka source aur date/reference likhna zaroori hai.');
-      return;
-    }
-    setConsentBusy(true);
-    setError('');
-    try {
-      await leadsApi.setVoiceConsent(consentContact.id, { consented: true, source: consentSource.trim() });
-      setMessage(`${consentContact.company || consentContact.name} ka AI voice-call consent verify ho gaya.`);
-      if (selectedNicheId) {
-        const contacts = await callsApi.listContactsByNiche(Number(selectedNicheId));
-        setNicheContacts(contacts.contacts || []);
-      }
-      await loadPipeline();
-      setConsentContact(null);
-      setConsentSource('');
-    } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Consent save nahi ho saka');
-    } finally {
-      setConsentBusy(false);
     }
   };
 
@@ -389,11 +356,6 @@ export default function AgentPipelinePage() {
     if (blocker.action === 'agent') navigate('/ai-agent');
     if (blocker.action === 'refresh') void loadPipeline();
     if (blocker.action === 'settings') settingsRef.current?.focus();
-    if (blocker.action === 'consent') {
-      setActiveTab('assigned');
-      setSelectedNicheId('');
-      leadListRef.current?.focus();
-    }
     if (blocker.action === 'leads') {
       setActiveTab('leads');
       if (!selectedNicheId) nicheSelectRef.current?.focus();
@@ -506,7 +468,7 @@ export default function AgentPipelinePage() {
     if (callingStatus.lastCall) {
       return `Calling OFF hai. Last call ${callingStatus.lastCall.company_name || callingStatus.lastCall.domain}${callingStatus.lastCall.primary_phone ? ` (${callingStatus.lastCall.primary_phone})` : ''} ko gayi thi aur stage ${STAGE_LABELS[callingStatus.lastCall.lead_stage]}.`;
     }
-    return 'Calling abhi OFF hai. Start Calling dabao to assigned leads par automatic calls shuru ho jayengi.';
+    return 'Calling abhi OFF hai. Enable Calling dabao to assigned leads par automatic calls shuru ho jayengi.';
   }, [activeLead, callingStatus]);
 
   const callingEmptyText = useMemo(() => {
@@ -562,7 +524,7 @@ export default function AgentPipelinePage() {
             className={`flex items-center gap-2 h-10 px-4 rounded-md font-bold text-xs text-white shadow-sm transition-colors ${controlBusy ? 'bg-slate-400 cursor-not-allowed' : automationRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'}`}
           >
             {automationRunning ? <Square size={14} fill="currentColor" /> : <PhoneCall size={15} />}
-            {controlBusy ? 'Please wait...' : automationRunning ? 'Stop Calling' : 'Start Calling'}
+            {controlBusy ? 'Please wait...' : automationRunning ? 'Disable Calling' : 'Enable Calling'}
           </button>
           <button 
             onClick={() => void toggleLiveListen()} 
@@ -585,7 +547,7 @@ export default function AgentPipelinePage() {
           <span className="min-w-0 break-words">{startBlocker.message}</span>
           <button onClick={() => resolveStartBlocker(startBlocker)} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-xs font-bold">
             {startBlocker.action === 'leads' ? <UserPlus size={15} /> : startBlocker.action === 'refresh' ? <RefreshCw size={15} /> : <Settings2 size={15} />}
-            {startBlocker.action === 'leads' ? 'Select & assign leads' : startBlocker.action === 'consent' ? 'Review assigned leads' : startBlocker.action === 'agent' ? 'Agent Setup' : startBlocker.action === 'settings' ? 'Calling limits' : 'Retry status'}
+            {startBlocker.action === 'leads' ? 'Select & assign leads' : startBlocker.action === 'agent' ? 'Agent Setup' : startBlocker.action === 'settings' ? 'Calling limits' : 'Retry status'}
           </button>
         </div>
       )}
@@ -723,7 +685,7 @@ export default function AgentPipelinePage() {
             borderClass="border-blue-200"
             name={activeLead ? activeLead.company_name || activeLead.domain : 'No live call'}
             detail={activeLead?.primary_phone || (callingStatus.isRunning ? 'Waiting for live call connect' : 'Calling is currently stopped')}
-            helper={activeLead ? `${STAGE_LABELS[activeLead.lead_stage]} | ${formatCallTiming(activeLead, true)}` : callingStatus.isRunning ? 'Auto dialer is on' : 'Press Start Calling to resume'}
+            helper={activeLead ? `${STAGE_LABELS[activeLead.lead_stage]} | ${formatCallTiming(activeLead, true)}` : callingStatus.isRunning ? 'Auto dialer is on' : 'Press Enable Calling to resume'}
           />
           <StatusStripCard
             title="Next Lead"
@@ -804,14 +766,9 @@ export default function AgentPipelinePage() {
           )}
           onAssign={() => void queueContacts(selectedContactIds)}
           onAssignAll={() => void queueContacts(assignableContacts.map((contact) => contact.id))}
-          onVerifyConsent={(contact) => {
-            setConsentContact(contact);
-            setConsentSource('');
-          }}
           canAssign={Boolean(selectedAgentId)}
           agentName={selectedAgent?.name || null}
           hiddenNonUSCount={hiddenNonNorthAmericaContacts}
-          consentRequiredCount={consentRequiredCount}
           blockedCount={blockedContactCount}
           selectableCount={selectableContactIds.size}
         />
@@ -824,39 +781,9 @@ export default function AgentPipelinePage() {
           itemsPerPage={ITEMS_PER_PAGE}
           loading={loading}
           emptyText={activeTab === 'calling' ? callingEmptyText : 'No leads in this stage'}
-          onVerifyConsent={(lead) => {
-            const contactId = Number(lead.raw_data?.source_contact_id);
-            if (!Number.isInteger(contactId) || contactId < 1) return;
-            setConsentSource('');
-            setConsentContact({ id: contactId, name: lead.company_name || lead.domain, company: lead.company_name, phone_number: lead.primary_phone || '' });
-          }}
         />
       )}
       </div>
-      {consentContact && (
-        <div className="fixed inset-0 z-[1100] bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">Verify AI voice-call consent</h2>
-                <p className="mt-1 text-xs text-slate-500">{consentContact.company || consentContact.name} | {consentContact.phone_number}</p>
-              </div>
-              <button title="Close" onClick={() => setConsentContact(null)} className="h-8 w-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"><X size={17} /></button>
-            </div>
-            <div className="p-5">
-              <label className="block text-sm font-semibold text-slate-700">
-                Consent source and date
-                <textarea value={consentSource} onChange={(event) => setConsentSource(event.target.value)} rows={4} placeholder="Example: Website form, 2026-09-04, form submission reference 123" className="mt-2 w-full rounded-md border border-slate-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-              </label>
-              <p className="mt-3 text-xs leading-5 text-slate-500">Save sirf tab karein jab contact ne AI-generated voice call receive karne ki wazeh ijazat di ho.</p>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
-              <button onClick={() => setConsentContact(null)} className="h-9 px-4 rounded-md border border-slate-300 bg-white text-xs font-bold text-slate-700">Cancel</button>
-              <button disabled={consentBusy || consentSource.trim().length < 3} onClick={() => void verifyConsent()} className="h-9 px-4 rounded-md bg-teal-700 text-white text-xs font-bold disabled:opacity-50">{consentBusy ? 'Saving...' : 'Confirm consent'}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -875,11 +802,9 @@ function AvailableLeadList({
   onSelectAll,
   onAssign,
   onAssignAll,
-  onVerifyConsent,
   canAssign,
   agentName,
   hiddenNonUSCount,
-  consentRequiredCount,
   blockedCount,
   selectableCount,
 }: {
@@ -896,11 +821,9 @@ function AvailableLeadList({
   onSelectAll: () => void;
   onAssign: () => void;
   onAssignAll: () => void;
-  onVerifyConsent: (contact: Contact) => void;
   canAssign: boolean;
   agentName: string | null;
   hiddenNonUSCount: number;
-  consentRequiredCount: number;
   blockedCount: number;
   selectableCount: number;
 }) {
@@ -916,7 +839,6 @@ function AvailableLeadList({
         <div className="mr-auto self-center text-sm font-semibold text-slate-700">
           Agent: {agentName || 'Select an outbound agent above'}
           <span className="ml-3 text-emerald-700">{selectableCount} selectable</span>
-          {consentRequiredCount > 0 && <span className="ml-3 text-amber-700">{consentRequiredCount} consent required</span>}
           {blockedCount > 0 && <span className="ml-3 text-rose-700">{blockedCount} blocked</span>}
           {hiddenNonUSCount > 0 && <span className="ml-3 text-slate-500">{hiddenNonUSCount} outside USA/Canada</span>}
         </div>
@@ -932,22 +854,19 @@ function AvailableLeadList({
         <div className="min-w-[900px] flex flex-col gap-3">
           {contacts.map((contact) => {
             const blocked = contact.do_not_call === true || contact.unsubscribed === true;
-            const callable = contact.ai_voice_consent === true && !blocked;
+            const callable = !blocked;
             return (
             <div key={contact.id} className="grid grid-cols-[36px_minmax(200px,1.6fr)_52px_170px_minmax(160px,1fr)_170px] gap-4 items-center min-h-[74px] p-4 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 hover:shadow-sm transition-colors">
             <input type="checkbox" aria-label={`Select ${contact.company || contact.name}`} title={blocked ? 'Do Not Call / unsubscribed' : undefined} disabled={blocked || queueing} checked={selectedIds.includes(contact.id)} onChange={() => onToggle(contact.id)} className="w-5 h-5 accent-teal-600 cursor-pointer justify-self-center disabled:cursor-not-allowed disabled:opacity-30" />
             <div className="min-w-0"><LeadIdentity name={contact.company || contact.name} niche={contact.niche_name} detail={contact.name} />
-              {!blocked && !callable && <span className="text-xs text-amber-800">Consent pending - calls paused</span>}
             </div>
             <Score value={contact.score || 0} />
             <PhoneValue value={contact.phone_number} />
             <span className="text-gray-500 text-xs font-medium">{contact.email || 'No email'}</span>
             {blocked ? (
               <span className="justify-self-end px-3 py-1.5 text-xs font-bold rounded-full bg-rose-100 text-rose-800 uppercase">DNC / Blocked</span>
-            ) : callable ? (
-              <span className="justify-self-end px-3 py-1.5 text-xs font-bold rounded-full bg-teal-100 text-teal-800 uppercase">Consent verified</span>
             ) : (
-              <button onClick={() => onVerifyConsent(contact)} className="justify-self-end h-9 px-3 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-xs font-bold hover:bg-amber-100">Verify consent</button>
+              <span className="justify-self-end px-3 py-1.5 text-xs font-bold rounded-full bg-teal-100 text-teal-800 uppercase">Eligible</span>
             )}
             </div>
           );})}
@@ -966,7 +885,6 @@ function PipelineLeadList({
   itemsPerPage,
   loading,
   emptyText,
-  onVerifyConsent,
 }: {
   leads: Lead[];
   totalItems: number;
@@ -975,7 +893,6 @@ function PipelineLeadList({
   itemsPerPage: number;
   loading: boolean;
   emptyText: string;
-  onVerifyConsent: (lead: Lead) => void;
 }) {
   if (loading) return <Empty text="Loading pipeline..." />;
   if (!leads.length) return <Empty text={emptyText} />;
@@ -999,13 +916,9 @@ function PipelineLeadList({
               : lead.ai_summary || lead.lead_notes || 'No notes yet'}
           </span>
           <div className="justify-self-end w-full max-w-[180px]">
-            {!lead.ai_voice_consent && !lead.do_not_call && Number(lead.raw_data?.source_contact_id) > 0 ? (
-              <button onClick={() => onVerifyConsent(lead)} className="h-9 rounded-md border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-800">Review consent</button>
-            ) : (
             <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap float-right bg-slate-100 text-slate-700">
               {lead.do_not_call ? 'DNC / Blocked' : String(lead.raw_data?.answered_by || getCallStatusText(lead))}
             </span>
-            )}
           </div>
           </div>
         ))}

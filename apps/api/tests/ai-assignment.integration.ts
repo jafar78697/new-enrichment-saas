@@ -39,15 +39,15 @@ async function main() {
     const assigned = await app.inject({ method: 'POST', url: '/v1/leads/queue-ai', payload: { agent_id: agentId, niche_id: 900001, contact_ids: [900001,900002,900003] } });
     assert.equal(assigned.statusCode, 200, assigned.body);
     assert.equal(assigned.json().totalQueued, 1);
-    assert.equal(assigned.json().pendingConsentCount, 1);
+    assert.equal(assigned.json().pendingConsentCount, 1, 'Consent metadata is reported but does not block assignment');
     assert.equal(assigned.json().blockedCount, 1);
     assert.equal(assigned.json().invalidRegionCount, 1);
     let status = (await app.inject({ method: 'GET', url: '/v1/leads/ai-calling/status' })).json();
     assert.equal(status.stageCounts.assigned, 1);
-    assert.equal(status.queueCount, 0);
+    assert.equal(status.queueCount, 1);
     assert.equal(status.pendingConsentCount, 1);
     const started = await app.inject({ method: 'POST', url: '/v1/leads/ai-calling/start' });
-    assert.equal(started.statusCode, 400, 'A pending-consent lead must not start the campaign');
+    assert.notEqual(started.statusCode, 400, 'A pending-consent lead can start after manual enable');
     const repeated = await app.inject({ method: 'POST', url: '/v1/leads/queue-ai', payload: { agent_id: agentId, niche_id: 900001, contact_ids: [900001] } });
     assert.equal(repeated.json().createdFromContacts, 0);
     assert.equal(repeated.json().queuedExisting, 1);
@@ -59,7 +59,7 @@ async function main() {
     assert.equal(status.queueCount, 1);
     assert.equal(status.pendingConsentCount, 0);
     assert.equal(status.isRunning, false, 'Consent must not automatically start calls');
-    console.log(JSON.stringify({ ok: true, pendingAssignment: 'passed', dncAndRegionGuards: 'passed', pendingStartBlocked: 'passed', duplicateAssignment: 'passed', consentPromotion: 'passed', realCalls: 0 }));
+    console.log(JSON.stringify({ ok: true, pendingAssignment: 'passed', dncAndRegionGuards: 'passed', manualStart: 'passed', duplicateAssignment: 'passed', consentMetadataOptional: 'passed', realCalls: 0 }));
   } finally {
     await app.close();
     await client.query('ROLLBACK');

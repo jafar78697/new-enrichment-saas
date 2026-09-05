@@ -2,7 +2,7 @@ import type { CallingStatusResponse } from '../services/crmApi';
 
 export interface CallingBlocker {
   message: string;
-  action: 'refresh' | 'agent' | 'leads' | 'settings' | 'consent';
+  action: 'refresh' | 'agent' | 'leads' | 'settings';
 }
 
 export function getCallingBlocker(
@@ -14,10 +14,6 @@ export function getCallingBlocker(
   if (status.isRunning) return null;
   if (!selectedAgentId) return { message: 'Koi active outbound agent select nahi hai.', action: 'agent' };
   if (outboundEnabled === false) return { message: 'Outbound calling server policy se paused hai.', action: 'refresh' };
-  if (status.queueCount < 1 && (status.pendingConsentCount || 0) > 0) return {
-    message: `${status.pendingConsentCount} leads assigned hain, lekin AI-call consent pending hai. In par calls paused hain.`,
-    action: 'consent',
-  };
   if (status.queueCount < 1) return { message: 'Calling queue khali hai. Koi callable lead assign nahi hui.', action: 'leads' };
   const { settings, usageToday } = status;
   if (!status.withinCallingWindow) return {

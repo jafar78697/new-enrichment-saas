@@ -172,9 +172,9 @@ Current overloaded Pipeline page ko replace karke yeh simple screens rakhein:
 
 ## 2026-09-04 controlled outbound implementation addendum
 
-The operator explicitly requested a consent-gated USA/Canada outbound workflow. The implemented flow is now:
+The operator explicitly requested a manually enabled, budget-capped USA/Canada outbound workflow. The implemented flow is now:
 
-`eligible CRM lead -> verified AI voice consent -> assigned -> calling -> answered/called or no answer`
+`eligible CRM lead -> assigned -> manually enabled -> calling -> answered/called or no answer`
 
 ### Current model choices
 
@@ -186,7 +186,7 @@ The operator explicitly requested a consent-gated USA/Canada outbound workflow. 
 ### Runtime protections now implemented
 
 - `libphonenumber-js` validates a full E.164 number and country metadata. Only numbers classified as `US` or `CA` pass; other `+1` NANP regions do not pass.
-- USA/Canada leads may be selected and assigned while consent is pending. Assignment never asserts consent. Only leads with `ai_voice_consent=true` and `do_not_call=false` enter the callable queue or can be claimed by the worker and connected to Deepgram.
+- USA/Canada leads may be selected and assigned without consent metadata. Consent fields remain optional audit metadata and are never asserted automatically. Only leads with `do_not_call=false`, a valid USA/Canada number, an active outbound agent, and an explicitly enabled campaign enter the callable queue or can be claimed by the worker and connected to Deepgram.
 - Consent verification requires a human-entered source/date reference and writes an audit event.
 - Calls-per-minute, daily attempts, daily connected minutes, an estimated AI budget, timezone, and local calling hours are stored per tenant. Server environment caps remain authoritative and UI values cannot raise them.
 - SignalWire synchronous answering-machine detection runs for up to 10 seconds. A machine or fax response hangs up before the Deepgram session is opened. The Deepgram transcript detector is only allowed to classify the first 10 seconds as a fallback.

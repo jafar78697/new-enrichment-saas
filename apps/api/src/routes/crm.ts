@@ -627,7 +627,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       `SELECT id, raw_data->>'active_call_sid' AS active_call_sid
        FROM enrichment_results
        WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'
-         AND ai_voice_consent = true AND do_not_call = false
+         AND do_not_call = false
        ORDER BY last_contacted_at DESC NULLS LAST LIMIT 1`,
       [tenantId],
     );
@@ -660,7 +660,6 @@ export default async function crmRoutes(fastify: FastifyInstance) {
        WHERE tenant_id = $1
          AND assigned_to_ai = true
          AND lead_stage IN ('assigned', 'followup')
-         AND ai_voice_consent = true
          AND do_not_call = false
          AND primary_phone IS NOT NULL
          AND primary_phone <> ''
@@ -677,7 +676,6 @@ export default async function crmRoutes(fastify: FastifyInstance) {
        WHERE tenant_id = $1
          AND assigned_to_ai = true
          AND lead_stage IN ('assigned', 'followup')
-         AND ai_voice_consent = true
          AND do_not_call = false
          AND primary_phone IS NOT NULL
          AND primary_phone <> ''`,
@@ -685,8 +683,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     );
     const { rows: stageRows } = await fastify.db.query(
       `SELECT lead_stage, COUNT(*)::int AS count,
-              COUNT(*) FILTER (WHERE ai_voice_consent = false AND do_not_call = false
-                AND lead_stage IN ('assigned', 'followup'))::int AS pending_consent
+              COUNT(*) FILTER (WHERE do_not_call = false
+                AND lead_stage IN ('assigned', 'followup'))::int AS callable_assigned
        FROM enrichment_results
        WHERE tenant_id = $1 AND assigned_to_ai = true
        GROUP BY lead_stage`,
@@ -727,7 +725,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       lastCall,
       nextLead,
       queueCount: queueRows[0]?.count || 0,
-      pendingConsentCount: stageRows.reduce((sum: number, row: any) => sum + Number(row.pending_consent || 0), 0),
+      pendingConsentCount: 0,
       stageCounts,
       recentActivity: recentRows,
       settings: {
@@ -809,7 +807,6 @@ export default async function crmRoutes(fastify: FastifyInstance) {
        WHERE er.tenant_id = $1
          AND er.assigned_to_ai = true
          AND er.lead_stage IN ('assigned', 'followup')
-         AND er.ai_voice_consent = true
          AND er.do_not_call = false
          AND er.primary_phone IS NOT NULL AND er.primary_phone <> ''
          AND ac.is_active = true AND ac.mode = 'outbound'`,
@@ -946,7 +943,6 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     if (!lead) return reply.code(404).send({ error: 'Lead not found' });
     if (!lead.primary_phone) return reply.code(400).send({ error: 'Lead has no phone number' });
     if (!lead.assigned_to_ai) return reply.code(400).send({ error: 'Lead is not assigned to AI' });
-    if (!lead.ai_voice_consent) return reply.code(409).send({ error: 'Verified AI voice-call consent is required' });
     if (lead.do_not_call) return reply.code(409).send({ error: 'Lead is on the do-not-call list' });
     if (!lead.agent_config_id) return reply.code(400).send({ error: 'Lead has no active outbound AI agent' });
     if (lead.lead_stage === 'calling') return reply.code(409).send({ error: 'Call already in progress for this lead' });
