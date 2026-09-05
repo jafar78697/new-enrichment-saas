@@ -268,8 +268,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
   });
 
   // POST /v1/leads/queue-ai
-  // Queues enrichment leads directly, or promotes calls-module contacts from a niche
-  // into enrichment_results so the AI voice worker can call them one by one.
+  // Assignment can hold pending consent. The dialer separately requires verified consent.
   fastify.post('/v1/leads/queue-ai', { preHandler: [fastify.authenticate as any] }, async (request: any, reply) => {
     const { tenantId, userId } = request.tenant;
     const body = request.body || {};
@@ -305,6 +304,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     let invalidRegionCount = 0;
     let consentRequiredCount = 0;
     let blockedCount = 0;
+    const assignedRows: Array<{ id: string; ai_voice_consent: boolean }> = [];
 
     if (leadIds.length) {
       const { rows: candidateLeads } = await fastify.db.query(
@@ -313,14 +313,10 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
         [tenantId, leadIds],
       );
-      const callableLeadIds = candidateLeads
+      const assignableLeadIds = candidateLeads
         .filter((lead: any) => {
           if (lead.do_not_call) {
             blockedCount += 1;
-            return false;
-          }
-          if (!lead.ai_voice_consent) {
-            consentRequiredCount += 1;
             return false;
           }
           if (!normalizeNorthAmericanPhone(lead.primary_phone)) {
@@ -331,8 +327,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         })
         .map((lead: any) => lead.id);
 
-      if (callableLeadIds.length) {
-        const { rowCount } = await fastify.db.query(
+      if (assignableLeadIds.length) {
+        const { rowCount, rows } = await fastify.db.query(
           `UPDATE enrichment_results er
            SET assigned_to_ai = true,
                ai_agent_provider = 'deepgram_voice_agent',
@@ -345,10 +341,11 @@ export default async function crmRoutes(fastify: FastifyInstance) {
                END
            WHERE tenant_id = $1
              AND id = ANY($2::uuid[])
-             AND ai_voice_consent = true
-             AND do_not_call = false`,
-          [tenantId, callableLeadIds, agentId],
+             AND do_not_call = false
+           RETURNING er.id, er.ai_voice_consent`,
+          [tenantId, assignableLeadIds, agentId],
         );
+        assignedRows.push(...rows);
         queuedExisting += rowCount || 0;
       }
     }
@@ -368,14 +365,10 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          LIMIT $${candidateLimitParam}`,
         candidateParams,
       );
-      const callableContactIds = candidateContacts
+      const assignableContactIds = candidateContacts
         .filter((contact: any) => {
           if (contact.do_not_call || contact.unsubscribed) {
             blockedCount += 1;
-            return false;
-          }
-          if (!contact.ai_voice_consent) {
-            consentRequiredCount += 1;
             return false;
           }
           if (!normalizeNorthAmericanPhone(contact.phone_number)) {
@@ -386,7 +379,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         })
         .map((contact: any) => contact.id);
 
-      if (callableContactIds.length) {
+      if (assignableContactIds.length) {
         const { rows: jobRows } = await fastify.db.query(
         `INSERT INTO enrichment_jobs (tenant_id, mode, status, source_type, total_items)
          VALUES ($1, 'ai_voice_queue', 'completed', 'crm_niche', 0)
@@ -395,8 +388,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       );
         const jobId = jobRows[0].id;
 
-        const existingParams: any[] = [tenantId, nicheId, agentId, callableContactIds];
-        const { rowCount: updatedExisting } = await fastify.db.query(
+        const existingParams: any[] = [tenantId, nicheId, agentId, assignableContactIds];
+        const { rowCount: updatedExisting, rows: updatedRows } = await fastify.db.query(
         `UPDATE enrichment_results er
          SET assigned_to_ai = true,
              ai_agent_provider = 'deepgram_voice_agent',
@@ -418,14 +411,16 @@ export default async function crmRoutes(fastify: FastifyInstance) {
            AND c.phone_number IS NOT NULL
            AND c.phone_number <> ''
            AND c.id = ANY($4::int[])
-           AND c.ai_voice_consent = true
+           AND er.do_not_call = false
            AND c.do_not_call = false
-           AND COALESCE(c.unsubscribed, false) = false`,
+           AND COALESCE(c.unsubscribed, false) = false
+         RETURNING er.id, er.ai_voice_consent`,
         existingParams,
       );
         queuedExisting += updatedExisting || 0;
+        assignedRows.push(...updatedRows);
 
-        const insertParams: any[] = [jobId, tenantId, nicheId, agentId, callableContactIds];
+        const insertParams: any[] = [jobId, tenantId, nicheId, agentId, assignableContactIds];
         const limitParam = insertParams.push(limit);
         const { rows: insertedRows } = await fastify.db.query(
         `WITH selected_contacts AS MATERIALIZED (
@@ -442,7 +437,6 @@ export default async function crmRoutes(fastify: FastifyInstance) {
              AND c.phone_number IS NOT NULL
              AND c.phone_number <> ''
              AND c.id = ANY($5::int[])
-             AND c.ai_voice_consent = true
              AND c.do_not_call = false
              AND COALESCE(c.unsubscribed, false) = false
              AND NOT EXISTS (
@@ -502,10 +496,11 @@ export default async function crmRoutes(fastify: FastifyInstance) {
            c.do_not_call
          FROM selected_contacts c
          JOIN inserted_items item ON item.raw_input = 'crm-contact:' || c.id
-         RETURNING id`,
+         RETURNING id, ai_voice_consent`,
         insertParams,
       );
         createdFromContacts = insertedRows.length;
+        assignedRows.push(...insertedRows);
 
         await fastify.db.query(
         `UPDATE enrichment_jobs
@@ -516,6 +511,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       }
     }
 
+    const uniqueAssignments = Array.from(new Map(assignedRows.map((row) => [row.id, row])).values());
+    consentRequiredCount = uniqueAssignments.filter((row) => !row.ai_voice_consent).length;
     await writeAudit(fastify, tenantId, userId, 'lead.ai_queued', 'lead', 'bulk', {
       leadIds,
       contactIds,
@@ -533,7 +530,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       ok: true,
       queuedExisting,
       createdFromContacts,
-      totalQueued: queuedExisting + createdFromContacts,
+      totalQueued: uniqueAssignments.length,
+      pendingConsentCount: consentRequiredCount,
+      consentVerifiedCount: uniqueAssignments.length - consentRequiredCount,
       invalidRegionCount,
       consentRequiredCount,
       blockedCount,
@@ -685,7 +684,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       [tenantId],
     );
     const { rows: stageRows } = await fastify.db.query(
-      `SELECT lead_stage, COUNT(*)::int AS count
+      `SELECT lead_stage, COUNT(*)::int AS count,
+              COUNT(*) FILTER (WHERE ai_voice_consent = false AND do_not_call = false
+                AND lead_stage IN ('assigned', 'followup'))::int AS pending_consent
        FROM enrichment_results
        WHERE tenant_id = $1 AND assigned_to_ai = true
        GROUP BY lead_stage`,
@@ -726,6 +727,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       lastCall,
       nextLead,
       queueCount: queueRows[0]?.count || 0,
+      pendingConsentCount: stageRows.reduce((sum: number, row: any) => sum + Number(row.pending_consent || 0), 0),
       stageCounts,
       recentActivity: recentRows,
       settings: {

@@ -31,7 +31,8 @@ const result = await build({
       leads=[{id:'lead-1',company_name:contacts[0].company,domain:'example.test',primary_phone:contacts[0].phone_number,assigned_to_ai:true,lead_stage:'calling',last_contacted_at:new Date().toISOString(),raw_data:{source_contact_id:'1',niche_id:1}}];
     }
     let settings = {callsPerMinute:1,maxCallsPerDay:5,maxMinutesPerDay:10,maxCostUsdPerDay:1,callingTimezone:'America/New_York',callingWindowStartHour:9,callingWindowEndHour:17};
-    const status = () => ({isRunning:running,queueCount:leads.filter(l=>l.lead_stage==='assigned').length,
+    const status = () => ({isRunning:running,queueCount:leads.filter(l=>l.lead_stage==='assigned'&&l.ai_voice_consent).length,
+      pendingConsentCount:leads.filter(l=>l.lead_stage==='assigned'&&!l.ai_voice_consent).length,
       activeCallSid:running?'fixture-call-1':null,activeLeadId:running?leads[0]?.id:null,
       nextLead:leads.find(l=>l.lead_stage==='assigned')||null,lastCall:null,recentActivity:[],
       settings,serverCaps:{...settings,callsPerMinute:3},usageToday:{attempts:0,seconds:0,costUsd:0},
@@ -45,8 +46,8 @@ const result = await build({
     Object.assign(leadsApi,{
       list:async()=>({leads:[...leads]}),activeCalls:async()=>({activeCalls:running?{[leads[0].id]:'fixture-call-1'}:{}}),callingStatus:async()=>status(),
       updateCallingSettings:async(input)=>({settings:settings=input}),
-      setVoiceConsent:async(id)=>{contacts.find(c=>c.id===id).ai_voice_consent=true;return {ok:true};},
-      queueAi:async(input)=>{for(const id of input.contact_ids){const c=contacts.find(c=>c.id===id);if(!c.ai_voice_consent||c.do_not_call)throw Error('Unsafe fixture assignment');leads.push({id:'lead-'+id,company_name:c.company,domain:'example.test',primary_phone:c.phone_number,assigned_to_ai:true,lead_stage:'assigned',raw_data:{source_contact_id:String(id),niche_id:1}});}return {totalQueued:input.contact_ids.length,invalidRegionCount:0,consentRequiredCount:0,blockedCount:0};},
+      setVoiceConsent:async(id)=>{contacts.find(c=>c.id===id).ai_voice_consent=true;for(const lead of leads)if(lead.raw_data.source_contact_id===String(id))lead.ai_voice_consent=true;return {ok:true};},
+      queueAi:async(input)=>{let pendingConsentCount=0;for(const id of input.contact_ids){const c=contacts.find(c=>c.id===id);if(c.do_not_call)throw Error('Unsafe fixture assignment');if(!c.ai_voice_consent)pendingConsentCount++;leads.push({id:'lead-'+id,company_name:c.company,domain:'example.test',primary_phone:c.phone_number,ai_voice_consent:c.ai_voice_consent,assigned_to_ai:true,lead_stage:'assigned',raw_data:{source_contact_id:String(id),niche_id:1}});}return {totalQueued:input.contact_ids.length,pendingConsentCount,invalidRegionCount:0,consentRequiredCount:pendingConsentCount,blockedCount:0};},
       startCalling:async()=>{running=true;leads[0].lead_stage='calling';return{ok:true};},
       stopCalling:async()=>{running=false;return{ok:true,stoppedCalls:1};},
       skipActiveCall:async()=>{running=false;leads[0].lead_stage='no_answer';return{ok:true};}

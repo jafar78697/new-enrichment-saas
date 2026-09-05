@@ -139,7 +139,7 @@ export default function AgentPipelinePage() {
     callingWindowEndHour: 17,
   });
   const [settingsBusy, setSettingsBusy] = useState(false);
-  const [consentContact, setConsentContact] = useState<Contact | null>(null);
+  const [consentContact, setConsentContact] = useState<Pick<Contact, 'id' | 'name' | 'company' | 'phone_number'> | null>(null);
   const [consentSource, setConsentSource] = useState('');
   const [consentBusy, setConsentBusy] = useState(false);
   const settingsLoadedRef = useRef(false);
@@ -207,16 +207,19 @@ export default function AgentPipelinePage() {
   }, [activeTab, q, selectedNicheId]);
 
   useEffect(() => {
+    let cancelled = false;
     setSelectedContactIds([]);
+    setNicheContacts([]);
     if (!selectedNicheId) {
-      setNicheContacts([]);
+      setContactsLoading(false);
       return;
     }
     setContactsLoading(true);
     callsApi.listContactsByNiche(Number(selectedNicheId))
-      .then((res) => setNicheContacts(res.contacts || []))
-      .catch((e: any) => setError(e?.message || 'Failed to load niche leads'))
-      .finally(() => setContactsLoading(false));
+      .then((res) => { if (!cancelled) setNicheContacts(res.contacts || []); })
+      .catch((e: any) => { if (!cancelled) setError(e?.message || 'Failed to load niche leads'); })
+      .finally(() => { if (!cancelled) setContactsLoading(false); });
+    return () => { cancelled = true; };
   }, [selectedNicheId]);
 
   const assignedContactIds = useMemo(() => new Set(
@@ -239,13 +242,12 @@ export default function AgentPipelinePage() {
   }, [marketContacts, q]);
 
   const assignableContacts = useMemo(() => marketContacts.filter((contact) => (
-    contact.ai_voice_consent === true
-    && contact.do_not_call !== true
+    contact.do_not_call !== true
     && contact.unsubscribed !== true
   )), [marketContacts]);
   const selectableContactIds = useMemo(() => new Set(
     availableContacts
-      .filter((contact) => contact.ai_voice_consent === true && contact.do_not_call !== true && contact.unsubscribed !== true)
+      .filter((contact) => contact.do_not_call !== true && contact.unsubscribed !== true)
       .map((contact) => contact.id),
   ), [availableContacts]);
 
@@ -304,7 +306,7 @@ export default function AgentPipelinePage() {
     const assignableIds = new Set(assignableContacts.map((contact) => contact.id));
     const safeContactIds = contactIds.filter((id) => assignableIds.has(id));
     if (!safeContactIds.length) {
-      setError('Selected leads mein verified AI voice-call consent maujood nahi hai.');
+      setError('Selected leads blocked hain ya USA/Canada numbers nahi hain.');
       return;
     }
     setQueueing(true);
@@ -317,8 +319,9 @@ export default function AgentPipelinePage() {
         contact_ids: safeContactIds,
         limit: safeContactIds.length,
       });
-      const skipped = result.invalidRegionCount + result.consentRequiredCount + result.blockedCount;
-      setMessage(`${result.totalQueued} lead${result.totalQueued === 1 ? '' : 's'} ${selectedAgent?.name || 'outbound agent'} ko assign ho gayi${skipped ? `; ${skipped} safety checks ki wajah se skip hui` : ''}`);
+      const skipped = result.invalidRegionCount + result.blockedCount;
+      const pending = result.pendingConsentCount || 0;
+      setMessage(`${result.totalQueued} leads ${selectedAgent?.name || 'outbound agent'} ko assign ho gayi. ${pending ? `${pending} consent pending: calls paused.` : 'Consent verified.'}${skipped ? ` ${skipped} blocked/invalid leads skip hui.` : ''}`);
       setSelectedContactIds([]);
       await loadPipeline();
       const contacts = await callsApi.listContactsByNiche(Number(selectedNicheId));
@@ -341,8 +344,11 @@ export default function AgentPipelinePage() {
     try {
       await leadsApi.setVoiceConsent(consentContact.id, { consented: true, source: consentSource.trim() });
       setMessage(`${consentContact.company || consentContact.name} ka AI voice-call consent verify ho gaya.`);
-      const contacts = await callsApi.listContactsByNiche(Number(selectedNicheId));
-      setNicheContacts(contacts.contacts || []);
+      if (selectedNicheId) {
+        const contacts = await callsApi.listContactsByNiche(Number(selectedNicheId));
+        setNicheContacts(contacts.contacts || []);
+      }
+      await loadPipeline();
       setConsentContact(null);
       setConsentSource('');
     } catch (e: any) {
@@ -383,6 +389,11 @@ export default function AgentPipelinePage() {
     if (blocker.action === 'agent') navigate('/ai-agent');
     if (blocker.action === 'refresh') void loadPipeline();
     if (blocker.action === 'settings') settingsRef.current?.focus();
+    if (blocker.action === 'consent') {
+      setActiveTab('assigned');
+      setSelectedNicheId('');
+      leadListRef.current?.focus();
+    }
     if (blocker.action === 'leads') {
       setActiveTab('leads');
       if (!selectedNicheId) nicheSelectRef.current?.focus();
@@ -574,7 +585,7 @@ export default function AgentPipelinePage() {
           <span className="min-w-0 break-words">{startBlocker.message}</span>
           <button onClick={() => resolveStartBlocker(startBlocker)} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-xs font-bold">
             {startBlocker.action === 'leads' ? <UserPlus size={15} /> : startBlocker.action === 'refresh' ? <RefreshCw size={15} /> : <Settings2 size={15} />}
-            {startBlocker.action === 'leads' ? 'Select & assign leads' : startBlocker.action === 'agent' ? 'Agent Setup' : startBlocker.action === 'settings' ? 'Calling limits' : 'Retry status'}
+            {startBlocker.action === 'leads' ? 'Select & assign leads' : startBlocker.action === 'consent' ? 'Review assigned leads' : startBlocker.action === 'agent' ? 'Agent Setup' : startBlocker.action === 'settings' ? 'Calling limits' : 'Retry status'}
           </button>
         </div>
       )}
@@ -813,6 +824,12 @@ export default function AgentPipelinePage() {
           itemsPerPage={ITEMS_PER_PAGE}
           loading={loading}
           emptyText={activeTab === 'calling' ? callingEmptyText : 'No leads in this stage'}
+          onVerifyConsent={(lead) => {
+            const contactId = Number(lead.raw_data?.source_contact_id);
+            if (!Number.isInteger(contactId) || contactId < 1) return;
+            setConsentSource('');
+            setConsentContact({ id: contactId, name: lead.company_name || lead.domain, company: lead.company_name, phone_number: lead.primary_phone || '' });
+          }}
         />
       )}
       </div>
@@ -898,18 +915,18 @@ function AvailableLeadList({
       <div className="flex justify-end gap-3 flex-wrap mb-4">
         <div className="mr-auto self-center text-sm font-semibold text-slate-700">
           Agent: {agentName || 'Select an outbound agent above'}
-          <span className="ml-3 text-emerald-700">{selectableCount} callable</span>
+          <span className="ml-3 text-emerald-700">{selectableCount} selectable</span>
           {consentRequiredCount > 0 && <span className="ml-3 text-amber-700">{consentRequiredCount} consent required</span>}
           {blockedCount > 0 && <span className="ml-3 text-rose-700">{blockedCount} blocked</span>}
           {hiddenNonUSCount > 0 && <span className="ml-3 text-slate-500">{hiddenNonUSCount} outside USA/Canada</span>}
         </div>
         <button onClick={onSelectAll} className="h-10 px-4 border border-gray-300 rounded-lg bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 shadow-sm transition-all duration-200">
-          {selectedIds.length === selectableCount && selectableCount > 0 ? 'Clear Selection' : 'Select Callable'}
+          {selectedIds.length === selectableCount && selectableCount > 0 ? 'Clear Selection' : 'Select All'}
         </button>
         <button disabled={!canAssign || !selectedIds.length || queueing} onClick={onAssign} className={`flex items-center gap-2 h-10 px-4 rounded-lg text-xs font-bold text-white shadow-sm transition-all duration-200 ${canAssign && selectedIds.length && !queueing ? 'bg-teal-600 hover:bg-teal-700 hover:shadow-md' : 'bg-slate-400 cursor-not-allowed'}`}>
           <UserPlus size={15} /> {queueing ? 'Assigning...' : `Assign Selected (${selectedIds.length})`}
         </button>
-        <button disabled={!canAssign || !selectableCount || queueing} onClick={onAssignAll} className="h-10 px-4 border border-gray-300 rounded-md bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 shadow-sm transition-colors">Assign All Callable</button>
+        <button disabled={!canAssign || !selectableCount || queueing} onClick={onAssignAll} className="h-10 px-4 border border-gray-300 rounded-md bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 shadow-sm transition-colors">Assign All Eligible</button>
       </div>
       <div className="overflow-x-auto">
         <div className="min-w-[900px] flex flex-col gap-3">
@@ -918,8 +935,10 @@ function AvailableLeadList({
             const callable = contact.ai_voice_consent === true && !blocked;
             return (
             <div key={contact.id} className="grid grid-cols-[36px_minmax(200px,1.6fr)_52px_170px_minmax(160px,1fr)_170px] gap-4 items-center min-h-[74px] p-4 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 hover:shadow-sm transition-colors">
-            <input type="checkbox" disabled={!callable} checked={selectedIds.includes(contact.id)} onChange={() => onToggle(contact.id)} className="w-5 h-5 accent-teal-600 cursor-pointer justify-self-center disabled:cursor-not-allowed disabled:opacity-30" />
-            <LeadIdentity name={contact.company || contact.name} niche={contact.niche_name} detail={contact.name} />
+            <input type="checkbox" aria-label={`Select ${contact.company || contact.name}`} title={blocked ? 'Do Not Call / unsubscribed' : undefined} disabled={blocked || queueing} checked={selectedIds.includes(contact.id)} onChange={() => onToggle(contact.id)} className="w-5 h-5 accent-teal-600 cursor-pointer justify-self-center disabled:cursor-not-allowed disabled:opacity-30" />
+            <div className="min-w-0"><LeadIdentity name={contact.company || contact.name} niche={contact.niche_name} detail={contact.name} />
+              {!blocked && !callable && <span className="text-xs text-amber-800">Consent pending - calls paused</span>}
+            </div>
             <Score value={contact.score || 0} />
             <PhoneValue value={contact.phone_number} />
             <span className="text-gray-500 text-xs font-medium">{contact.email || 'No email'}</span>
@@ -947,6 +966,7 @@ function PipelineLeadList({
   itemsPerPage,
   loading,
   emptyText,
+  onVerifyConsent,
 }: {
   leads: Lead[];
   totalItems: number;
@@ -955,6 +975,7 @@ function PipelineLeadList({
   itemsPerPage: number;
   loading: boolean;
   emptyText: string;
+  onVerifyConsent: (lead: Lead) => void;
 }) {
   if (loading) return <Empty text="Loading pipeline..." />;
   if (!leads.length) return <Empty text={emptyText} />;
@@ -978,9 +999,13 @@ function PipelineLeadList({
               : lead.ai_summary || lead.lead_notes || 'No notes yet'}
           </span>
           <div className="justify-self-end w-full max-w-[180px]">
+            {!lead.ai_voice_consent && !lead.do_not_call && Number(lead.raw_data?.source_contact_id) > 0 ? (
+              <button onClick={() => onVerifyConsent(lead)} className="h-9 rounded-md border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-800">Review consent</button>
+            ) : (
             <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap float-right bg-slate-100 text-slate-700">
-              {String(lead.raw_data?.answered_by || getCallStatusText(lead))}
+              {lead.do_not_call ? 'DNC / Blocked' : String(lead.raw_data?.answered_by || getCallStatusText(lead))}
             </span>
+            )}
           </div>
           </div>
         ))}

@@ -135,6 +135,7 @@ export interface CallingStatusResponse {
   lastCall: CallingQueueLead | null;
   nextLead: CallingQueueLead | null;
   queueCount: number;
+  pendingConsentCount?: number;
   stageCounts: Partial<Record<Stage, number>>;
   recentActivity: CallingQueueLead[];
   settings: CallingSettings;
@@ -179,6 +180,8 @@ export const leadsApi = {
       queuedExisting: number;
       createdFromContacts: number;
       totalQueued: number;
+      pendingConsentCount?: number;
+      consentVerifiedCount?: number;
       invalidRegionCount: number;
       consentRequiredCount: number;
       blockedCount: number;

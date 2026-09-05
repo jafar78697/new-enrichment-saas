@@ -186,7 +186,7 @@ The operator explicitly requested a consent-gated USA/Canada outbound workflow. 
 ### Runtime protections now implemented
 
 - `libphonenumber-js` validates a full E.164 number and country metadata. Only numbers classified as `US` or `CA` pass; other `+1` NANP regions do not pass.
-- A lead cannot be selected, queued, claimed by the worker, or connected to Deepgram unless `ai_voice_consent=true` and `do_not_call=false`.
+- USA/Canada leads may be selected and assigned while consent is pending. Assignment never asserts consent. Only leads with `ai_voice_consent=true` and `do_not_call=false` enter the callable queue or can be claimed by the worker and connected to Deepgram.
 - Consent verification requires a human-entered source/date reference and writes an audit event.
 - Calls-per-minute, daily attempts, daily connected minutes, an estimated AI budget, timezone, and local calling hours are stored per tenant. Server environment caps remain authoritative and UI values cannot raise them.
 - SignalWire synchronous answering-machine detection runs for up to 10 seconds. A machine or fax response hangs up before the Deepgram session is opened. The Deepgram transcript detector is only allowed to classify the first 10 seconds as a fallback.
@@ -226,3 +226,9 @@ These technical controls do not turn scraped cold leads into consented AI-call l
 - The first up-to-10-second synchronous AMD check is performed by SignalWire before the bidirectional media stream opens. Those pre-stream seconds are not audible in the browser monitor and are not inspected by the VM. The VM transcript fallback checks the first 10 seconds after streaming begins. Classification is heuristic, not guaranteed.
 - The daily dollar limit is an AI estimate, not a total SignalWire billing cap. Carrier usage, number rental, AMD, and existing account subscriptions may be billed separately. This release does not create subscriber resources or enable call recording.
 - The UI timezone window governs a campaign, not every lead's geographical timezone. Operators must segment campaigns by the prospect's local calling window.
+
+### Lead selection follow-up
+
+Production inspection found 119 USA/Canada salon contacts, all without saved AI-call consent. The old checkbox guard incorrectly made CRM assignment depend on calling eligibility. Selection and assignment now accept non-blocked USA/Canada leads; pending consent is preserved and shown on the assigned view with a review action. The start status reports pending assignments separately from the callable queue. Existing DNC and unsubscribe blocks are retained.
+
+The actual assignment routes passed an integration test against isolated PostgreSQL temporary tables, rolled back afterward: pending assignment succeeds, DNC/UK contacts stay excluded, repeated assignment does not duplicate the lead, pending calls cannot start, and explicitly verified fixture consent promotes the lead without starting a campaign. Seven readiness tests, API type-check, frontend build, and browser pending-lead selection/assignment/review checks passed. No production contacts were assigned or consented by these tests.
