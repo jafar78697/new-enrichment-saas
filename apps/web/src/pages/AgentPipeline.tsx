@@ -7,6 +7,7 @@ import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
 import { deepgramAgentsApi, type DeepgramAgent, type DeepgramAgentStatus } from '../services/deepgramAgentsApi';
 import LiveCallMonitor from '../components/LiveCallMonitor';
+import { getCallingBlocker, type CallingBlocker } from '../utils/calling-readiness';
 
 const AGENT_TABS = [
   { key: 'leads', label: 'Leads' },
@@ -121,6 +122,7 @@ export default function AgentPipelinePage() {
   const [queueing, setQueueing] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [pipelineError, setPipelineError] = useState('');
   const [listenCallSid, setListenCallSid] = useState<string | null>(null);
   const [listeningEnabled, setListeningEnabled] = useState(false);
   const [automationRunning, setAutomationRunning] = useState(false);
@@ -141,6 +143,9 @@ export default function AgentPipelinePage() {
   const [consentSource, setConsentSource] = useState('');
   const [consentBusy, setConsentBusy] = useState(false);
   const settingsLoadedRef = useRef(false);
+  const nicheSelectRef = useRef<HTMLSelectElement>(null);
+  const leadListRef = useRef<HTMLDivElement>(null);
+  const settingsRef = useRef<HTMLElement>(null);
 
   const outboundAgents = useMemo(
     () => agents.filter((agent) => agent.isActive && agent.mode === 'outbound'),
@@ -166,9 +171,9 @@ export default function AgentPipelinePage() {
       }
       setAutomationRunning(callingStatus.isRunning);
       setActiveCallSid(callingStatus.activeCallSid || Object.values(activeResult.activeCalls || {})[0] || null);
-      setError('');
+      setPipelineError('');
     } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Failed to load AI agent pipeline');
+      setPipelineError(e?.response?.data?.error || e?.message || 'Failed to load AI agent pipeline');
     } finally {
       setLoading(false);
     }
@@ -303,6 +308,7 @@ export default function AgentPipelinePage() {
       return;
     }
     setQueueing(true);
+    setError('');
     setMessage('');
     try {
       const result = await leadsApi.queueAi({
@@ -368,16 +374,30 @@ export default function AgentPipelinePage() {
       : [...current, id]);
   };
 
+  const startBlocker: CallingBlocker | null = pipelineError
+    ? { message: pipelineError, action: 'refresh' }
+    : getCallingBlocker(callingStatus, selectedAgentId, agentStatus?.outboundEnabled);
+
+  const resolveStartBlocker = (blocker: CallingBlocker) => {
+    setError('');
+    if (blocker.action === 'agent') navigate('/ai-agent');
+    if (blocker.action === 'refresh') void loadPipeline();
+    if (blocker.action === 'settings') settingsRef.current?.focus();
+    if (blocker.action === 'leads') {
+      setActiveTab('leads');
+      if (!selectedNicheId) nicheSelectRef.current?.focus();
+      else leadListRef.current?.focus();
+    }
+  };
+
   const toggleCalling = async () => {
+    if (controlBusy) return;
     if (!automationRunning) {
-      if (!selectedAgentId) {
-        setError('Pehle active outbound agent select karein.');
+      if (startBlocker) {
+        resolveStartBlocker(startBlocker);
         return;
       }
-      if (!callingStatus?.queueCount) {
-        setError('Calling start karne se pehle kam az kam aik lead assign karein.');
-        return;
-      }
+      if (!callingStatus) return;
       const confirmed = window.confirm(
         `${callingStatus.queueCount} queued lead${callingStatus.queueCount === 1 ? '' : 's'} par outbound calling start karni hai? Aaj maximum ${callingStatus.settings.maxCallsPerDay} calls attempt hongi.`,
       );
@@ -403,7 +423,7 @@ export default function AgentPipelinePage() {
       await loadPipeline();
       setActiveTab('calling');
     } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Calling control update nahi ho saka');
+      setError(e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Calling control update nahi ho saka');
     } finally {
       setControlBusy(false);
     }
@@ -512,6 +532,7 @@ export default function AgentPipelinePage() {
             {outboundAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
           </select>
           <select
+            ref={nicheSelectRef}
             value={selectedNicheId}
             onChange={(event) => setSelectedNicheId(event.target.value)}
             aria-label="Select niche"
@@ -523,9 +544,11 @@ export default function AgentPipelinePage() {
             ))}
           </select>
           <button 
-            disabled={controlBusy || (!automationRunning && (!selectedAgentId || !callingStatus?.queueCount || callingStatus?.withinCallingWindow === false))}
+            disabled={controlBusy}
+            aria-describedby={!automationRunning && startBlocker ? 'calling-start-reason' : undefined}
+            title={!automationRunning && startBlocker ? startBlocker.message : undefined}
             onClick={() => void toggleCalling()} 
-            className={`flex items-center gap-2 h-10 px-4 rounded-md font-bold text-xs text-white shadow-sm transition-colors ${controlBusy || (!automationRunning && (!selectedAgentId || !callingStatus?.queueCount || callingStatus?.withinCallingWindow === false)) ? 'bg-slate-400 cursor-not-allowed' : automationRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'}`}
+            className={`flex items-center gap-2 h-10 px-4 rounded-md font-bold text-xs text-white shadow-sm transition-colors ${controlBusy ? 'bg-slate-400 cursor-not-allowed' : automationRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'}`}
           >
             {automationRunning ? <Square size={14} fill="currentColor" /> : <PhoneCall size={15} />}
             {controlBusy ? 'Please wait...' : automationRunning ? 'Stop Calling' : 'Start Calling'}
@@ -546,6 +569,17 @@ export default function AgentPipelinePage() {
         </div>
       </div>
 
+      {!automationRunning && startBlocker && (
+        <div id="calling-start-reason" role="status" className="flex flex-wrap items-center justify-between gap-3 border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="min-w-0 break-words">{startBlocker.message}</span>
+          <button onClick={() => resolveStartBlocker(startBlocker)} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-xs font-bold">
+            {startBlocker.action === 'leads' ? <UserPlus size={15} /> : startBlocker.action === 'refresh' ? <RefreshCw size={15} /> : <Settings2 size={15} />}
+            {startBlocker.action === 'leads' ? 'Select & assign leads' : startBlocker.action === 'agent' ? 'Agent Setup' : startBlocker.action === 'settings' ? 'Calling limits' : 'Retry status'}
+          </button>
+        </div>
+      )}
+      {error && <Alert text={error} danger />}
+
       {!outboundAgents.length && (
         <Alert
           danger
@@ -560,7 +594,7 @@ export default function AgentPipelinePage() {
         <Alert danger text={`Calling sirf ${callingSettings.callingWindowStartHour}:00-${callingSettings.callingWindowEndHour}:00 (${callingSettings.callingTimezone}) mein start hogi.`} />
       )}
 
-      <section className="border-y border-slate-200 bg-white py-4 px-1">
+      <section ref={settingsRef} tabIndex={-1} className="border-y border-slate-200 bg-white py-4 px-1">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <ShieldCheck size={18} className="text-teal-700" />
@@ -650,7 +684,6 @@ export default function AgentPipelinePage() {
           onSkipCurrentCall={skipLiveCall}
         />
       )}
-      {error && <Alert text={error} danger />}
       {message && <Alert text={message} />}
       {!!bannerText && (
         <Alert
@@ -742,6 +775,7 @@ export default function AgentPipelinePage() {
         </>
       )}
 
+      <div ref={leadListRef} tabIndex={-1}>
       {activeTab === 'leads' ? (
         <AvailableLeadList
           selectedNicheId={selectedNicheId}
@@ -781,6 +815,7 @@ export default function AgentPipelinePage() {
           emptyText={activeTab === 'calling' ? callingEmptyText : 'No leads in this stage'}
         />
       )}
+      </div>
       {consentContact && (
         <div className="fixed inset-0 z-[1100] bg-slate-950/60 flex items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white shadow-2xl">
