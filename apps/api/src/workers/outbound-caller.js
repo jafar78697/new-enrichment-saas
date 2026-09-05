@@ -1,4 +1,5 @@
-import { query } from '../calls-module/db/index.js';
+import { query, getPool } from '../calls-module/db/index.js';
+import { acquireOutboundLock } from '../utils/outbound-lock.js';
 import { RestClient } from '@signalwire/compatibility-api';
 import { env } from '../voice-agent/config/env.js';
 import { normalizeNorthAmericanPhone } from '../utils/us-phone.js';
@@ -90,7 +91,12 @@ async function runWorkerTick() {
     for (const rawControl of controls) {
       const control = normalizedControl(rawControl);
       let claimedLeadId = null;
+      let releaseLock = null;
       try {
+        releaseLock = await acquireOutboundLock(getPool(), control.tenant_id);
+        if (!releaseLock) continue;
+        const { rows: currentControls } = await query('SELECT is_running FROM ai_calling_controls WHERE tenant_id = $1', [control.tenant_id]);
+        if (!currentControls[0]?.is_running) continue;
         if (!isWithinCallingWindow(control)) continue;
 
         const { rows: dailyRows } = await query(
@@ -102,11 +108,13 @@ async function runWorkerTick() {
              COALESCE((SELECT SUM(duration_sec)
                        FROM ai_call_sessions
                        WHERE tenant_id = $1
-                         AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
+                         AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
              COALESCE((SELECT SUM(cost_estimate_usd)
                        FROM ai_call_sessions
                        WHERE tenant_id = $1
-                         AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric AS cost`,
+                         AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric
+             + COALESCE((SELECT SUM(estimated_cost_usd) FROM ai_usage_ledger
+                         WHERE tenant_id = $1 AND created_at >= date_trunc('day', NOW())), 0)::numeric AS cost`,
           [control.tenant_id, control.callingTimezone],
         );
         const daily = dailyRows[0] || {};
@@ -160,6 +168,7 @@ async function runWorkerTick() {
                AND primary_phone IS NOT NULL AND primary_phone <> ''
                AND ai_voice_consent = true
                AND do_not_call = false
+               AND (last_contacted_at IS NULL OR last_contacted_at < NOW() - INTERVAL '24 hours')
                AND (next_followup_at IS NULL OR next_followup_at <= NOW())
                AND EXISTS (
                  SELECT 1 FROM ai_agent_configs ac
@@ -217,6 +226,12 @@ async function runWorkerTick() {
           record: false,
         });
 
+        const { rows: runningControls } = await query('SELECT is_running FROM ai_calling_controls WHERE tenant_id = $1', [control.tenant_id]);
+        if (!runningControls[0]?.is_running) {
+          await signalwireClient.calls(call.sid).update({ status: 'completed' });
+          throw new Error('Calling was stopped while this attempt was starting.');
+        }
+
         await query(
           `UPDATE enrichment_results
            SET raw_data = COALESCE(raw_data, '{}'::jsonb)
@@ -268,6 +283,8 @@ async function runWorkerTick() {
             console.error('[outbound-caller] SignalWire outbound queue limit hit. Paused calling for tenant.');
           }
         }
+      } finally {
+        if (releaseLock) await releaseLock();
       }
     }
   } catch (err) {

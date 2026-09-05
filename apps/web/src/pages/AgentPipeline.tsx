@@ -379,7 +379,7 @@ export default function AgentPipelinePage() {
         return;
       }
       const confirmed = window.confirm(
-        `${callingStatus.queueCount} queued lead${callingStatus.queueCount === 1 ? '' : 's'} par outbound calling start karni hai? Aaj maximum ${agentStatus?.dailyOutboundCallLimit || 5} calls attempt hongi.`,
+        `${callingStatus.queueCount} queued lead${callingStatus.queueCount === 1 ? '' : 's'} par outbound calling start karni hai? Aaj maximum ${callingStatus.settings.maxCallsPerDay} calls attempt hongi.`,
       );
       if (!confirmed) return;
     }
@@ -489,7 +489,7 @@ export default function AgentPipelinePage() {
   const recentActivity = callingStatus?.recentActivity || [];
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-8 pb-12 font-sans">
+    <div className="w-full min-w-0 max-w-[1400px] mx-auto space-y-5 pb-12 font-sans">
       <div className="flex flex-wrap justify-between items-start gap-6 mb-2">
         <div>
           <h1 className="flex items-center gap-3 text-3xl font-extrabold text-gray-900 m-0">
@@ -498,7 +498,7 @@ export default function AgentPipelinePage() {
             </div>
             AI Calling
           </h1>
-          <p className="mt-2 text-sm text-gray-500 font-medium ml-1">Agent select karein, leads assign karein, phir khud calling start karein</p>
+          <p className="mt-2 text-sm text-gray-500 font-medium ml-1">USA &amp; Canada</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <select
@@ -517,7 +517,7 @@ export default function AgentPipelinePage() {
             aria-label="Select niche"
             className="w-56 h-10 px-3 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all cursor-pointer hover:border-gray-300"
           >
-            <option value="">All niches</option>
+            <option value="">Select niche</option>
             {niches.map((niche) => (
               <option key={niche.id} value={niche.id}>{niche.name} ({niche.contact_count || 0})</option>
             ))}
@@ -598,8 +598,8 @@ export default function AgentPipelinePage() {
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Stat label="Assigned" value={stats.assigned} colorClass="text-slate-800" bgClass="bg-white border-slate-200 shadow-sm" />
-        <Stat label="Live / Answered" value={stats.calling} colorClass="text-blue-700" bgClass="bg-blue-50/80 border-blue-200 shadow-sm" />
-        <Stat label="Called" value={stats.called} colorClass="text-indigo-700" bgClass="bg-indigo-50/80 border-indigo-200 shadow-sm" />
+        <Stat label="Calling" value={stats.calling} colorClass="text-blue-700" bgClass="bg-blue-50/80 border-blue-200 shadow-sm" />
+        <Stat label="Answered / Called" value={stats.called} colorClass="text-indigo-700" bgClass="bg-indigo-50/80 border-indigo-200 shadow-sm" />
         <Stat label="No Answer" value={stats.noAnswer} colorClass="text-orange-700" bgClass="bg-orange-50/80 border-orange-200 shadow-sm" />
         <Stat label="Interested" value={stats.interested} colorClass="text-emerald-700" bgClass="bg-emerald-50/80 border-emerald-200 shadow-sm" />
         <Stat label="Closed Won" value={stats.won} colorClass="text-lime-700" bgClass="bg-lime-50/80 border-lime-200 shadow-sm" />
@@ -700,12 +700,12 @@ export default function AgentPipelinePage() {
         </div>
       )}
 
-      <div className="p-5 border border-gray-200 rounded-lg bg-white shadow-sm">
+      <div className="py-5 border-y border-gray-200">
         <div className="text-xs font-bold text-gray-500 mb-4 tracking-wider">RECENT CALL ACTIVITY</div>
         {recentActivity.length ? (
           <div className="flex flex-col gap-3">
             {recentActivity.map((lead) => (
-              <div key={lead.id} className="grid grid-cols-[1.5fr_0.8fr_0.8fr_1.3fr_0.9fr] gap-4 items-center p-4 border border-gray-100 rounded-lg bg-gray-50/50 hover:bg-white hover:shadow-sm transition-all duration-200">
+              <div key={lead.id} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[1.5fr_0.8fr_0.8fr_1.3fr_0.9fr] gap-4 items-center p-4 border-b border-gray-200">
                 <div className="min-w-0">
                   <div className="text-gray-900 text-sm font-bold truncate">
                     {lead.company_name || lead.domain}
@@ -1092,8 +1092,8 @@ function StatusStripCard({
 
 function Alert({ text, danger = false, action = null }: { text: string; danger?: boolean; action?: React.ReactNode }) {
   return (
-    <div className={`mb-4 p-4 flex items-center justify-between gap-4 border rounded-lg text-sm font-medium shadow-sm ${danger ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
-      <span>{text}</span>
+    <div className={`mb-4 p-4 flex flex-wrap items-center justify-between gap-4 border rounded-lg text-sm font-medium shadow-sm ${danger ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+      <span className="min-w-0 break-words">{text}</span>
       {action}
     </div>
   );

@@ -3,7 +3,7 @@ import axios from 'axios';
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 const api = axios.create({ baseURL: `${BASE_URL}/v1` });
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('enr_token');
+  const token = localStorage.getItem('enr_token') || localStorage.getItem('call_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });

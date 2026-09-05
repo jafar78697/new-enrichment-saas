@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Bot, Headphones, SkipForward, User, VolumeX, X } from 'lucide-react';
+import { LiveAudioPlayer } from '../utils/live-audio';
 
 interface LiveCallMonitorProps {
   callSid: string | null;
@@ -13,6 +14,7 @@ interface LiveCallMonitorProps {
 }
 
 interface TranscriptEntry {
+  callSid?: string;
   speaker: 'ai' | 'prospect';
   text: string;
   timestamp: string;
@@ -32,10 +34,11 @@ export default function LiveCallMonitor({
   const [callStatus, setCallStatus] = useState<string>(callSid ? 'ringing' : 'waiting');
   const [error, setError] = useState<string | null>(null);
   const [skipping, setSkipping] = useState(false);
+  const [audioReady, setAudioReady] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const nextStartTimeRef = useRef<{ [speaker: string]: number }>({});
+  const playerRef = useRef<LiveAudioPlayer | null>(null);
   const subscribedCallSidRef = useRef<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const ringbackRef = useRef<{ oscillators: OscillatorNode[], interval: number | null }>({ oscillators: [], interval: null });
@@ -100,16 +103,31 @@ export default function LiveCallMonitor({
     }
   }, [callStatus]);
 
-  const startListening = async () => {
-    if (!callSid) {
-      setCallStatus('waiting');
-      return;
-    }
-    if (socketRef.current) return;
-    try {
+  const enableAudio = () => {
+    if (!audioContextRef.current) {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      audioContextRef.current = new AudioContextClass({ sampleRate: 8000 });
-      await audioContextRef.current.resume();
+      const context = new AudioContextClass({ sampleRate: 8000 }) as AudioContext;
+      audioContextRef.current = context;
+      playerRef.current = new LiveAudioPlayer(context);
+      context.onstatechange = () => setAudioReady(context.state === 'running');
+    }
+    const context = audioContextRef.current;
+    void context.resume().then(() => setAudioReady(context.state === 'running')).catch(() => {
+      setError('Audio enable karne ke liye Enable audio dabayein.');
+    });
+  };
+
+  const startListening = () => {
+    try {
+      enableAudio();
+      if (!callSid) {
+        setCallStatus('waiting');
+        return;
+      }
+      if (socketRef.current) {
+        socketRef.current.connect();
+        return;
+      }
 
       const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
       const token = localStorage.getItem('enr_token') || localStorage.getItem('call_token');
@@ -123,23 +141,42 @@ export default function LiveCallMonitor({
       socketRef.current.on('connect', () => {
         socketRef.current?.emit('subscribe_call', { callSid });
         subscribedCallSidRef.current = callSid;
+      });
+
+      socketRef.current.on('monitor_subscribed', (data: { callSid: string }) => {
+        if (data.callSid !== callSid) return;
         setIsListening(true);
         setError(null);
       });
 
       socketRef.current.on('call_status', (data: { callSid?: string; status: string }) => {
+        if (data.callSid && data.callSid !== callSid) return;
         setCallStatus(data.status);
         if (['completed', 'canceled', 'busy', 'failed', 'no-answer'].includes(data.status) && callSid) {
+          playerRef.current?.clear();
           onCallEnded?.(callSid, data.status);
         }
       });
 
-      socketRef.current.on('live_audio', (data: { speaker: string; audio: string }) => {
+      socketRef.current.on('live_audio', (data: { callSid?: string; speaker: string; audio: string }) => {
+        if (data.callSid && data.callSid !== callSid) return;
         if (callStatus !== 'in-progress') setCallStatus('in-progress');
-        playAudioChunk(data.audio, data.speaker);
+        if (data.speaker !== 'ai' && data.speaker !== 'prospect') return;
+        if (audioContextRef.current?.state !== 'running') return;
+        try { playerRef.current?.play(data.audio, data.speaker); }
+        catch { setError('Live audio frame decode nahi ho saka.'); }
+      });
+
+      socketRef.current.on('clear_audio', (data: { callSid?: string }) => {
+        if (!data.callSid || data.callSid === callSid) playerRef.current?.clear('ai');
+      });
+      socketRef.current.on('disconnect', () => {
+        setIsListening(false);
+        playerRef.current?.clear();
       });
 
       socketRef.current.on('live_transcript', (data: TranscriptEntry) => {
+        if (data.callSid && data.callSid !== callSid) return;
         setTranscripts((prev) => [...prev, data]);
       });
 
@@ -151,6 +188,7 @@ export default function LiveCallMonitor({
 
       socketRef.current.on('monitor_error', (data: { error?: string }) => {
         setError(data.error || 'Live call access could not be verified.');
+        setIsListening(false);
       });
 
     } catch (err: any) {
@@ -168,22 +206,28 @@ export default function LiveCallMonitor({
       socketRef.current = null;
     }
     subscribedCallSidRef.current = null;
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
+    playerRef.current?.clear();
     setIsListening(false);
   };
 
   useEffect(() => {
     setTranscripts([]);
-    nextStartTimeRef.current = {};
     setCallStatus(callSid ? 'ringing' : 'waiting');
-    if (autoStart && callSid) void startListening();
+    if (autoStart) startListening();
     return () => {
       stopListening();
     };
   }, [callSid, autoStart]);
+
+  useEffect(() => () => {
+    const context = audioContextRef.current;
+    if (context) {
+      context.onstatechange = null;
+      void context.close();
+    }
+    audioContextRef.current = null;
+    playerRef.current = null;
+  }, []);
 
   const handleSkip = async () => {
     if (!callSid || !onSkipCurrentCall || skipping) return;
@@ -196,42 +240,6 @@ export default function LiveCallMonitor({
       setError(err?.response?.data?.error || err?.message || 'Could not skip this call.');
     } finally {
       setSkipping(false);
-    }
-  };
-
-  const playAudioChunk = (base64Pcm: string, _speaker: string) => {
-    if (!audioContextRef.current) return;
-    
-    try {
-      const binaryStr = atob(base64Pcm);
-      const len = binaryStr.length;
-      const sampleCount = Math.floor(len / 2);
-      const float32Array = new Float32Array(sampleCount);
-      for (let i = 0; i < sampleCount; i += 1) {
-        const low = binaryStr.charCodeAt(i * 2) & 0xff;
-        const high = binaryStr.charCodeAt(i * 2 + 1) & 0xff;
-        const unsigned = low | (high << 8);
-        const signed = unsigned >= 0x8000 ? unsigned - 0x10000 : unsigned;
-        float32Array[i] = signed / 32768;
-      }
-
-      const audioBuffer = audioContextRef.current.createBuffer(1, float32Array.length, 8000);
-      audioBuffer.getChannelData(0).set(float32Array);
-
-      const source = audioContextRef.current.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContextRef.current.destination);
-
-      const currentTime = audioContextRef.current.currentTime;
-      let nextStart = nextStartTimeRef.current.all || currentTime;
-      if (nextStart < currentTime) {
-        nextStart = currentTime;
-      }
-      
-      source.start(nextStart);
-      nextStartTimeRef.current.all = nextStart + audioBuffer.duration;
-    } catch (err) {
-      console.error('Error decoding audio chunk:', err);
     }
   };
 
@@ -252,11 +260,11 @@ export default function LiveCallMonitor({
     }}>
       <div style={{
         background: '#111827', color: '#F3F4F6', width: 'min(560px, calc(100vw - 32px))',
-        borderRadius: '8px', padding: '22px', display: 'flex', flexDirection: 'column',
+        borderRadius: '8px', padding: '20px', display: 'flex', flexDirection: 'column', maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto',
         border: '1px solid #374151', boxShadow: '0 24px 70px rgba(0,0,0,0.4)'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Headphones size={18} />
             <span style={{ 
               width: 10, height: 10, borderRadius: '50%', 
@@ -281,6 +289,7 @@ export default function LiveCallMonitor({
         </div>
 
         {error && <div style={{ background: '#7F1D1D', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px' }}>{error}</div>}
+        {!audioReady && <button onClick={enableAudio} className="mb-3 flex items-center justify-center gap-2 rounded-md bg-blue-600 p-3 text-sm font-semibold"><Headphones size={16} /> Enable audio</button>}
         <div style={{
           background: callSid ? '#0F172A' : '#312E81',
           border: '1px solid #374151',
@@ -292,12 +301,12 @@ export default function LiveCallMonitor({
           lineHeight: 1.4
         }}>
           {callSid
-            ? `Listening to ${activeLeadName || 'current live call'}. If this is machine, voicemail, or bad audio, skip it to move the dialer to next lead.`
-            : 'Listening mode is on. Waiting for the next live call to connect automatically.'}
+            ? activeLeadName || 'Current live call'
+            : 'Waiting for next call'}
         </div>
 
         <div style={{
-          flex: 1, height: '300px', background: '#111827', borderRadius: '8px', 
+          flex: '1 1 300px', minHeight: 120, background: '#111827', borderRadius: '8px',
           padding: '16px', overflowY: 'auto', marginBottom: '16px', border: '1px solid #374151'
         }}>
           {transcripts.length === 0 && (

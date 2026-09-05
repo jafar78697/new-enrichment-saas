@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { RestClient } from '@signalwire/compatibility-api';
 import { normalizeNorthAmericanPhone } from '../utils/us-phone.js';
+import { acquireOutboundLock } from '../utils/outbound-lock.js';
 
 // Canonical pipeline stages. Frontend renders columns in this exact order.
 export const PIPELINE_STAGES = [
@@ -614,11 +615,13 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          COALESCE((SELECT SUM(duration_sec)
                    FROM ai_call_sessions
                    WHERE tenant_id = $1
-                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
+                     AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
          COALESCE((SELECT SUM(cost_estimate_usd)
                    FROM ai_call_sessions
                    WHERE tenant_id = $1
-                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric AS cost`,
+                     AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric
+         + COALESCE((SELECT SUM(estimated_cost_usd) FROM ai_usage_ledger
+                     WHERE tenant_id = $1 AND created_at >= date_trunc('day', NOW())), 0)::numeric AS cost`,
       [tenantId, settings.callingTimezone],
     );
     const { rows: callRows } = await fastify.db.query(
@@ -776,11 +779,13 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          COALESCE((SELECT SUM(duration_sec)
                    FROM ai_call_sessions
                    WHERE tenant_id = $1
-                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
+                     AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
          COALESCE((SELECT SUM(cost_estimate_usd)
                    FROM ai_call_sessions
                    WHERE tenant_id = $1
-                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric AS cost`,
+                     AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric
+         + COALESCE((SELECT SUM(estimated_cost_usd) FROM ai_usage_ledger
+                     WHERE tenant_id = $1 AND created_at >= date_trunc('day', NOW())), 0)::numeric AS cost`,
       [tenantId, settings.callingTimezone],
     );
     const usage = usageRows[0] || {};
@@ -919,9 +924,12 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     const leadId = request.params.id;
 
     // Fetch the lead
+    const releaseLock = await acquireOutboundLock(fastify.db, tenantId);
+    if (!releaseLock) return reply.code(409).send({ error: 'Another call is being started. Please wait.' });
+    try {
     const { rows } = await fastify.db.query(
       `SELECT er.id, er.tenant_id, er.primary_phone, er.company_name, er.domain,
-              er.lead_stage, er.assigned_to_ai, er.ai_voice_consent, er.do_not_call,
+              er.lead_stage, er.assigned_to_ai, er.ai_voice_consent, er.do_not_call, er.last_contacted_at,
               ac.id AS agent_config_id
        FROM enrichment_results er
        LEFT JOIN ai_agent_configs ac
@@ -940,6 +948,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     if (lead.do_not_call) return reply.code(409).send({ error: 'Lead is on the do-not-call list' });
     if (!lead.agent_config_id) return reply.code(400).send({ error: 'Lead has no active outbound AI agent' });
     if (lead.lead_stage === 'calling') return reply.code(409).send({ error: 'Call already in progress for this lead' });
+    if (lead.last_contacted_at && Date.now() - new Date(lead.last_contacted_at).getTime() < 86400000) {
+      return reply.code(429).send({ error: 'This lead was already attempted in the last 24 hours.' });
+    }
 
     const { rows: controlRows } = await fastify.db.query(
       'SELECT * FROM ai_calling_controls WHERE tenant_id = $1',
@@ -962,10 +973,12 @@ export default async function crmRoutes(fastify: FastifyInstance) {
           WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling') AS active_calls,
          COALESCE((SELECT SUM(duration_sec) FROM ai_call_sessions
                    WHERE tenant_id = $1
-                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
+                     AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
          COALESCE((SELECT SUM(cost_estimate_usd) FROM ai_call_sessions
                    WHERE tenant_id = $1
-                     AND (started_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric AS cost`,
+                     AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric
+         + COALESCE((SELECT SUM(estimated_cost_usd) FROM ai_usage_ledger
+                     WHERE tenant_id = $1 AND created_at >= date_trunc('day', NOW())), 0)::numeric AS cost`,
       [tenantId, settings.callingTimezone],
     );
     const usage = usageRows[0] || {};
@@ -975,9 +988,11 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     if (Number(usage.active_calls || 0) >= numberInRange(process.env.AI_MAX_ACTIVE_CALLS, 1, 1, 5)) {
       return reply.code(429).send({ error: 'An AI call is already active' });
     }
+    const nextMaxCost = (numberInRange(process.env.AI_MAX_SECONDS_PER_CALL, 120, 60, 600) / 60)
+      * numberInRange(process.env.AI_ESTIMATED_COST_USD_PER_MINUTE, 0.1, 0.01, 10);
     if (Number(usage.attempts || 0) >= settings.maxCallsPerDay
       || Number(usage.seconds || 0) >= settings.maxMinutesPerDay * 60
-      || Number(usage.cost || 0) >= settings.maxCostUsdPerDay) {
+      || Number(usage.cost || 0) + nextMaxCost > settings.maxCostUsdPerDay) {
       return reply.code(429).send({ error: 'A daily AI calling safety limit is reached' });
     }
 
@@ -1044,10 +1059,10 @@ export default async function crmRoutes(fastify: FastifyInstance) {
 
       fastify.log.info({ leadId, callSid }, 'Manual outbound call created');
     } catch (err: any) {
-      // Roll back stage so the worker can retry
+      // Failed attempts require an operator decision; never auto-redial them.
       await fastify.db.query(
         `UPDATE enrichment_results
-         SET lead_stage = 'assigned',
+         SET lead_stage = 'no_answer',
              raw_data = COALESCE(raw_data, '{}'::jsonb)
                || jsonb_strip_nulls(jsonb_build_object(
                     'call_status', 'failed_to_create',
@@ -1071,6 +1086,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
 
     await writeAudit(fastify, tenantId, userId, 'lead.call_started', 'lead', leadId, { callSid });
     return { ok: true, callSid };
+    } finally {
+      await releaseLock();
+    }
   });
 
   // POST /v1/leads/:id/end-call → Manually terminate an active AI call

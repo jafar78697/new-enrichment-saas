@@ -52,7 +52,8 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {})
   const leadContext = companyName
     ? `\n\nCurrent CRM lead: ${companyName}. Use this name naturally, but do not invent any other facts about the business.`
     : '';
-  const prompt = `${agentConfig?.prompt || DEFAULT_PROMPT}${leadContext}`;
+  const toolPolicy = includeTools ? '\n\nAfter useful conversation, save_call_note records the factual outcome in the CRM. If the prospect explicitly asks not to be called again, call mark_do_not_call immediately, then end_call. Never treat a temporary bad time as an opt-out.' : '';
+  const prompt = `${agentConfig?.prompt || DEFAULT_PROMPT}${leadContext}${toolPolicy}`;
   const primaryModel = env.DEEPGRAM_AGENT_MODEL || 'gpt-5.6-luna';
   const fallbackModel = env.DEEPGRAM_AGENT_FALLBACK_MODEL || 'gpt-5.4-mini';
   const thinkProviders = [primaryModel, fallbackModel]
@@ -74,12 +75,21 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {})
         },
       },
       {
+        name: 'mark_do_not_call',
+        description: 'Block future AI calls after the prospect explicitly asks not to be called again.',
+        parameters: {
+          type: 'object',
+          properties: { reason: { type: 'string' } },
+          required: ['reason'],
+        },
+      },
+      {
         name: 'save_call_note',
         description: 'Save one brief factual CRM summary for this call.',
         parameters: {
           type: 'object',
           properties: {
-            outcome: { type: 'string' },
+            outcome: { type: 'string', enum: ['called', 'interested', 'not_interested', 'followup'] },
             note: { type: 'string' },
           },
           required: ['outcome', 'note'],

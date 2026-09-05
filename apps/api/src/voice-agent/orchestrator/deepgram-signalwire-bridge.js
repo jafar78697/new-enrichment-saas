@@ -3,7 +3,7 @@ import { RestClient } from '@signalwire/compatibility-api';
 import { env } from '../config/env.js';
 import { buildDeepgramSettings } from '../providers/deepgram-agent.js';
 import { query } from '../../calls-module/db/index.js';
-import { broadcastCallAudio, broadcastCallTranscript } from '../websocket/call-monitor.js';
+import { broadcastCallAudio, broadcastCallTranscript, broadcastCallAudioClear } from '../websocket/call-monitor.js';
 import { detectCallStateFromTranscript, CallStates } from '../detection/call-state-detector.js';
 import { createVoiceAgentWebSocketServer } from '../websocket/upgrade-router.js';
 
@@ -97,9 +97,9 @@ async function enforceDailyLimit(tenantId) {
        COALESCE(c.max_minutes_per_day, $2)::int AS max_minutes,
        COALESCE(c.max_cost_usd_per_day, $3)::numeric AS max_cost,
        COALESCE((SELECT SUM(duration_sec) FROM ai_call_sessions
-                 WHERE tenant_id = $1 AND started_at >= date_trunc('day', NOW())), 0)::int AS seconds_today,
+                 WHERE tenant_id = $1 AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE COALESCE(c.calling_timezone, 'America/New_York'))::date = (NOW() AT TIME ZONE COALESCE(c.calling_timezone, 'America/New_York'))::date), 0)::int AS seconds_today,
        COALESCE((SELECT SUM(cost_estimate_usd) FROM ai_call_sessions
-                 WHERE tenant_id = $1 AND started_at >= date_trunc('day', NOW())), 0)::numeric AS call_cost,
+                 WHERE tenant_id = $1 AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE COALESCE(c.calling_timezone, 'America/New_York'))::date = (NOW() AT TIME ZONE COALESCE(c.calling_timezone, 'America/New_York'))::date), 0)::numeric AS call_cost,
        COALESCE((SELECT SUM(estimated_cost_usd) FROM ai_usage_ledger
                  WHERE tenant_id = $1 AND created_at >= date_trunc('day', NOW())), 0)::numeric AS preview_cost
      FROM (SELECT 1) seed
@@ -111,7 +111,7 @@ async function enforceDailyLimit(tenantId) {
   const nextCallCost = (env.AI_MAX_SECONDS_PER_CALL / 60) * env.AI_ESTIMATED_COST_USD_PER_MINUTE;
   const maxMinutes = Math.min(env.AI_MAX_MINUTES_PER_DAY, Number(rows[0]?.max_minutes || env.AI_MAX_MINUTES_PER_DAY));
   const maxCost = Math.min(env.AI_MAX_COST_USD_PER_DAY, Number(rows[0]?.max_cost || env.AI_MAX_COST_USD_PER_DAY));
-  return usedSeconds < maxMinutes * 60 && usedCost + nextCallCost <= maxCost;
+  return usedCost + nextCallCost <= maxCost ? Math.max(0, maxMinutes * 60 - usedSeconds) : 0;
 }
 
 async function loadSessionContext(sessionId) {
@@ -130,7 +130,7 @@ async function loadSessionContext(sessionId) {
        ) AS agent_config
      FROM ai_call_sessions acs
      LEFT JOIN enrichment_results er ON er.id = acs.lead_id
-     LEFT JOIN ai_agent_configs ac ON ac.id = acs.agent_config_id
+     LEFT JOIN ai_agent_configs ac ON ac.id = acs.agent_config_id AND ac.tenant_id = acs.tenant_id AND ac.is_active = true
      WHERE acs.id = $1`,
     [sessionId],
   );
@@ -156,16 +156,34 @@ async function handleFunctionRequests(event, context) {
     let content;
     let shouldEndCall = false;
 
-    if (name === 'save_call_note' && context.sessionId) {
-      await updateSession(
-        context.sessionId,
-        `UPDATE ai_call_sessions
-         SET outcome = COALESCE($1, outcome), summary = COALESCE($2, summary)
-         WHERE id = $3`,
-        [typeof args.outcome === 'string' ? args.outcome.slice(0, 120) : null,
-          typeof args.note === 'string' ? args.note.slice(0, 2000) : null],
-      );
-      content = JSON.stringify({ ok: true, saved: true });
+    if (['save_call_note', 'mark_do_not_call'].includes(name) && context.sessionId) {
+      try {
+        const optOut = name === 'mark_do_not_call';
+        const outcome = optOut ? 'do_not_call' : ['called', 'interested', 'not_interested', 'followup'].includes(args.outcome) ? args.outcome : 'called';
+        const note = String(optOut ? args.reason || 'Prospect requested no further calls.' : args.note || '').slice(0, 2000);
+        await query(
+          `WITH session AS (
+             UPDATE ai_call_sessions SET outcome = $1, summary = $2 WHERE id = $3
+             RETURNING lead_id, tenant_id
+           ), lead AS (
+             UPDATE enrichment_results er
+             SET ai_summary = $2,
+                 lead_notes = CONCAT_WS(E'\\n', NULLIF(er.lead_notes, ''), $2),
+                 do_not_call = er.do_not_call OR $4,
+                 ai_voice_consent = er.ai_voice_consent AND NOT $4,
+                 raw_data = COALESCE(er.raw_data, '{}'::jsonb) || jsonb_build_object('ai_outcome', $1::text)
+             FROM session s WHERE er.id = s.lead_id AND er.tenant_id = s.tenant_id
+             RETURNING er.raw_data->>'source_contact_id' AS contact_id
+           )
+           UPDATE contacts SET do_not_call = true, ai_voice_consent = false
+           WHERE $4 AND id::text IN (SELECT contact_id FROM lead)`,
+          [outcome, note, context.sessionId, optOut],
+        );
+        content = JSON.stringify({ ok: true, saved: true });
+      } catch (error) {
+        console.error('[deepgram-bridge] CRM tool failed:', error.message);
+        content = JSON.stringify({ ok: false, error: 'CRM update failed; do not claim it was saved.' });
+      }
     } else if (name === 'end_call') {
       shouldEndCall = true;
       content = JSON.stringify({ ok: true, ending: true });
@@ -195,6 +213,7 @@ async function handleFunctionRequests(event, context) {
 
 async function handleDeepgramEvent(event, context) {
   if (event.type === 'UserStartedSpeaking') {
+    broadcastCallAudioClear(context.callSid);
     if (context.signalWireWs.readyState === WebSocket.OPEN) {
       context.signalWireWs.send(JSON.stringify({ event: 'clear', streamSid: context.streamSid }));
     }
@@ -283,16 +302,22 @@ export function attachDeepgramBridge(httpServer) {
     let detectionWindowTimer = null;
     let streamRegistered = false;
     let agentStartedAt = null;
+    let cleanupStarted = false;
+    let startReceived = false;
+    let sessionValidated = false;
     const context = { signalWireWs, streamSid, callSid, sessionId, deepgramWs, agentConfig, detectionLocked: false };
 
     const cleanup = async (state = 'stopped') => {
+      if (cleanupStarted) return;
+      cleanupStarted = true;
       if (callTimer) clearTimeout(callTimer);
       if (detectionWindowTimer) clearTimeout(detectionWindowTimer);
       callTimer = null;
       detectionWindowTimer = null;
-      if (streamRegistered && streamSid) activeStreamSids.delete(streamSid);
+      if (streamRegistered && callSid) activeStreamSids.delete(callSid);
       streamRegistered = false;
-      if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) deepgramWs.close();
+      if (deepgramWs) deepgramWs.terminate();
+      if (!sessionValidated) return;
       const durationSec = agentStartedAt
         ? Math.max(0, Math.round((Date.now() - agentStartedAt) / 1000))
         : 0;
@@ -307,6 +332,22 @@ export function attachDeepgramBridge(httpServer) {
          WHERE id = $4`,
         [durationSec, estimatedCost, state],
       );
+      if (sessionId) {
+        await query(
+          `UPDATE enrichment_results er
+           SET lead_stage = CASE
+                 WHEN s.outcome IN ('do_not_call', 'not_interested') THEN 'closed_lost'
+                 WHEN s.outcome = 'interested' THEN 'interested'
+                 WHEN s.hangup_reason IN ('VOICEMAIL', 'IVR_OR_MENU', 'AI_RECEPTIONIST_OR_BOT', 'CLOSED_OR_HOURS', 'deepgram-error', 'deepgram-disconnected', 'bridge-error') THEN 'no_answer'
+                 ELSE 'called' END,
+               raw_data = (COALESCE(er.raw_data, '{}'::jsonb) - 'active_call_sid') || jsonb_build_object('call_duration_seconds', $2::int, 'call_ended_at', NOW()::text)
+           FROM ai_call_sessions s
+           WHERE s.id = $1 AND er.id = s.lead_id AND er.tenant_id = s.tenant_id
+             AND er.lead_stage IN ('calling', 'called')
+             AND (er.raw_data->>'call_sid' = s.signalwire_call_sid OR er.raw_data->>'active_call_sid' = s.signalwire_call_sid)`,
+          [sessionId, durationSec],
+        );
+      }
     };
 
     signalWireWs.on('message', async (raw) => {
@@ -315,38 +356,57 @@ export function attachDeepgramBridge(httpServer) {
 
       try {
         if (message.event === 'start') {
+          if (startReceived) return;
+          startReceived = true;
           const start = message.start || {};
           const parameters = readParameters(start);
           streamSid = start.streamSid || start.stream_sid || message.streamSid || null;
           callSid = start.callSid || start.call_sid || parameters.CallSid || null;
           sessionId = parameters.sessionId || parameters.session_id || null;
 
-          if (!streamSid || !sessionId || !env.DEEPGRAM_API_KEY) {
+          if (!streamSid || !sessionId || !callSid || !env.DEEPGRAM_API_KEY) {
             console.error('[deepgram-bridge] Missing stream, session, or Deepgram configuration; closing stream.');
             signalWireWs.close(1008, 'invalid-agent-stream');
             return;
           }
 
+          const session = await loadSessionContext(sessionId);
+          if (cleanupStarted) return;
+          if (!session || session.ended_at || session.signalwire_call_sid !== callSid) {
+            sessionId = null;
+            callSid = null;
+            signalWireWs.close(1008, 'invalid-session');
+            return;
+          }
+          if (activeStreamSids.has(callSid)) {
+            sessionId = null;
+            callSid = null;
+            signalWireWs.close(1008, 'duplicate-session');
+            return;
+          }
+          sessionValidated = true;
           if (activeStreamSids.size >= env.AI_MAX_ACTIVE_CALLS) {
-            console.warn('[deepgram-bridge] AI active-call cap reached; rejecting stream.');
             await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'active-call-limit' });
             return;
           }
-
-          const session = await loadSessionContext(sessionId);
-          if (!session?.agent_config?.id) {
+          // Reserve before the next await so simultaneous streams cannot exceed the cap.
+          activeStreamSids.add(callSid);
+          streamRegistered = true;
+          if (!session.agent_config?.id) {
             console.error('[deepgram-bridge] No active agent configuration for session; closing stream.');
             await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'missing-agent-config' });
             return;
           }
 
-          if (!(await enforceDailyLimit(session.tenant_id))) {
+          const remainingSeconds = await enforceDailyLimit(session.tenant_id);
+          if (cleanupStarted) return;
+          if (remainingSeconds <= 0) {
             console.warn('[deepgram-bridge] AI daily budget cap reached; rejecting stream.');
             await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'daily-budget-limit' });
             return;
           }
 
-          agentConfig = session.agent_config;
+          agentConfig = { ...session.agent_config, end_on_ai_receptionist: true };
           agentStartedAt = Date.now();
           context.streamSid = streamSid;
           context.callSid = callSid;
@@ -356,8 +416,6 @@ export function attachDeepgramBridge(httpServer) {
             context.detectionLocked = true;
           }, 10000);
 
-          activeStreamSids.add(streamSid);
-          streamRegistered = true;
           await updateSession(
             sessionId,
             `UPDATE ai_call_sessions
@@ -365,8 +423,10 @@ export function attachDeepgramBridge(httpServer) {
              WHERE id = $2`,
             [streamSid],
           );
+          if (cleanupStarted) return;
 
           const maxSeconds = Math.min(
+            remainingSeconds,
             env.AI_MAX_SECONDS_PER_CALL,
             Math.max(60, Number(agentConfig.max_call_duration_sec || env.AI_MAX_SECONDS_PER_CALL)),
           );
@@ -393,6 +453,8 @@ export function attachDeepgramBridge(httpServer) {
           });
 
           deepgramWs.on('message', async (data, isBinary) => {
+            try {
+            if (cleanupStarted) return;
             if (isBinary) {
               if (signalWireWs.readyState === WebSocket.OPEN) {
                 const payload = data.toString('base64');
@@ -413,13 +475,21 @@ export function attachDeepgramBridge(httpServer) {
               pendingAudioFrames = [];
             }
             await handleDeepgramEvent(event, context);
+            } catch (error) {
+              console.error('[deepgram-bridge] Agent event failed:', error.message);
+              await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'bridge-error' }).catch(() => null);
+            }
           });
 
+          deepgramWs.on('close', () => {
+            if (!cleanupStarted) closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'deepgram-disconnected' }).catch(() => null);
+          });
           deepgramWs.on('error', (error) => console.error('[deepgram-bridge] WebSocket error:', error.message));
           return;
         }
 
         if (message.event === 'media' && message.media?.payload) {
+          if (!sessionValidated || !streamRegistered || cleanupStarted) return;
           const audio = Buffer.from(message.media.payload, 'base64');
           if (callSid) broadcastCallAudio(callSid, 'prospect', message.media.payload);
           if (deepgramWs?.readyState === WebSocket.OPEN && deepgramReady) {
@@ -434,7 +504,8 @@ export function attachDeepgramBridge(httpServer) {
         if (message.event === 'stop') await cleanup('stopped');
       } catch (error) {
         console.error('[deepgram-bridge] SignalWire message failed:', error.message);
-        await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'bridge-error' });
+        if (sessionValidated) await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'bridge-error' });
+        else signalWireWs.close(1008, 'invalid-agent-stream');
       }
     });
 

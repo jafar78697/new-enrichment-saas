@@ -192,7 +192,7 @@ The operator explicitly requested a consent-gated USA/Canada outbound workflow. 
 - SignalWire synchronous answering-machine detection runs for up to 10 seconds. A machine or fax response hangs up before the Deepgram session is opened. The Deepgram transcript detector is only allowed to classify the first 10 seconds as a fallback.
 - Only one active AI call is allowed by the current production server cap. The queue pauses itself when empty or when a daily cap is reached.
 - The legacy direct campaign endpoint is disabled and the active outbound code does not call any SignalWire subscriber-create endpoint.
-- Live monitoring requires an authenticated manager/team-leader socket and verifies that the call belongs to the signed-in tenant. Prospect and agent audio are converted once to PCM16 and played in one ordered browser queue.
+- Live monitoring requires an authenticated manager/team-leader socket and verifies that the call belongs to the signed-in tenant. Prospect and agent audio are converted once to PCM16 and played on separate, concurrent speaker timelines; barge-in clears only queued agent audio.
 
 ### Compliance boundary
 
@@ -208,3 +208,21 @@ These technical controls do not turn scraped cold leads into consented AI-call l
 - FCC, "FCC Makes AI-Generated Voices in Robocalls Illegal", accessed 2026-09-04: https://docs.fcc.gov/public/attachments/DOC-400393A1.pdf
 - CRTC, "Telemarketing rules", accessed 2026-09-04: https://crtc.gc.ca/eng/phone/telemarketing/tobligations/rules-regles.htm
 - CRTC, "Unsolicited Telecommunications Rules", accessed 2026-09-04: https://crtc.gc.ca/eng/trules-reglest.htm
+
+## 2026-09-05 deployment verification
+
+- Frontend published to Cloudflare Pages deployment `2394c532`. The custom domain returned HTTP 200 and the deployed `/assets/index-DqsMEevL.js` SHA-256 matched the local production build.
+- Backend updated on the existing VM and `enrichment-api` restarted. Public health, authenticated AI calling status, and Deepgram agent status returned HTTP 200. Campaign remained OFF with no active call or queued lead.
+- Four backend unit tests passed for G.711 decoding and advisory-lock lifecycle. Three frontend unit tests passed for simultaneous speaker playback, barge-in, and PCM polarity. Backend type-check and frontend production build passed.
+- Seven actual SQL templates were checked with PostgreSQL `EXPLAIN`, without executing writes. A two-connection advisory-lock test passed against the production database with an isolated test key.
+- Live monitor authenticated a valid owner token, rejected an unknown call, and rejected an invalid token. No production call was subscribed to.
+- Local fixture UI checks exercised USA/Canada filtering, consent/DNC exclusion, assignment, live transcript, machine-skip, and waiting-for-next-call states. Screenshots were inspected at desktop and mobile widths; document width did not exceed the viewport. Fixtures use no provider credentials and cannot call a real number.
+- A bounded Deepgram WebSocket test accepted the final model/tool settings and generated 592 bytes of audio before closing. No PSTN call or SignalWire subscriber was created. This small provider test can incur a fractional AI usage charge.
+- Failed leads are not auto-redialed. A 24-hour per-lead cooldown and shared worker/manual advisory lock prevent concurrent starts and immediate repeat attempts. Opt-out tools persist DNC to the CRM and linked source contact. Duplicate stream starts and repeated cleanup are guarded.
+
+### Remaining operational boundaries
+
+- An authorized test-number PSTN call is still required to validate carrier delivery and both sides of a real conversation. Simulated UI tests and provider audio generation do not prove full telephony delivery.
+- The first up-to-10-second synchronous AMD check is performed by SignalWire before the bidirectional media stream opens. Those pre-stream seconds are not audible in the browser monitor and are not inspected by the VM. The VM transcript fallback checks the first 10 seconds after streaming begins. Classification is heuristic, not guaranteed.
+- The daily dollar limit is an AI estimate, not a total SignalWire billing cap. Carrier usage, number rental, AMD, and existing account subscriptions may be billed separately. This release does not create subscriber resources or enable call recording.
+- The UI timezone window governs a campaign, not every lead's geographical timezone. Operators must segment campaigns by the prospect's local calling window.

@@ -16,7 +16,7 @@ export interface Niche {
 }
 
 async function request(path: string, options: RequestInit = {}) {
-  const token = localStorage.getItem(CALL_TOKEN_KEY);
+  const token = localStorage.getItem('enr_token') || localStorage.getItem(CALL_TOKEN_KEY);
   const headers = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
