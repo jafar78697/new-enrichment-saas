@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = jobRoutes;
+const require_role_1 = require("../middleware/require-role");
 const contracts_1 = require("@enrichment-saas/contracts");
 const db_1 = require("@enrichment-saas/db");
 const queue_1 = require("@enrichment-saas/queue");
@@ -42,6 +43,7 @@ async function checkHttpQuota(db, tenantId, plan, count) {
     return (rows[0].http_enrichments_used + count) <= limit;
 }
 async function jobRoutes(fastify) {
+    fastify.addHook('preHandler', (0, require_role_1.requireModule)('enrichment', 'scraping'));
     // POST /v1/jobs/enrich
     fastify.post('/v1/jobs/enrich', {
         preHandler: [fastify.authenticate]

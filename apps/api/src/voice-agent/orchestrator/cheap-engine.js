@@ -1,5 +1,5 @@
 import { createTTSStream } from '../services/tts/google-tts.service.js';
-import { sendMediaToTwilio, clearTwilioAudio } from '../websocket/media-server.js';
+import { sendMediaToSignalWire, clearSignalWireAudio } from '../websocket/media-server.js';
 import { setState, addConversationTurn } from '../services/session/session-store.js';
 
 /**
@@ -35,7 +35,7 @@ export async function handleCheapEngineFlow(streamSid, callSid, label) {
       streamSid,
       callSid,
       onAudio: (base64Audio) => {
-        sendMediaToTwilio(streamSid, base64Audio);
+        sendMediaToSignalWire(streamSid, base64Audio);
       },
       onEnd: () => {
         // Automatically hang up after speaking

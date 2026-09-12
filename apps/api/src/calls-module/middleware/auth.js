@@ -1,5 +1,6 @@
 // JWT helper + request auth middleware.
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { env } from '../config/env.js';
 import { query } from '../db/index.js';
 import { AppError } from '../utils/errors.js';
@@ -25,6 +26,43 @@ function extractBearer(req) {
   return req.query?.token || null;
 }
 
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function mappedCallsRole(role) {
+  if (role === 'platform_admin' || role === 'tenant_owner' || role === 'owner' || role === 'admin') return 'manager';
+  if (role === 'agent') return 'employee';
+  return role || 'employee';
+}
+
+// The unified dashboard has used both the workspace JWT key and the
+// calls-module JWT key during the migration. All candidates are server-side
+// secrets and are still verified cryptographically before a user is attached.
+function verifyWorkspaceToken(token) {
+  const keys = [
+    process.env.JWT_PUBLIC_KEY,
+    process.env.JWT_PRIVATE_KEY,
+    env.JWT_SECRET,
+  ].filter(Boolean);
+  const seen = new Set();
+  for (const key of keys) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    try {
+      return jwt.verify(token, key, { algorithms: ['HS256', 'RS256'] });
+    } catch {
+      // Try the next server-side key for legacy sessions.
+    }
+  }
+  return null;
+}
+
+function maySkipPasswordChange(req) {
+  const url = req.originalUrl || req.url || '';
+  return url.includes('/change-password') || url.includes('/logout');
+}
+
 export async function softAuth(req, _res, next) {
   try {
     const token = extractBearer(req);
@@ -33,11 +71,20 @@ export async function softAuth(req, _res, next) {
     // Step 1: Try as a regular Calls-module JWT token
     try {
       const payload = verifyToken(token);
-      const { rows: agents } = await query('SELECT id, name, email, role, status, signalwire_identity, signalwire_phone_number FROM agents WHERE id = $1', [payload.sub]);
-      const user = agents[0];
-      if (user && user.status !== 'suspended') {
-        req.user = user;
-        return next();
+      
+      // Some agents might not have a tenant_id, or the login route might not have included it in the payload.
+      if (payload.sub) {
+        const { rows: agents } = await query(
+          'SELECT id, tenant_id, name, email, role, status, signalwire_identity, signalwire_phone_number FROM agents WHERE id = $1',
+          [payload.sub]
+        );
+        const user = agents[0];
+        if (user && user.status !== 'suspended') {
+          const tenantId = user.tenant_id || process.env.VOICE_AGENT_TENANT_ID || null;
+          req.user = user;
+          req.tenantId = tenantId;
+          return next();
+        }
       }
     } catch (_callsTokenErr) {
       // Not a calls token — try enrichment token next
@@ -45,52 +92,89 @@ export async function softAuth(req, _res, next) {
 
     // Step 2: Try as an Enrichment platform JWT token (manager login)
     try {
-      const { AuthManager } = await import('@enrichment-saas/auth');
-      const authManager = new AuthManager(
-        process.env.JWT_PRIVATE_KEY || '',
-        process.env.JWT_PUBLIC_KEY || ''
-      );
-      const enrichmentPayload = authManager.verifyUserToken(token);
+      const enrichmentPayload = verifyWorkspaceToken(token);
 
       if (enrichmentPayload) {
-        const userEmail = enrichmentPayload.email || null;
-        const { rows: agents } = await query(
-          'SELECT id, name, email, role, status FROM agents WHERE LOWER(email) = LOWER($1)',
-          [userEmail]
+        // The unified dashboard uses the signed enrichment token, while the
+        // calls module historically expected a calls-agent session. Accept
+        // the verified workspace token directly so manager actions such as
+        // employee access and SignalWire number assignment do not become
+        // anonymous when the legacy session row is unavailable.
+        if (enrichmentPayload.user_id && enrichmentPayload.tenant_id) {
+          const mappedRole = mappedCallsRole(enrichmentPayload.role);
+          let callsUser = null;
+          if (mappedRole !== 'manager') {
+            const { rows: linkedAgents } = await query(
+              `SELECT id, tenant_id, name, email, username, role, status,
+                      signalwire_identity, signalwire_phone_number
+               FROM agents
+               WHERE platform_user_id = $1 AND tenant_id = $2
+               LIMIT 1`,
+              [enrichmentPayload.user_id, enrichmentPayload.tenant_id]
+            );
+            callsUser = linkedAgents[0] || null;
+            if (!callsUser || callsUser.status !== 'active') return next();
+          }
+          req.user = callsUser || {
+            id: enrichmentPayload.user_id,
+            email: enrichmentPayload.email || 'workspace-user@tenant.local',
+            role: mappedRole,
+            status: 'active',
+            tenant_id: enrichmentPayload.tenant_id,
+          };
+          req.tenantId = enrichmentPayload.tenant_id;
+          return next();
+        }
+
+        const { rows: users } = await query(
+          `SELECT u.id as user_id, u.username, u.email, u.role, u.must_change_password,
+                  t.id as tenant_id, t.status as tenant_status
+           FROM users u
+           JOIN tenants t ON t.id = u.tenant_id
+           JOIN user_sessions s ON s.user_id = u.id
+            AND s.tenant_id = t.id
+            AND s.token_hash = $3
+            AND s.revoked_at IS NULL
+            AND s.expires_at > NOW()
+           WHERE u.id = $1
+             AND u.tenant_id = $2
+             AND t.deleted_at IS NULL
+           LIMIT 1`,
+          [enrichmentPayload.user_id, enrichmentPayload.tenant_id, hashToken(token)]
         );
-        const agent = agents[0] || {};
-        req.user = {
-          id: agent.id || 0,
-          email: userEmail || 'admin@jentoai.com',
-          role: 'manager',
-          status: 'active'
+        const platformUser = users[0];
+        if (!platformUser) return next();
+        if (platformUser.tenant_status !== 'active' && platformUser.role !== 'platform_admin') return next();
+        if (platformUser.must_change_password && !maySkipPasswordChange(req)) return next();
+
+        const { rows: agents } = await query(
+          `SELECT id, tenant_id, name, email, role, status, signalwire_identity, signalwire_phone_number
+           FROM agents
+           WHERE tenant_id = $1
+             AND (LOWER(username) = LOWER($2) OR LOWER(email) = LOWER($3))
+           ORDER BY id ASC
+           LIMIT 1`,
+          [platformUser.tenant_id, platformUser.username || '', platformUser.email || `${platformUser.username}@tenant.local`]
+        );
+        const agent = agents[0] || {
+          id: 0,
+          tenant_id: platformUser.tenant_id,
+          name: platformUser.username || platformUser.email || 'Tenant user',
+          email: platformUser.email || `${platformUser.username || 'user'}@tenant.local`,
+          role: mappedCallsRole(platformUser.role),
+          status: 'active',
         };
-        req.tenantId = enrichmentPayload.tenantId || enrichmentPayload.tenant_id || null;
+
+        req.user = {
+          ...agent,
+          platform_user_id: platformUser.user_id,
+          role: mappedCallsRole(platformUser.role) === 'manager' ? 'manager' : agent.role,
+        };
+        req.tenantId = platformUser.tenant_id;
         return next();
       }
     } catch (_enrichmentErr) {
-      // Not an enrichment token either — try raw JWT decode as last resort
-    }
-
-    // Step 3: Last resort — try direct JWT decode with PRIVATE_KEY (symmetric)
-    try {
-      const privateKey = process.env.JWT_PRIVATE_KEY || '';
-      if (privateKey) {
-        const decoded = jwt.verify(token, privateKey);
-        if (decoded) {
-          const userEmail = decoded.email || null;
-          req.user = {
-            id: decoded.user_id || decoded.sub || 0,
-            email: userEmail || 'admin@jentoai.com',
-            role: 'manager',
-            status: 'active'
-          };
-          req.tenantId = decoded.tenantId || decoded.tenant_id || null;
-          return next();
-        }
-      }
-    } catch (_lastResortErr) {
-      // All verification methods failed — req.user stays undefined
+      // Not an enrichment token either.
     }
 
   } catch {

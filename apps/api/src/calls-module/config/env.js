@@ -64,6 +64,16 @@ const envSchema = z.object({
   MAILER_SENDER_EMAIL: z.preprocess(emptyIfPlaceholder, z.string().email().optional()),
   MAILER_FROM_NAME: z.preprocess(emptyIfPlaceholder, z.string().optional()),
   SCRAPER_API_KEY: z.string().default('jento-scraper-secret-key-123'),
+  // SignalWire credentials
+  SIGNALWIRE_PROJECT_ID: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+  SIGNALWIRE_API_TOKEN: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+  SIGNALWIRE_SPACE_URL: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+  SIGNALWIRE_PHONE_NUMBER: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+  // Relay browser JWTs are not Subscriber Access Tokens. Keep their resource
+  // fixed so the app never creates a random Relay endpoint per token request.
+  SIGNALWIRE_RELAY_RESOURCE: z.string().regex(/^[A-Za-z0-9_-]+$/).default('jento-manual-browser'),
+  SIGNALWIRE_RELAY_TOKEN_MINUTES: z.coerce.number().int().min(5).max(15).default(15),
+  MANUAL_CALL_MAX_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -76,13 +86,10 @@ if (!parsed.success) {
 export const env = parsed.data;
 export const isProduction = env.NODE_ENV === 'production';
 
-// Calls module is "enabled" only when the core Twilio voice creds are present.
-// Routes that hit Twilio (twilio token, search numbers, place calls) check this flag
-// and return 503 when false, so the rest of the API keeps working without Twilio.
+// Calls module is "enabled" only when the core SignalWire voice creds are present.
+// Routes that hit SignalWire check this flag and return 503 when false.
 export const CALLS_ENABLED = Boolean(
-  env.TWILIO_ACCOUNT_SID &&
-    env.TWILIO_AUTH_TOKEN &&
-    env.TWILIO_API_KEY &&
-    env.TWILIO_API_SECRET &&
-    env.TWILIO_TWIML_APP_SID,
+  env.SIGNALWIRE_PROJECT_ID &&
+  env.SIGNALWIRE_API_TOKEN &&
+  env.SIGNALWIRE_SPACE_URL
 );

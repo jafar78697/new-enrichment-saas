@@ -5,17 +5,17 @@
 # ═══════════════════════════════════════════════════════
 set -e
 
-EC2_IP="13.61.8.100"
-EC2_USER="ubuntu"
-PEM_KEY="$HOME/Downloads/aws-enrichment-key.pem"
-APP_DIR="/home/ubuntu/enrichment-saas"
+GCP_IP="34.27.29.88"
+GCP_USER="jafar-tayyar-siddiqi"
+PEM_KEY="$HOME/.ssh/google_compute_engine"
+APP_DIR="/home/jafar-tayyar-siddiqi/enrichment-saas"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Deploying to EC2: $EC2_IP via rsync"
+echo "  Deploying to Google Cloud VM: $GCP_IP via rsync"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Ensure target directory exists
-ssh -i "$PEM_KEY" -o StrictHostKeyChecking=no "$EC2_USER@$EC2_IP" "mkdir -p $APP_DIR"
+ssh -i "$PEM_KEY" -o StrictHostKeyChecking=no "$GCP_USER@$GCP_IP" "mkdir -p $APP_DIR"
 echo "→ Building frontend locally before syncing..."
 cd apps/web
 pnpm run build
@@ -39,29 +39,64 @@ rsync -avz --delete \
   --exclude '*.pem' \
   --exclude 'infra' \
   -e "ssh -i \"$PEM_KEY\" -o StrictHostKeyChecking=no" \
-  ./ "$EC2_USER@$EC2_IP:$APP_DIR/"
+  ./ "$GCP_USER@$GCP_IP:$APP_DIR/"
 
 echo "→ Copying production .env specifically..."
 scp -i "$PEM_KEY" -o StrictHostKeyChecking=no \
   "apps/api/.env.production" \
-  "$EC2_USER@$EC2_IP:$APP_DIR/apps/api/.env"
+  "$GCP_USER@$GCP_IP:$APP_DIR/apps/api/.env"
 
 echo "→ Running remote setup and restarting API..."
-ssh -i "$PEM_KEY" -o StrictHostKeyChecking=no "$EC2_USER@$EC2_IP" << 'ENDSSH'
+ssh -i "$PEM_KEY" -o StrictHostKeyChecking=no "$GCP_USER@$GCP_IP" << 'ENDSSH'
 set -e
 
-cd /home/ubuntu/enrichment-saas
+cd /home/jafar-tayyar-siddiqi/enrichment-saas
 
-  cat >> ~/enrichment-saas/apps/api/.env << 'EOF'
+  cat >> /home/jafar-tayyar-siddiqi/enrichment-saas/apps/api/.env << 'EOF'
 PUBLIC_BASE_URL="https://api.jentoai.pro"
 EOF
 
 echo "→ Installing dependencies..."
-CI=true pnpm install --no-frozen-lockfile
+CI=true pnpm install --no-frozen-lockfile --ignore-scripts
+pnpm rebuild || true
+
+echo "→ Applying SaaS billing/access migrations..."
+cd /home/jafar-tayyar-siddiqi/enrichment-saas/apps/api
+node << 'NODE'
+const fs = require('fs');
+const path = require('path');
+const pg = require('pg');
+require('dotenv').config({ path: '.env' });
+
+const migrations = [
+  '012_saas_and_phone_numbers.sql',
+  '013_saas_tenant_schema.sql',
+  '014_wallets_payments_metering.sql',
+  '015_calls_module_tenant_isolation.sql',
+];
+
+async function main() {
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    for (const migration of migrations) {
+      const file = path.resolve('src/db/migrations', migration);
+      const sql = fs.readFileSync(file, 'utf8');
+      console.log(`   applying ${migration}`);
+      await pool.query(sql);
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+NODE
 
 echo "→ Setting up Python Worker..."
-sudo apt-get update && sudo apt-get install -y python3-pip python3-venv libpq-dev python3-dev gcc libxml2-dev libxslt1-dev chromium-browser
-cd /home/ubuntu/enrichment-saas/apps/worker-http
+cd /home/jafar-tayyar-siddiqi/enrichment-saas/apps/worker-http
 if [ ! -d ".venv" ]; then
   python3 -m venv .venv
 fi
@@ -69,7 +104,7 @@ export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 .venv/bin/pip install -r requirements.txt
 
 echo "→ Restarting API and Worker with PM2..."
-cd /home/ubuntu/enrichment-saas/apps/api
+cd /home/jafar-tayyar-siddiqi/enrichment-saas/apps/api
 pm2 delete enrichment-api 2>/dev/null || true
 pm2 start "npx tsx src/index.ts" \
   --name enrichment-api \
@@ -91,7 +126,7 @@ pm2 start "node src/calls-module/scripts/browser-enrichment.js" \
   --restart-delay 5000 \
   --max-restarts 10
 
-cd /home/ubuntu/enrichment-saas/apps/worker-http
+cd /home/jafar-tayyar-siddiqi/enrichment-saas/apps/worker-http
 pm2 delete enrichment-worker 2>/dev/null || true
 pm2 start main.py \
   --interpreter .venv/bin/python \
@@ -104,6 +139,6 @@ pm2 start main.py \
 pm2 save
 
 echo ""
-echo "✓ Backend and Worker deployed successfully!"
+echo "✓ Backend and Worker deployed successfully on Google Cloud VM!"
 echo "  PM2 status: pm2 status"
 ENDSSH

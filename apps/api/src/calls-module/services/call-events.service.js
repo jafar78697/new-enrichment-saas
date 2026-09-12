@@ -62,6 +62,7 @@ export async function fetchCallByIdentifier({ id, callSid }) {
 }
 
 export async function upsertOutboundParentCall({
+  tenantId,
   parentCallSid,
   agentId,
   contactId,
@@ -73,6 +74,7 @@ export async function upsertOutboundParentCall({
   const result = await query(
     `
       INSERT INTO calls (
+        tenant_id,
         contact_id,
         agent_id,
         call_sid,
@@ -83,9 +85,10 @@ export async function upsertOutboundParentCall({
         to_number,
         recording_enabled
       )
-      VALUES ($1, $2, $3, 'outbound', $4, CURRENT_TIMESTAMP, $5, $6, $7)
+      VALUES ($1, $2, $3, $4, 'outbound', $5, CURRENT_TIMESTAMP, $6, $7, $8)
       ON CONFLICT (call_sid)
       DO UPDATE SET
+        tenant_id = COALESCE(EXCLUDED.tenant_id, calls.tenant_id),
         contact_id = COALESCE(EXCLUDED.contact_id, calls.contact_id),
         agent_id = COALESCE(EXCLUDED.agent_id, calls.agent_id),
         status = EXCLUDED.status,
@@ -95,7 +98,7 @@ export async function upsertOutboundParentCall({
         updated_at = CURRENT_TIMESTAMP
       RETURNING *
     `,
-    [contactId || null, agentId || null, parentCallSid, status, from || null, to || null, shouldRecord]
+    [tenantId || null, contactId || null, agentId || null, parentCallSid, status, from || null, to || null, shouldRecord]
   );
 
   const call = result.rows[0];
@@ -104,6 +107,7 @@ export async function upsertOutboundParentCall({
 }
 
 export async function upsertInboundParentCall({
+  tenantId,
   parentCallSid,
   agentId,
   from,
@@ -113,6 +117,7 @@ export async function upsertInboundParentCall({
   const result = await query(
     `
       INSERT INTO calls (
+        tenant_id,
         agent_id,
         call_sid,
         direction,
@@ -121,9 +126,10 @@ export async function upsertInboundParentCall({
         from_number,
         to_number
       )
-      VALUES ($1, $2, 'inbound', $3, CURRENT_TIMESTAMP, $4, $5)
+      VALUES ($1, $2, $3, 'inbound', $4, CURRENT_TIMESTAMP, $5, $6)
       ON CONFLICT (call_sid)
       DO UPDATE SET
+        tenant_id = COALESCE(EXCLUDED.tenant_id, calls.tenant_id),
         agent_id = COALESCE(EXCLUDED.agent_id, calls.agent_id),
         status = EXCLUDED.status,
         from_number = COALESCE(EXCLUDED.from_number, calls.from_number),
@@ -131,7 +137,7 @@ export async function upsertInboundParentCall({
         updated_at = CURRENT_TIMESTAMP
       RETURNING *
     `,
-    [agentId || null, parentCallSid, status, from || null, to || null]
+    [tenantId || null, agentId || null, parentCallSid, status, from || null, to || null]
   );
 
   const call = result.rows[0];
@@ -150,6 +156,7 @@ export async function handleCallStatusWebhook(payload) {
   const result = await query(
     `
       INSERT INTO calls (
+        tenant_id,
         contact_id,
         agent_id,
         call_sid,
@@ -175,10 +182,12 @@ export async function handleCallStatusWebhook(payload) {
         $9,
         $10,
         $11,
-        $12
+        $12,
+        $13
       )
       ON CONFLICT (call_sid)
       DO UPDATE SET
+        tenant_id = COALESCE(EXCLUDED.tenant_id, calls.tenant_id),
         child_call_sid = COALESCE(EXCLUDED.child_call_sid, calls.child_call_sid),
         status = EXCLUDED.status,
         duration_seconds = COALESCE(EXCLUDED.duration_seconds, calls.duration_seconds),
@@ -190,6 +199,7 @@ export async function handleCallStatusWebhook(payload) {
       RETURNING *
     `,
     [
+      existing?.tenant_id ?? null,
       existing?.contact_id ?? null,
       existing?.agent_id ?? null,
       mainCallSid,

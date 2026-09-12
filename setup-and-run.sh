@@ -103,7 +103,7 @@ echo ""
 echo "  Press Ctrl+C to stop"
 echo ""
 
-# Start both in parallel
+# Start all in parallel
 cd "$ROOT/apps/api" && npm run dev &
 API_PID=$!
 
@@ -112,5 +112,8 @@ sleep 3  # wait for API to start
 cd "$ROOT/apps/web" && npm run dev &
 WEB_PID=$!
 
-# Wait for both
-wait $API_PID $WEB_PID
+cd "$ROOT/apps/saas-web" && npm run dev &
+SAAS_WEB_PID=$!
+
+# Wait for all
+wait $API_PID $WEB_PID $SAAS_WEB_PID

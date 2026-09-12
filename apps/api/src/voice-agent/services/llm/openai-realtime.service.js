@@ -217,10 +217,11 @@ export function createOpenAISession(config) {
         if (config.onError) config.onError(new Error(msg.error?.message || 'OpenAI error'));
       }
 
-      // Usage
+      // Usage + aiSpeaking reset
       if (msg.type === 'response.done') {
         state.responseActive = false;
         clearFallbackResponseTimer();
+        if (config.onResponseDone) config.onResponseDone();
         if (config.onUsage && msg.response && msg.response.usage) {
           config.onUsage(msg.response.usage);
         }

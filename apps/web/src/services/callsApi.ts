@@ -73,8 +73,9 @@ export interface Contact {
   ai_voice_consent_source?: string | null;
   do_not_call?: boolean | null;
   score?: number | null;
-  stage?: 'new_lead' | 'in_progress' | 'converted_lost' | 'email_sent' | 'replied' | 'fallback_linkedin' | 'needs_browser' | 'cold_calling' | 'discovery' | 'proposal_sent' | 'negotiation' | 'won' | 'lost' | 'unsubscribed' | null;
-  omnichannel_stage?: string | null;
+  next_call_at?: string | null;
+  stage?: 'new_lead' | 'in_progress' | 'converted_lost' | 'email_sent' | 'replied' | 'fallback_linkedin' | 'needs_browser' | 'cold_calling' | 'discovery' | 'proposal_sent' | 'negotiation' | 'won' | 'lost' | 'unsubscribed' | 'interested' | 'not_interested' | null;
+  omnichannel_stage?: 'emailing' | 'social' | 'cold_calling' | null;
   messages_count?: number | null;
   emails_sent?: number | null;
   emails_received?: number | null;
@@ -183,7 +184,7 @@ export const callsApi = {
       method: 'DELETE',
     }),
 
-  updateContact: (id: number, data: { notes?: string | null; meeting_time?: string | null; stage?: string; omnichannel_stage?: string; deal_value?: number; lost_reason?: string; current_crm?: string | null; pain_points?: string | null; automation_opportunities?: string | null }) =>
+  updateContact: (id: number, data: { notes?: string | null; meeting_time?: string | null; next_call_at?: string; stage?: string; omnichannel_stage?: string; deal_value?: number; lost_reason?: string; current_crm?: string | null; pain_points?: string | null; automation_opportunities?: string | null }) =>
     request<{ contact: Contact }>(`/contacts/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),

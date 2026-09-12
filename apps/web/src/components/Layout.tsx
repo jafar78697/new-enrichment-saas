@@ -63,19 +63,34 @@ export default function Layout() {
         if (item.to === '/google-maps') {
           return assigned.includes('scraping');
         }
+
+        // Leads module
+        if (item.to === '/leads') {
+          // Leads should be accessible to anyone doing enrichment, scraping, outreach, or calling
+          return assigned.some(m => ['enrichment', 'scraping', 'ai_calling', 'email', 'facebook', 'linkedin', 'reddit', 'youtube'].includes(m));
+        }
+
+        // AI Calling features
+        if (['/pipeline', '/ai-agent', '/call-system', '/leaderboard'].includes(item.to)) {
+          return assigned.includes('ai_calling');
+        }
         
         // Reels module
         if (item.to === '/outreach/reels') {
           return assigned.includes('reels');
         }
         
-        // Outreach hub (if they have at least one outreach module)
+        // Outreach hub
         if (item.to === '/outreach') {
           return assigned.some(m => ['email', 'facebook', 'linkedin', 'reddit', 'youtube'].includes(m));
         }
         
         // Default allowed pages
-        return true;
+        if (['/dashboard', '/settings'].includes(item.to)) {
+          return true;
+        }
+
+        return false;
       });
     }
   }

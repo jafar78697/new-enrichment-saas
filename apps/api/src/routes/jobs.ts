@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { requireModule } from '../middleware/require-role';
 import { EnrichmentMode, JobStatus } from '@enrichment-saas/contracts';
 import { JobRepository } from '@enrichment-saas/db';
 import { producer } from '@enrichment-saas/queue';
@@ -42,6 +43,7 @@ async function checkHttpQuota(db: any, tenantId: string, plan: string, count: nu
 }
 
 export default async function jobRoutes(fastify: FastifyInstance) {
+  fastify.addHook('preHandler', requireModule('enrichment', 'scraping'));
 
   // POST /v1/jobs/enrich
   fastify.post('/v1/jobs/enrich', {

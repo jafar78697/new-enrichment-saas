@@ -10,6 +10,7 @@ exports.default = (0, fastify_plugin_1.default)(async (fastify) => {
         connectionString: process.env.DATABASE_URL
     });
     fastify.decorate('db', pool);
+    // Removed auto-migrations to prevent locking/timeout issues on startup
     fastify.addHook('onClose', async (instance) => {
         await instance.db.end();
     });

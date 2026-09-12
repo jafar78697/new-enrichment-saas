@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/index.js';
-import { twilioClient, twilio } from '../config/twilio.js';
+import { signalwireClient, twilio } from '../config/signalwire.js';
 import { asyncHandler, AppError } from '../utils/errors.js';
 import { absoluteUrl } from '../utils/http.js';
 import { emitToAgent } from '../services/socket.service.js';
@@ -28,6 +28,11 @@ router.get(
 
     const where = [];
     const params = [];
+
+    if (req.tenantId) {
+      params.push(req.tenantId);
+      where.push(`c.tenant_id = $${params.length}`);
+    }
 
     if (filters.dateFrom) {
       params.push(filters.dateFrom);
@@ -119,12 +124,13 @@ router.patch(
           notes = COALESCE($3, notes),
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
+          ${req.tenantId ? `AND tenant_id = $${req.user.role === 'manager' ? 4 : 5}` : ''}
           ${req.user.role === 'manager' ? '' : 'AND agent_id = $4'}
         RETURNING *
       `,
       req.user.role === 'manager'
-        ? [params.id, payload.outcome ?? null, payload.notes ?? null]
-        : [params.id, payload.outcome ?? null, payload.notes ?? null, req.user.id]
+        ? (req.tenantId ? [params.id, payload.outcome ?? null, payload.notes ?? null, req.tenantId] : [params.id, payload.outcome ?? null, payload.notes ?? null])
+        : (req.tenantId ? [params.id, payload.outcome ?? null, payload.notes ?? null, req.user.id, req.tenantId] : [params.id, payload.outcome ?? null, payload.notes ?? null, req.user.id])
     );
 
     if (result.rowCount === 0) {
@@ -163,13 +169,16 @@ router.post(
     if (!call) {
       throw new AppError('Call not found', 404);
     }
+    if (req.tenantId && call.tenant_id !== req.tenantId) {
+      throw new AppError('Call not found', 404);
+    }
     if (req.user.role !== 'manager' && Number(call.agent_id) !== Number(req.user.id)) {
       throw new AppError('You can only manage recordings for your own calls', 403);
     }
 
     if (payload.action === 'start') {
-      const recording = await twilioClient.calls(call.call_sid).recordings.create({
-        recordingStatusCallback: absoluteUrl(req, '/api/webhooks/call-status'),
+      const recording = await signalwireClient.calls(call.call_sid).recordings.create({
+        recordingStatusCallback: absoluteUrl(req, '/api/signalwire/webhooks/call-status'),
         recordingStatusCallbackMethod: 'POST',
         recordingChannels: 'mono',
         recordingTrack: 'both'
@@ -200,7 +209,7 @@ router.post(
       });
     }
 
-    const recording = await twilioClient.calls(call.call_sid).recordings('Twilio.CURRENT').update({
+    const recording = await signalwireClient.calls(call.call_sid).recordings('Twilio.CURRENT').update({
       status: 'stopped'
     });
 
@@ -241,6 +250,9 @@ router.get(
     if (!call || !call.recording_url) {
       throw new AppError('Recording not found', 404);
     }
+    if (req.tenantId && call.tenant_id !== req.tenantId) {
+      throw new AppError('Recording not found', 404);
+    }
     if (req.user.role !== 'manager' && Number(call.agent_id) !== Number(req.user.id)) {
       throw new AppError('You can only play recordings for your own calls', 403);
     }
@@ -274,8 +286,11 @@ router.post(
     }).parse(req.body);
 
     const targetAgentResult = await query(
-      `SELECT id, twilio_identity FROM agents WHERE id = $1 AND is_available = true AND status = 'active' LIMIT 1`,
-      [payload.targetAgentId]
+      `SELECT id, signalwire_identity FROM agents
+       WHERE id = $1 AND is_available = true AND status = 'active'
+         ${req.tenantId ? 'AND tenant_id = $2' : ''}
+       LIMIT 1`,
+      req.tenantId ? [payload.targetAgentId, req.tenantId] : [payload.targetAgentId]
     );
 
     const targetAgent = targetAgentResult.rows[0];
@@ -283,13 +298,16 @@ router.post(
       throw new AppError('Target closer is not available or does not exist', 400);
     }
 
-    if (!targetAgent.twilio_identity) {
+    if (!targetAgent.signalwire_identity) {
       throw new AppError('Target closer does not have a Twilio identity setup', 400);
     }
 
     const callRecord = await query(
-      `SELECT id, call_sid, child_call_sid FROM calls WHERE call_sid = $1 OR child_call_sid = $1 LIMIT 1`,
-      [params.callSid]
+      `SELECT id, tenant_id, call_sid, child_call_sid FROM calls
+       WHERE (call_sid = $1 OR child_call_sid = $1)
+         ${req.tenantId ? 'AND tenant_id = $2' : ''}
+       LIMIT 1`,
+      req.tenantId ? [params.callSid, req.tenantId] : [params.callSid]
     );
 
     if (callRecord.rows.length === 0) {
@@ -302,9 +320,9 @@ router.post(
     const response = new twilio.twiml.VoiceResponse();
     response.say({ voice: 'alice' }, 'Please hold while we transfer your call.');
     const dial = response.dial({ answerOnBridge: true });
-    dial.client(targetAgent.twilio_identity);
+    dial.client(targetAgent.signalwire_identity);
 
-    await twilioClient.calls(parentCallSid).update({
+    await signalwireClient.calls(parentCallSid).update({
       twiml: response.toString()
     });
 

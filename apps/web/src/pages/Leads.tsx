@@ -117,7 +117,10 @@ export default function LeadsPage() {
   const [editingCrm, setEditingCrm] = useState('');
   const [editingPainPoints, setEditingPainPoints] = useState('');
   const [editingAutomation, setEditingAutomation] = useState('');
-  const [activeTab, setActiveTab] = useState<'new_lead' | 'outreach' | 'engaged' | 'discovery' | 'proposal_sent' | 'negotiation' | 'won' | 'lost' | 'unsubscribed'>('new_lead');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'interested' | 'not_interested' | 'today_call' | 'tomorrow_call'>('all');
+  const [showCallDatePicker, setShowCallDatePicker] = useState(false);
+  const [callDate, setCallDate] = useState('');
+  const [callTime, setCallTime] = useState('');
   const queryClient = useQueryClient();
 
   const callUser = getCallUser();
@@ -158,6 +161,16 @@ export default function LeadsPage() {
     setEditingCrm(lead.current_crm || '');
     setEditingPainPoints(lead.pain_points || '');
     setEditingAutomation(lead.automation_opportunities || '');
+    setShowCallDatePicker(false);
+    
+    if (lead.meeting_time || lead.next_call_at) {
+      const d = new Date(lead.meeting_time || lead.next_call_at || '');
+      setCallDate(d.toISOString().split('T')[0]);
+      setCallTime(d.toTimeString().substring(0,5));
+    } else {
+      setCallDate('');
+      setCallTime('');
+    }
   };
 
   const updateStageMutation = useMutation({
@@ -543,24 +556,24 @@ export default function LeadsPage() {
   }
 
   const tabLeads = (viewMode === 'lead_pool') ? otherLeads : otherLeads.filter(l => {
-    const isUnsubscribed = l.unsubscribed === true || l.stage === 'unsubscribed';
-    if (activeTab === 'unsubscribed') return isUnsubscribed;
-    if (isUnsubscribed) return false;
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'interested') return l.stage === 'interested';
+    if (activeFilter === 'not_interested') return l.stage === 'not_interested' || l.stage === 'lost';
+    
+    const callTimeStr = l.meeting_time || l.next_call_at;
+    if (!callTimeStr) return false;
 
-    const isEngaged = (l.email_opened && l.email_opened > 0) || 
-                      (l.emails_received && l.emails_received > 0) || 
-                      (l.messages_count && l.messages_count > 0) || 
-                      l.last_call_outcome === 'connected' ||
-                      l.stage === 'replied';
-
-    if (activeTab === 'new_lead') return (!l.stage || l.stage === 'new_lead') && !isEngaged && !l.meeting_time;
-    if (activeTab === 'outreach') return ((l.emails_sent && l.emails_sent > 0) || l.stage === 'in_progress' || l.stage === 'email_sent') && !isEngaged && !l.meeting_time;
-    if (activeTab === 'engaged') return isEngaged && !l.meeting_time && !['proposal_sent', 'negotiation', 'won', 'converted_lost', 'lost'].includes(l.stage || '');
-    if (activeTab === 'discovery') return !!l.meeting_time && !['proposal_sent', 'negotiation', 'won', 'converted_lost', 'lost'].includes(l.stage || '');
-    if (activeTab === 'proposal_sent') return l.stage === 'proposal_sent';
-    if (activeTab === 'negotiation') return l.stage === 'negotiation';
-    if (activeTab === 'won') return l.stage === 'won';
-    if (activeTab === 'lost') return l.stage === 'converted_lost' || l.stage === 'lost';
+    const todayStr = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    
+    if (activeFilter === 'today_call') {
+      return callTimeStr.startsWith(todayStr);
+    }
+    if (activeFilter === 'tomorrow_call') {
+      return callTimeStr.startsWith(tomorrowStr);
+    }
     return false;
   });
   const totalPages = Math.ceil(tabLeads.length / pageSize);
@@ -761,29 +774,31 @@ export default function LeadsPage() {
         </div>
       )}
 
-      {/* Stage Tabs (Only shown in My Leads or for Managers) */}
+      {/* Filter Tabs (Only shown in My Leads or for Managers) */}
       {(isManager || viewMode === 'my_leads') && (
-        <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid #E5E7EB', paddingBottom: 8, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 24, borderBottom: '1px solid #E5E7EB', paddingBottom: 16, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#4B5563', display: 'flex', alignItems: 'center', marginRight: 8 }}>Filter:</div>
           {[
-            { id: 'new_lead', label: 'New Leads' },
-            { id: 'outreach', label: 'Outreach' },
-            { id: 'engaged', label: 'Engaged' },
-            { id: 'discovery', label: 'Discovery Call' },
-            { id: 'proposal_sent', label: 'Proposal Sent' },
-            { id: 'negotiation', label: 'Negotiation' },
-            { id: 'won', label: 'Won 🏆' },
-            { id: 'lost', label: 'Lost' },
-            { id: 'unsubscribed', label: 'Unsubscribed 🚫' }
+            { id: 'all', label: 'All Leads' },
+            { id: 'interested', label: 'Interested' },
+            { id: 'not_interested', label: 'Not Interested' },
+            { id: 'today_call', label: 'Today Call' },
+            { id: 'tomorrow_call', label: 'Tomorrow Call' }
           ].map(tab => (
             <button 
               key={tab.id}
-              onClick={() => { setActiveTab(tab.id as any); setSearchParams({ page: '1' }); }}
+              onClick={() => { setActiveFilter(tab.id as any); setSearchParams({ page: '1' }); }}
               style={{ 
-                background: 'none', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer',
-                color: activeTab === tab.id ? '#0F766E' : '#6B7280',
-                borderBottom: activeTab === tab.id ? '2px solid #0F766E' : 'none',
-                paddingBottom: 8,
-                transition: 'all 0.2s'
+                background: activeFilter === tab.id ? '#F0FDFA' : '#F9FAFB', 
+                border: activeFilter === tab.id ? '1px solid #14B8A6' : '1px solid #E5E7EB',
+                borderRadius: 20,
+                padding: '6px 16px',
+                fontSize: 13, 
+                fontWeight: 600, 
+                cursor: 'pointer',
+                color: activeFilter === tab.id ? '#0F766E' : '#4B5563',
+                transition: 'all 0.2s',
+                boxShadow: activeFilter === tab.id ? '0 2px 4px rgba(20,184,166,0.1)' : 'none'
               }}
             >
               {tab.label}
@@ -792,106 +807,16 @@ export default function LeadsPage() {
         </div>
       )}
 
-      {/* Leads Grid or Table */}
-      {['engaged', 'discovery', 'proposal_sent', 'negotiation', 'won', 'lost'].includes(activeTab) ? (
-        <div style={{ background: '#fff', border: '1px solid #D8E1D7', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#F6F7F2', borderBottom: '2px solid #D8E1D7' }}>
-                <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Lead Name / Contact</th>
-                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>AI Score</th>
-                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Email Activity</th>
-                <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Social / SMS</th>
-                <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794', textTransform: 'uppercase' }}>Call / Meeting</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedLeads.map(lead => (
-                <tr key={lead.id} style={{ borderBottom: '1px solid #E5E7EB', background: '#fff' }}>
-                  <td style={{ padding: '16px' }}>
-                    <div style={{ fontWeight: 700, color: '#14202B', display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {lead.name}
-                      {lead.unsubscribed && (
-                        <span style={{ background: '#FEE2E2', color: '#DC2626', padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>Unsubscribed</span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 13, color: '#6B7280' }}>{lead.email || lead.phone_number || 'No contact info'}</div>
-                  </td>
-                  <td style={{ padding: '16px', textAlign: 'center' }}>
-                    <span style={{ 
-                      background: calculateAiScore(lead) > 50 ? '#FEF2F2' : '#F3F4F6',
-                      color: calculateAiScore(lead) > 50 ? '#DC2626' : '#4B5563',
-                      padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 800 
-                    }}>
-                      {calculateAiScore(lead)}
-                    </span>
-                  </td>
-                  <td style={{ padding: '16px', textAlign: 'center' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
-                      {lead.email_opened ? (
-                        <span style={{ background: '#D1FAE5', color: '#065F46', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
-                          👁️ Seen ({lead.email_opened})
-                        </span>
-                      ) : null}
-                      {lead.emails_received || lead.stage === 'replied' ? (
-                        <span style={{ background: '#E0E7FF', color: '#4338CA', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
-                          ↩️ Replied
-                        </span>
-                      ) : null}
-                      {!lead.email_opened && !lead.emails_received && lead.stage !== 'replied' && (
-                        <span style={{ color: '#D1D5DB', fontSize: 12 }}>-</span>
-                      )}
-                    </div>
-                  </td>
-                  <td style={{ padding: '16px', textAlign: 'center' }}>
-                    {lead.messages_count ? (
-                       <span style={{ background: '#DBEAFE', color: '#1D4ED8', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700 }}>
-                         💬 {lead.messages_count} Messages
-                       </span>
-                    ) : <span style={{ color: '#D1D5DB' }}>-</span>}
-                  </td>
-                  <td style={{ padding: '16px' }}>
-                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                       {lead.meeting_time ? (
-                         <span style={{ background: '#FEF3C7', color: '#B45309', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700, display: 'inline-block', width: 'fit-content' }}>
-                           🗓️ Meeting: {new Date(lead.meeting_time).toLocaleDateString()}
-                         </span>
-                       ) : null}
-                       {lead.last_call_outcome ? (
-                         <span style={{ background: '#F3F4F6', color: '#4B5563', padding: '4px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600, display: 'inline-block', width: 'fit-content' }}>
-                           📞 Call: {lead.last_call_outcome.replace('_', ' ')}
-                         </span>
-                       ) : null}
-                       {!lead.meeting_time && !lead.last_call_outcome && (
-                         <span style={{ color: '#D1D5DB', fontSize: 12 }}>-</span>
-                       )}
-                     </div>
-                  </td>
-                </tr>
-              ))}
-              {tabLeads.length === 0 && (
-                <tr>
-                  <td colSpan={4} style={{ padding: 40, textAlign: 'center', color: '#7B8794', fontSize: 15, fontWeight: 500 }}>
-                    <div style={{ fontSize: 32, marginBottom: 16 }}>📭</div>
-                    No leads have engaged yet.<br/>
-                    <span style={{ fontSize: 13, fontWeight: 400 }}>Only leads that have opened emails, replied, had calls, or scheduled meetings will appear here.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gap: 16 }}>
-          {paginatedLeads.map(lead => renderLead(lead, false))}
+      {/* Leads Grid */}
+      <div style={{ display: 'grid', gap: 16 }}>
+        {paginatedLeads.map(lead => renderLead(lead, false))}
 
-          {tabLeads.length === 0 && (
-            <div style={{ padding: 60, textAlign: 'center', color: '#7B8794', background: '#fff', borderRadius: 12, border: '1px solid #D8E1D7' }}>
-              No leads in this stage.
-            </div>
-          )}
-        </div>
-      )}
+        {tabLeads.length === 0 && (
+          <div style={{ padding: 60, textAlign: 'center', color: '#7B8794', background: '#fff', borderRadius: 12, border: '1px dashed #D8E1D7' }}>
+            No leads matching this filter.
+          </div>
+        )}
+      </div>
 
       {totalPages > 1 && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB', borderRadius: 12, marginTop: 16 }}>
@@ -957,9 +882,93 @@ export default function LeadsPage() {
             boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', maxHeight: '90vh', overflowY: 'auto'
           }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 18, color: '#111827', fontWeight: 700 }}>
-              Research & Notes for {editingNoteLead.name}
+              Notes for {editingNoteLead.name}
             </h3>
-            
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#4B5563', marginBottom: 8, textTransform: 'uppercase' }}>General Notes</label>
+              <textarea
+                value={editingNoteText}
+                onChange={(e) => setEditingNoteText(e.target.value)}
+                placeholder="Enter general note details..."
+                style={{
+                  width: '100%', padding: '12px', border: '1px solid #E5E7EB', borderRadius: 8, minHeight: 100,
+                  fontSize: 14, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 20, padding: '16px', background: '#F9FAFB', borderRadius: 12, border: '1px solid #E5E7EB' }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#4B5563', marginBottom: 12, textTransform: 'uppercase' }}>Call Status</label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => {
+                    updateStageMutation.mutate({ id: editingNoteLead.id, stage: 'interested' });
+                    toast.success("Marked as Interested");
+                  }}
+                  style={{ flex: 1, padding: '10px 16px', borderRadius: 8, border: '1px solid #10B981', background: '#D1FAE5', color: '#065F46', fontWeight: 700, cursor: 'pointer', fontSize: 13, transition: 'all 0.2s' }}
+                >
+                  Interested
+                </button>
+                <button
+                  onClick={() => {
+                    updateStageMutation.mutate({ id: editingNoteLead.id, stage: 'not_interested' });
+                    toast.success("Marked as Not Interested");
+                  }}
+                  style={{ flex: 1, padding: '10px 16px', borderRadius: 8, border: '1px solid #EF4444', background: '#FEE2E2', color: '#991B1B', fontWeight: 700, cursor: 'pointer', fontSize: 13, transition: 'all 0.2s' }}
+                >
+                  Not Interested
+                </button>
+                <button
+                  onClick={() => setShowCallDatePicker(!showCallDatePicker)}
+                  style={{ flex: 1, padding: '10px 16px', borderRadius: 8, border: '1px solid #3B82F6', background: showCallDatePicker ? '#BFDBFE' : '#DBEAFE', color: '#1E40AF', fontWeight: 700, cursor: 'pointer', fontSize: 13, transition: 'all 0.2s' }}
+                >
+                  Again Call {showCallDatePicker ? '▼' : '▶'}
+                </button>
+              </div>
+
+              {showCallDatePicker && (
+                <div style={{ marginTop: 16, display: 'flex', gap: 12, alignItems: 'flex-end', animation: 'fadeIn 0.2s' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6B7280', marginBottom: 4 }}>Date</label>
+                    <input 
+                      type="date" 
+                      value={callDate} 
+                      onChange={e => setCallDate(e.target.value)}
+                      style={{ width: '100%', padding: '10px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6B7280', marginBottom: 4 }}>Time</label>
+                    <input 
+                      type="time" 
+                      value={callTime} 
+                      onChange={e => setCallTime(e.target.value)}
+                      style={{ width: '100%', padding: '10px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (callDate && callTime) {
+                        const dateTime = `${callDate}T${callTime}:00`;
+                        callsApi.updateContact(editingNoteLead.id, { meeting_time: dateTime, next_call_at: dateTime })
+                          .then(() => {
+                             queryClient.invalidateQueries({ queryKey: ['contacts'] });
+                             toast.success('Call Scheduled successfully!');
+                             setShowCallDatePicker(false);
+                          });
+                      } else {
+                        toast.error('Please select both date and time');
+                      }
+                    }}
+                    style={{ padding: '10px 16px', background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
+                  >
+                    Set Schedule
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#4B5563', marginBottom: 4, textTransform: 'uppercase' }}>Current CRM</label>
               <input value={editingCrm} onChange={(e) => setEditingCrm(e.target.value)} placeholder="e.g. HubSpot, Salesforce" style={{ width: '100%', padding: '10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }} />
@@ -973,19 +982,6 @@ export default function LeadsPage() {
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#4B5563', marginBottom: 4, textTransform: 'uppercase' }}>Automation Opportunities</label>
               <textarea value={editingAutomation} onChange={(e) => setEditingAutomation(e.target.value)} placeholder="e.g. AI Appointment Setter" style={{ width: '100%', padding: '10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, minHeight: 60, resize: 'vertical', boxSizing: 'border-box' }} />
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#4B5563', marginBottom: 4, textTransform: 'uppercase' }}>General Notes</label>
-              <textarea
-                value={editingNoteText}
-                onChange={(e) => setEditingNoteText(e.target.value)}
-                placeholder="Enter general note details..."
-                style={{
-                  width: '100%', padding: '12px', border: '1px solid #E5E7EB', borderRadius: 8, minHeight: 80,
-                  fontSize: 14, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box'
-                }}
-              />
             </div>
             
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>

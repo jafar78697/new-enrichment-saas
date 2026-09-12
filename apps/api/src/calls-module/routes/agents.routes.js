@@ -10,13 +10,24 @@ router.get(
   '/',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const where = req.user.role === 'manager' ? '' : 'WHERE id = $1';
-    const params = req.user.role === 'manager' ? [] : [req.user.id];
+    const params = [];
+    const where = [];
+
+    if (req.tenantId) {
+      params.push(req.tenantId);
+      where.push(`tenant_id = $${params.length}`);
+    }
+
+    if (req.user.role !== 'manager') {
+      params.push(req.user.id);
+      where.push(`id = $${params.length}`);
+    }
+
     const result = await query(
       `
-        SELECT id, name, email, twilio_identity, twilio_phone_number, is_available, role, status, created_at, updated_at, linkedin_cookie, linkedin_daily_limit, linkedin_connection_template, reddit_session, reddit_daily_limit, reddit_connection_template
+        SELECT id, tenant_id, name, email, signalwire_identity, signalwire_phone_number, is_available, role, status, created_at, updated_at, linkedin_cookie, linkedin_daily_limit, linkedin_connection_template, reddit_session, reddit_daily_limit, reddit_connection_template
         FROM agents
-        ${where}
+        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY name ASC
       `,
       params
@@ -47,9 +58,10 @@ router.patch(
         UPDATE agents
         SET is_available = $2, updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
-        RETURNING id, name, email, twilio_identity, twilio_phone_number, is_available, role, status, created_at, updated_at
+          ${req.tenantId ? 'AND tenant_id = $3' : ''}
+        RETURNING id, name, email, signalwire_identity, signalwire_phone_number, is_available, role, status, created_at, updated_at
       `,
-      [params.id, body.isAvailable]
+      req.tenantId ? [params.id, body.isAvailable, req.tenantId] : [params.id, body.isAvailable]
     );
 
     if (result.rowCount === 0) {
@@ -106,9 +118,10 @@ router.patch(
         UPDATE agents
         SET ${updates.join(', ')}
         WHERE id = $1
+          ${req.tenantId ? `AND tenant_id = $${paramIndex}` : ''}
         RETURNING id, name, email, linkedin_cookie, linkedin_daily_limit, linkedin_connection_template
       `,
-      values
+      req.tenantId ? [...values, req.tenantId] : values
     );
 
     if (result.rowCount === 0) {
@@ -165,9 +178,10 @@ router.patch(
         UPDATE agents
         SET ${updates.join(', ')}
         WHERE id = $1
+          ${req.tenantId ? `AND tenant_id = $${paramIndex}` : ''}
         RETURNING id, name, email, reddit_session, reddit_daily_limit, reddit_connection_template
       `,
-      values
+      req.tenantId ? [...values, req.tenantId] : values
     );
 
     if (result.rowCount === 0) {

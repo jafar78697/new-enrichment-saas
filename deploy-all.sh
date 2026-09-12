@@ -17,6 +17,10 @@ pnpm build
 npx wrangler pages deploy dist --project-name enrichment-web
 cd ../../
 
+echo ""
+echo "📞 Deploying Calling SaaS to Cloudflare Pages project: jentocalling..."
+bash deploy-calling-saas.sh
+
 API_URL="${API_URL:-https://api.jentoai.pro}" bash deploy-voice-frontend.sh
 
 # 2. Backend (rsync -> AWS EC2)

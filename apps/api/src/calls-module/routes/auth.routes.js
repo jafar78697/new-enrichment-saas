@@ -20,7 +20,7 @@ router.post(
     const { email, username, password } = loginSchema.parse(req.body);
     const identifier = username || email;
     const { rows: records } = await query(
-      'SELECT id, name, email, username, role, status, password_hash, twilio_identity, twilio_phone_number FROM agents WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($2)',
+      'SELECT id, name, email, username, role, status, password_hash, signalwire_identity, signalwire_phone_number FROM agents WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($2)',
       [identifier, identifier]
     );
     const row = records[0];
@@ -60,8 +60,8 @@ router.post(
         username: row.username,
         role: row.role,
         status: row.status,
-        twilio_identity: row.twilio_identity,
-        twilio_phone_number: row.twilio_phone_number,
+        signalwire_identity: row.signalwire_identity,
+        signalwire_phone_number: row.signalwire_phone_number,
         assigned_modules: assignedModules,
       },
     });
@@ -99,7 +99,7 @@ router.post(
     `, [hash, row.id]);
 
     const { rows: freshRows } = await query(
-      'SELECT id, name, email, role, status, twilio_identity, twilio_phone_number FROM agents WHERE id = $1',
+      'SELECT id, name, email, role, status, signalwire_identity, signalwire_phone_number FROM agents WHERE id = $1',
       [row.id]
     );
     const fresh = freshRows[0];
@@ -208,18 +208,18 @@ router.post(
       let identity = baseIdentity;
       
       while (true) {
-        const { rows: res } = await query('SELECT id FROM agents WHERE twilio_identity = $1', [identity]);
+        const { rows: res } = await query('SELECT id FROM agents WHERE signalwire_identity = $1', [identity]);
         if (res.length === 0) break;
         identity = `${baseIdentity}_${crypto.randomBytes(2).toString('hex')}`;
       }
       const { rows: insertRows } = await query(
-          `INSERT INTO agents (name, email, twilio_identity, role, status, password_hash, is_available, invite_accepted_at)
+          `INSERT INTO agents (name, email, signalwire_identity, role, status, password_hash, is_available, invite_accepted_at)
            VALUES ($1, $2, $3, 'manager', 'active', $4, true, CURRENT_TIMESTAMP) RETURNING id`,
            [name, email, identity, hash]
       );
       agentId = insertRows[0].id;
     }
-    const { rows: freshRows } = await query('SELECT id, name, email, role, status, twilio_identity, twilio_phone_number FROM agents WHERE id = $1', [agentId]);
+    const { rows: freshRows } = await query('SELECT id, name, email, role, status, signalwire_identity, signalwire_phone_number FROM agents WHERE id = $1', [agentId]);
     const fresh = freshRows[0];
     const jwtToken = signToken(fresh);
     res.json({ token: jwtToken, user: fresh });

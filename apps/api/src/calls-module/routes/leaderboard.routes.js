@@ -19,7 +19,7 @@ router.get(
 
     const result = await query(`
         SELECT 
-            a.id, a.name, a.twilio_phone_number,
+            a.id, a.name, a.signalwire_phone_number,
             t.name as team_name,
             COALESCE(c.total_calls, 0) as total_calls,
             COALESCE(c.connected_calls, 0) as connected_calls,

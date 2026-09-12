@@ -11,7 +11,7 @@ const transporter = nodemailer_1.default.createTransport({
     service: 'gmail',
     auth: {
         user: process.env.SMTP_USER || 'scale.ai.jento@gmail.com',
-        pass: process.env.SMTP_PASS || '', 
+        pass: process.env.SMTP_PASS || '',
     },
 });
 async function passwordResetRoutes(app) {

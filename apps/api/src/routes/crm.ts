@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { RestClient } from '@signalwire/compatibility-api';
 import { normalizeNorthAmericanPhone } from '../utils/us-phone.js';
 import { acquireOutboundLock } from '../utils/outbound-lock.js';
+import { requireModule } from '../middleware/require-role';
 
 // Canonical pipeline stages. Frontend renders columns in this exact order.
 export const PIPELINE_STAGES = [
@@ -80,6 +81,20 @@ function isWithinCallingWindow(control: any) {
     && hour < Number(control?.calling_window_end_hour ?? 17);
 }
 
+async function hasActiveCallingSubscription(fastify: FastifyInstance, tenantId: string) {
+  const { rows } = await fastify.db.query(
+    `SELECT 1
+     FROM customer_subscriptions
+     WHERE tenant_id = $1
+       AND status = 'active'
+       AND start_date <= NOW()
+       AND (end_date IS NULL OR end_date > NOW())
+     LIMIT 1`,
+    [tenantId],
+  );
+  return Boolean(rows[0]);
+}
+
 async function writeAudit(
   fastify: FastifyInstance,
   tenantId: string,
@@ -117,6 +132,7 @@ async function terminateSignalWireCall(callSid: string) {
 }
 
 export default async function crmRoutes(fastify: FastifyInstance) {
+  fastify.addHook('preHandler', requireModule('enrichment', 'ai_calling'));
   // Ensure assigned_to_ai exists (runs once on boot)
   try {
     await fastify.db.query(`
@@ -547,11 +563,16 @@ export default async function crmRoutes(fastify: FastifyInstance) {
 
     const body = request.body || {};
     const caps = serverCallingCaps();
+    const { rows: currentRows } = await fastify.db.query(
+      'SELECT * FROM ai_calling_controls WHERE tenant_id = $1',
+      [tenantId],
+    );
+    const current = normalizedCallingControl(currentRows[0] || {});
     const timezone = CALLING_TIMEZONES.has(body.callingTimezone)
       ? body.callingTimezone
-      : 'America/New_York';
-    const startHour = Math.round(numberInRange(body.callingWindowStartHour, 9, 0, 23));
-    const endHour = Math.round(numberInRange(body.callingWindowEndHour, 17, 1, 24));
+      : current.callingTimezone;
+    const startHour = Math.round(numberInRange(body.callingWindowStartHour, current.callingWindowStartHour, 0, 23));
+    const endHour = Math.round(numberInRange(body.callingWindowEndHour, current.callingWindowEndHour, 1, 24));
     if (startHour >= endHour) {
       return reply.code(400).send({ error: 'Calling end hour must be later than start hour' });
     }
@@ -559,8 +580,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     const settings = {
       callsPerMinute: Math.round(numberInRange(body.callsPerMinute, 1, 1, caps.callsPerMinute)),
       maxCallsPerDay: Math.round(numberInRange(body.maxCallsPerDay, caps.maxCallsPerDay, 1, caps.maxCallsPerDay)),
-      maxMinutesPerDay: Math.round(numberInRange(body.maxMinutesPerDay, caps.maxMinutesPerDay, 1, caps.maxMinutesPerDay)),
-      maxCostUsdPerDay: numberInRange(body.maxCostUsdPerDay, caps.maxCostUsdPerDay, 0.1, caps.maxCostUsdPerDay),
+      maxMinutesPerDay: Math.round(numberInRange(body.maxMinutesPerDay, current.maxMinutesPerDay, 1, caps.maxMinutesPerDay)),
+      maxCostUsdPerDay: numberInRange(body.maxCostUsdPerDay, current.maxCostUsdPerDay, 0.1, caps.maxCostUsdPerDay),
       callingTimezone: timezone,
       callingWindowStartHour: startHour,
       callingWindowEndHour: endHour,
@@ -752,6 +773,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       return reply.code(403).send({ ok: false, isRunning: false, message: 'AI outbound calling is disabled by the server safety policy.' });
     }
     const { tenantId, userId } = request.tenant;
+    if (!await hasActiveCallingSubscription(fastify, tenantId)) {
+      return reply.code(402).send({ error: 'Your calling subscription is inactive or has expired. Contact your administrator to renew 30-day calling access.' });
+    }
     await fastify.db.query(
       `INSERT INTO ai_calling_controls (tenant_id, is_running, updated_at)
        VALUES ($1, false, NOW())
@@ -920,6 +944,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       return reply.code(403).send({ error: 'AI outbound calling is disabled by the server safety policy.' });
     }
     const { tenantId, userId } = request.tenant;
+    if (!await hasActiveCallingSubscription(fastify, tenantId)) {
+      return reply.code(402).send({ error: 'Your calling subscription is inactive or has expired. Contact your administrator to renew 30-day calling access.' });
+    }
     const leadId = request.params.id;
 
     // Fetch the lead

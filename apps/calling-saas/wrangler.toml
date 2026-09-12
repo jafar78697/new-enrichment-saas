@@ -1,0 +1,7 @@
+name = "jentocalling"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "dist"
+
+[env.production]
+VITE_API_URL = "https://api.jentoai.pro"
+VITE_CALLS_URL = "https://api.jentoai.pro"

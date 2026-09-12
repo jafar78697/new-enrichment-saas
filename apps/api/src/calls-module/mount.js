@@ -10,7 +10,7 @@ import employeesRoutes from './routes/employees.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
 import contactsRoutes from './routes/contacts.routes.js';
 import callsRoutes from './routes/calls.routes.js';
-import twilioRoutes from './routes/twilio.routes.js';
+import signalwireRoutes from './routes/signalwire.routes.js';
 import './services/followup.service.js'; // Initialize the daily cron job
 import { initCampaignSender } from './services/campaign-sender.service.js'; // Email campaign sender
 import scraperBridgeRoutes from './routes/scraper-bridge.routes.js';
@@ -25,6 +25,7 @@ import campaignsRoutes from './routes/campaigns.routes.js';
 import emailAccountsRoutes from './routes/email-accounts.routes.js';
 import realEstateRoutes from './routes/real-estate.routes.js';
 import nichesRoutes from './routes/niches.routes.js';
+import altTextRoutes from './routes/alt-text.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { softAuth } from './middleware/auth.js';
 
@@ -46,6 +47,7 @@ export function createCallsApp() {
 
   // Scraper Bridge (no softAuth because it uses API Key)
   app.use('/api/scraper-bridge', scraperBridgeRoutes);
+  app.use('/api', altTextRoutes);
 
   // Attach req.user for any /api route below that checks it.
   app.use('/api', softAuth);
@@ -56,7 +58,7 @@ export function createCallsApp() {
   app.use('/api/agents', agentsRoutes);
   app.use('/api/contacts', contactsRoutes);
   app.use('/api/calls', callsRoutes);
-  app.use('/api/twilio', twilioRoutes);
+  app.use('/api/signalwire', signalwireRoutes);
   app.use('/api/meta', metaRoutes);
   app.use('/api/facebook', facebookExtRoutes);
   app.use('/api/linkedin', linkedinExtRoutes);

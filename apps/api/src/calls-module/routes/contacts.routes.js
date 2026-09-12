@@ -35,10 +35,15 @@ router.get(
   asyncHandler(async (req, res) => {
     const params = [];
     const where = [];
+    if (req.tenantId) {
+      params.push(req.tenantId);
+      where.push(`c.tenant_id = $${params.length}`);
+    }
+
     if (req.user.role !== 'manager' && req.user.role !== 'owner' && req.user.role !== 'admin') {
-      // For Caller role or general employee, show contacts assigned to them OR unassigned contacts belonging to their niches.
+      // For Caller role or general employee, show contacts assigned to them OR unassigned contacts belonging to their niches OR unassigned contacts with no niche.
       params.push(req.user.id);
-      where.push(`(c.assigned_agent_id = $${params.length} OR (c.assigned_agent_id IS NULL AND c.niche_id IN (SELECT niche_id FROM employee_niches WHERE agent_id = $${params.length})))`);
+      where.push(`(c.assigned_agent_id = $${params.length} OR (c.assigned_agent_id IS NULL AND (c.niche_id IS NULL OR c.niche_id IN (SELECT niche_id FROM employee_niches WHERE agent_id = $${params.length}))))`);
     } else if (req.query.niche_id) {
       params.push(req.query.niche_id);
       where.push(`c.niche_id = $${params.length}`);
@@ -87,7 +92,12 @@ router.post(
     // Get active agents for round-robin if no agent assigned
     let finalAgentId = assignedAgentId;
     if (!finalAgentId) {
-      const activeAgents = await query("SELECT id FROM agents WHERE role = 'employee' AND status = 'active' ORDER BY id ASC");
+      const activeAgents = await query(
+        `SELECT id FROM agents WHERE role = 'employee' AND status = 'active'
+         ${req.tenantId ? 'AND tenant_id = $1' : ''}
+         ORDER BY id ASC`,
+        req.tenantId ? [req.tenantId] : []
+      );
       if (activeAgents.rows.length > 0) {
         // Find agent with the least leads
         const leastLeadsAgent = await query(`
@@ -95,10 +105,11 @@ router.post(
           FROM agents a
           LEFT JOIN contacts c ON c.assigned_agent_id = a.id
           WHERE a.role = 'employee' AND a.status = 'active'
+            ${req.tenantId ? 'AND a.tenant_id = $1' : ''}
           GROUP BY a.id
           ORDER BY lead_count ASC, a.id ASC
           LIMIT 1
-        `);
+        `, req.tenantId ? [req.tenantId] : []);
         finalAgentId = leastLeadsAgent.rows[0].id;
       }
     }
@@ -106,11 +117,12 @@ router.post(
     try {
       const result = await query(
         `
-          INSERT INTO contacts (name, phone_number, company, email, notes, assigned_agent_id, source, niche_id, omnichannel_stage)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'emailing')
+          INSERT INTO contacts (tenant_id, name, phone_number, company, email, notes, assigned_agent_id, source, niche_id, omnichannel_stage)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'emailing')
           RETURNING *
         `,
         [
+          req.tenantId || null,
           payload.name.trim(),
           payload.phone_number.trim(),
           payload.company || null,
@@ -166,7 +178,12 @@ router.post(
     const duplicates = [];
 
     // Fetch active agents for round robin
-    const activeAgentsRes = await query("SELECT id FROM agents WHERE role = 'employee' AND status = 'active' ORDER BY id ASC");
+    const activeAgentsRes = await query(
+      `SELECT id FROM agents WHERE role = 'employee' AND status = 'active'
+       ${req.tenantId ? 'AND tenant_id = $1' : ''}
+       ORDER BY id ASC`,
+      req.tenantId ? [req.tenantId] : []
+    );
     const activeAgents = activeAgentsRes.rows.map(a => a.id);
     let agentIndex = 0;
 
@@ -184,11 +201,12 @@ router.post(
         try {
           const res = await client.query(
             `
-              INSERT INTO contacts (name, phone_number, company, email, notes, assigned_agent_id, source, niche_id, omnichannel_stage)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'emailing')
+              INSERT INTO contacts (tenant_id, name, phone_number, company, email, notes, assigned_agent_id, source, niche_id, omnichannel_stage)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'emailing')
               RETURNING *
             `,
             [
+              req.tenantId || null,
               record.name,
               record.phone_number,
               record.company || null,
@@ -243,18 +261,20 @@ router.post(
         `UPDATE contacts 
             SET assigned_agent_id = $1, updated_at = CURRENT_TIMESTAMP 
           WHERE id = ANY($2) 
+            ${req.tenantId ? 'AND tenant_id = $3' : ''}
           RETURNING id`,
-        [agentId, contactIds]
+        req.tenantId ? [agentId, contactIds, req.tenantId] : [agentId, contactIds]
       );
     } else {
       result = await query(
         `UPDATE contacts 
             SET assigned_agent_id = $1, updated_at = CURRENT_TIMESTAMP 
           WHERE id = ANY($2) 
+            ${req.tenantId ? 'AND tenant_id = $3' : ''}
             AND assigned_agent_id IS NULL
-            AND niche_id IN (SELECT niche_id FROM employee_niches WHERE agent_id = $1)
+            AND (niche_id IS NULL OR niche_id IN (SELECT niche_id FROM employee_niches WHERE agent_id = $1))
           RETURNING id`,
-        [agentId, contactIds]
+        req.tenantId ? [agentId, contactIds, req.tenantId] : [agentId, contactIds]
       );
     }
 
@@ -267,7 +287,7 @@ router.patch(
   requireAuth,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const { notes, meeting_time, stage } = req.body;
+    const { notes, meeting_time, stage, next_call_at } = req.body;
     
     const updates = [];
     const values = [];
@@ -286,6 +306,11 @@ router.patch(
       values.push(stage);
       updates.push(`stage = $${values.length}`);
     }
+
+    if (next_call_at !== undefined) {
+      values.push(next_call_at || null);
+      updates.push(`next_call_at = $${values.length}`);
+    }
     
     if (req.body.omnichannel_stage !== undefined) {
       values.push(req.body.omnichannel_stage);
@@ -293,13 +318,19 @@ router.patch(
     }
     
     if (updates.length === 0) {
-      const current = await query('SELECT * FROM contacts WHERE id = $1', [id]);
+      const current = await query(
+        `SELECT * FROM contacts WHERE id = $1 ${req.tenantId ? 'AND tenant_id = $2' : ''}`,
+        req.tenantId ? [id, req.tenantId] : [id]
+      );
       if (current.rowCount === 0) throw new AppError('Contact not found', 404);
       return res.json({ contact: current.rows[0] });
     }
     
     values.push(id);
-    const queryStr = `UPDATE contacts SET ${updates.join(', ')} WHERE id = $${values.length} RETURNING *`;
+    if (req.tenantId) values.push(req.tenantId);
+    const idParam = req.tenantId ? values.length - 1 : values.length;
+    const tenantParam = values.length;
+    const queryStr = `UPDATE contacts SET ${updates.join(', ')} WHERE id = $${idParam} ${req.tenantId ? `AND tenant_id = $${tenantParam}` : ''} RETURNING *`;
     
     const result = await query(queryStr, values);
     
@@ -316,12 +347,18 @@ router.delete(
   requireAuth,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const result = await query('DELETE FROM contacts WHERE id = $1 RETURNING *', [id]);
+    const result = await query(
+      `DELETE FROM contacts WHERE id = $1 ${req.tenantId ? 'AND tenant_id = $2' : ''} RETURNING *`,
+      req.tenantId ? [id, req.tenantId] : [id]
+    );
     if (result.rowCount === 0) {
       throw new AppError('Contact not found', 404);
     }
     // Also delete associated calls if any
-    await query('DELETE FROM calls WHERE contact_id = $1', [id]);
+    await query(
+      `DELETE FROM calls WHERE contact_id = $1 ${req.tenantId ? 'AND tenant_id = $2' : ''}`,
+      req.tenantId ? [id, req.tenantId] : [id]
+    );
     res.json({ message: 'Contact deleted' });
   })
 );
@@ -334,9 +371,15 @@ router.delete(
     if (req.user.role !== 'manager') {
       throw new AppError('Only managers can clear all contacts', 403);
     }
-    const result = await query('DELETE FROM contacts');
+    const result = await query(
+      `DELETE FROM contacts ${req.tenantId ? 'WHERE tenant_id = $1' : ''}`,
+      req.tenantId ? [req.tenantId] : []
+    );
     // Also delete all calls (but they cascade usually, let's be explicit)
-    await query('DELETE FROM calls WHERE contact_id IS NOT NULL');
+    await query(
+      `DELETE FROM calls WHERE contact_id IS NOT NULL ${req.tenantId ? 'AND tenant_id = $1' : ''}`,
+      req.tenantId ? [req.tenantId] : []
+    );
     res.json({ deletedCount: result.rowCount, message: 'All contacts cleared' });
   })
 );

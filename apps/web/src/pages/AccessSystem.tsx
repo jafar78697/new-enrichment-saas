@@ -11,13 +11,15 @@ const ALL_MODULES = [
   { key: 'reels', label: 'Reels', color: '#E1306C', bg: '#FDF0F5' },
   { key: 'youtube', label: 'YouTube', color: '#FF0000', bg: '#FFE5E5' },
   { key: 'scraping', label: 'Scraping', color: '#0F766E', bg: '#E6F4F1' },
+  { key: 'enrichment', label: 'Lead Enrichment', color: '#7C3AED', bg: '#F3E8FF' },
+  { key: 'ai_calling', label: 'AI Calling', color: '#0E7490', bg: '#CFFAFE' },
 ];
 
 export default function AccessSystemPage() {
   const queryClient = useQueryClient();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newEmployee, setNewEmployee] = useState<{ name: string; username: string; nicheIds: number[] }>({ name: '', username: '', nicheIds: [] });
-  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
+  const [generatedCredentials, setGeneratedCredentials] = useState<{ username: string; password: string; } | null>(null);
 
   // Modal State
   const [modal, setModal] = useState<{
@@ -65,7 +67,7 @@ export default function AccessSystemPage() {
   const createMutation = useMutation({
     mutationFn: (data: { name: string, username: string, nicheIds?: number[] }) => employeesApi.create(data),
     onSuccess: (data) => {
-      setGeneratedPassword(data.generatedPassword);
+      setGeneratedCredentials({ username: data.employee.username, password: data.generatedPassword });
       setNewEmployee({ name: '', username: '', nicheIds: [] });
       setShowAddForm(false);
       queryClient.invalidateQueries({ queryKey: ['employees'] });
@@ -96,8 +98,9 @@ export default function AccessSystemPage() {
 
   const resetPasswordMutation = useMutation({
     mutationFn: (id: number) => employeesApi.resetPassword(id),
-    onSuccess: (data) => {
-      setGeneratedPassword(data.generatedPassword);
+    onSuccess: (data, empId) => {
+      const emp = employees.find((e: any) => e.id === empId);
+      setGeneratedCredentials({ username: emp?.username || 'Unknown', password: data.generatedPassword });
     },
     onError: (err: any) => showAlert('Error', err.message || 'Failed to reset password')
   });
@@ -195,26 +198,38 @@ export default function AccessSystemPage() {
         </button>
       </div>
 
-      {generatedPassword && (
+      {generatedCredentials && (
         <div style={{ background: '#ECFDF5', border: '1px solid #10B981', padding: 16, borderRadius: 8, marginBottom: 24 }}>
-          <strong style={{ color: '#065F46' }}>Password Generated!</strong>
-          <p style={{ margin: '8px 0', color: '#047857' }}>
-            Please share this password with the employee. It will not be shown again:
+          <strong style={{ color: '#065F46', display: 'block', marginBottom: 8, fontSize: 16 }}>🎉 Access Granted!</strong>
+          <p style={{ margin: '0 0 12px', color: '#047857' }}>
+            Please share these credentials with the employee. The password will not be shown again:
           </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <code style={{ background: '#fff', padding: '8px 12px', borderRadius: 4, fontSize: 18, fontWeight: 'bold' }}>
-              {generatedPassword}
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 16px', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ fontWeight: 600, color: '#065F46' }}>Username:</div>
+            <code style={{ background: '#fff', padding: '6px 12px', borderRadius: 4, fontSize: 16, fontWeight: 'bold', border: '1px solid #A7F3D0' }}>
+              {generatedCredentials.username}
             </code>
+            <div style={{ fontWeight: 600, color: '#065F46' }}>Password:</div>
+            <code style={{ background: '#fff', padding: '6px 12px', borderRadius: 4, fontSize: 16, fontWeight: 'bold', border: '1px solid #A7F3D0' }}>
+              {generatedCredentials.password}
+            </code>
+            <div style={{ fontWeight: 600, color: '#065F46' }}>Login Link:</div>
+            <a href={`${window.location.origin}/call-login`} target="_blank" rel="noreferrer" style={{ color: '#059669', fontWeight: 600, textDecoration: 'underline' }}>
+              {window.location.origin}/call-login
+            </a>
+          </div>
+          <div style={{ display: 'flex', gap: 12 }}>
             <button
               onClick={() => {
-                navigator.clipboard.writeText(generatedPassword);
-                showAlert('Copied', 'Password copied to clipboard!');
+                const text = `Login URL: ${window.location.origin}/call-login\nUsername: ${generatedCredentials.username}\nPassword: ${generatedCredentials.password}`;
+                navigator.clipboard.writeText(text);
+                showAlert('Copied', 'Credentials copied to clipboard!');
               }}
-              style={{ background: '#10B981', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}
+              style={{ background: '#10B981', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}
             >
-              Copy
+              Copy Credentials
             </button>
-            <button onClick={() => setGeneratedPassword(null)} style={{ background: 'none', border: 'none', color: '#059669', cursor: 'pointer', textDecoration: 'underline' }}>Dismiss</button>
+            <button onClick={() => setGeneratedCredentials(null)} style={{ background: 'none', border: 'none', color: '#059669', cursor: 'pointer', textDecoration: 'underline' }}>Dismiss</button>
           </div>
         </div>
       )}
@@ -361,7 +376,7 @@ export default function AccessSystemPage() {
                             <option value="">-- Select an option --</option>
                             <option value="new">+ Buy New Number</option>
                             {pool.length > 0 && (
-                              <optgroup label="Available in Pool">
+                              <optgroup label="Purchased Numbers (Available in Pool)">
                                 {pool.map(p => (
                                   <option key={p.sid} value={p.sid} disabled={!!p.assigned}>
                                     {p.phoneNumber} {p.assigned ? `(Assigned)` : ''}
@@ -562,6 +577,7 @@ export default function AccessSystemPage() {
               <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794' }}>Phone Number</th>
               <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794' }}>Status</th>
               <th style={{ textAlign: 'left', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794' }}>Assigned To</th>
+              <th style={{ textAlign: 'center', padding: '16px', fontSize: 12, fontWeight: 700, color: '#7B8794' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -585,7 +601,60 @@ export default function AccessSystemPage() {
                   </span>
                 </td>
                 <td style={{ padding: '16px', color: '#52606D', fontSize: 14 }}>
-                  {p.assigned ? `${p.assigned.name} (${p.assigned.email})` : '—'}
+                  {p.assigned ? (
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#14202B' }}>{p.assigned.name}</div>
+                      <div style={{ fontSize: 12, color: '#7B8794' }}>{p.assigned.email}</div>
+                    </div>
+                  ) : '—'}
+                </td>
+                <td style={{ padding: '16px', textAlign: 'center' }}>
+                  {p.assigned && (
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                      <button 
+                        onClick={() => {
+                          showConfirm(
+                            'Unassign Number',
+                            `Are you sure you want to release ${p.phoneNumber} from ${p.assigned!.name}? It will go back to the pool.`,
+                            () => {
+                              employeesApi.releaseNumber(p.assigned!.agent_id).then(() => {
+                                queryClient.invalidateQueries({ queryKey: ['signalwire-pool'] });
+                                queryClient.invalidateQueries({ queryKey: ['employees'] });
+                                showAlert('Success', 'Number returned to pool');
+                              }).catch(err => showAlert('Error', err.message));
+                            },
+                            'Unassign'
+                          );
+                        }}
+                        style={{
+                          background: '#FFFBEB', border: '1px solid #FDE68A', padding: '6px 12px', borderRadius: 6,
+                          fontSize: 12, color: '#D97706', cursor: 'pointer', fontWeight: 600
+                        }}>
+                        Unassign
+                      </button>
+                      <button 
+                        onClick={() => {
+                          showConfirm(
+                            'Delete Agent',
+                            `Are you sure you want to permanently delete the agent ${p.assigned!.name}? This will also return the number to the pool.`,
+                            () => {
+                              employeesApi.remove(p.assigned!.agent_id).then(() => {
+                                queryClient.invalidateQueries({ queryKey: ['signalwire-pool'] });
+                                queryClient.invalidateQueries({ queryKey: ['employees'] });
+                                showAlert('Success', 'Agent deleted and number returned to pool');
+                              }).catch(err => showAlert('Error', err.message));
+                            },
+                            'Delete Agent'
+                          );
+                        }}
+                        style={{
+                          background: '#FEF2F2', border: '1px solid #FECACA', padding: '6px 12px', borderRadius: 6,
+                          fontSize: 12, color: '#DC2626', cursor: 'pointer', fontWeight: 600
+                        }}>
+                        Delete Agent
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}

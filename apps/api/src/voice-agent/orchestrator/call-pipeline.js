@@ -16,7 +16,7 @@ import {
   incrementInterruptions,
   deleteSession,
 } from '../services/session/session-store.js';
-import { onStreamEvent, sendMediaToTwilio, clearTwilioAudio, sendDtmfToTwilio } from '../websocket/media-server.js';
+import { onStreamEvent, sendMediaToSignalWire, clearSignalWireAudio, sendDtmfToSignalWire } from '../websocket/media-server.js';
 import { env } from '../config/env.js';
 import { processPostCall } from '../services/post-call/processor.js';
 import { query } from '../../calls-module/db/index.js';
@@ -24,6 +24,39 @@ import twilio from 'twilio';
 
 // Active pipeline instances per streamSid
 const activePipelines = new Map();
+
+/**
+ * Backend noise gate — returns false for empty/noise, 'hold' for hold phrases,
+ * true for anything worth sending to the AI.
+ * This runs BEFORE classifyCallSignal so we never trigger a response on crackle.
+ */
+function shouldReply(text = '') {
+  const t = String(text || '').toLowerCase().trim();
+
+  // Too short to be meaningful
+  if (!t || t.length < 2) return false;
+
+  // Single noise-only words that Whisper transcribes from PSTN crackle
+  const noiseOnlyWords = ['static', 'noise', 'beep', 'music', 'background', 'inaudible', 'uh', 'um', 'hmm', 'hm'];
+  if (noiseOnlyWords.includes(t)) return false;
+
+  // Hold/queue announcement — AI should stay silent
+  const holdPhrases = [
+    'please hold',
+    'stay on the line',
+    'your call is important',
+    'appreciate your patience',
+    'representative will be with you',
+    'all agents are busy',
+    'estimated wait',
+    'hold music',
+    'thank you for holding',
+    'your call will be answered',
+  ];
+  if (holdPhrases.some(p => t.includes(p))) return 'hold';
+
+  return true;
+}
 
 function classifyCallSignal(text = '') {
   const lower = String(text || '').toLowerCase().trim();
@@ -359,9 +392,9 @@ export function initOrchestrator() {
 export async function startCallPipeline(streamSid, callSid, customParams = {}, adapter = null) {
   const activeAdapter = adapter || {
     type: 'twilio',
-    sendAudio: sendMediaToTwilio,
-    clearAudio: clearTwilioAudio,
-    sendDtmf: sendDtmfToTwilio,
+    sendAudio: sendMediaToSignalWire,
+    clearAudio: clearSignalWireAudio,
+    sendDtmf: sendDtmfToSignalWire,
     audioFormat: 'g711_ulaw'
   };
 
@@ -451,6 +484,49 @@ Use only relevant facts from this context. Do not read this block aloud.`;
 export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdapter, systemPrompt, initialUtterance, companyName = null) {
   console.log(`[voice-agent:orchestrator] Bridging ${callSid} to OpenAI Realtime via VoiceKernel`);
   
+  let humanReady = false;
+
+  function classifyFirstAnswer(text) {
+    const t = text.toLowerCase();
+    
+    const machinePhrases = [
+      "enter your zip code",
+      "press 1",
+      "press one",
+      "to serve you faster",
+      "we will connect you",
+      "please hold",
+      "your call is important",
+      "all agents are busy",
+      "leave a message",
+      "after the tone",
+      "mailbox",
+      "voicemail",
+      "automated system",
+      "tell me your name"
+    ];
+
+    const humanPhrases = [
+      "hello",
+      "how may i help you",
+      "how can i help you",
+      "thanks for calling",
+      "this is",
+      "speaking",
+      "who is this"
+    ];
+
+    if (machinePhrases.some(p => t.includes(p))) {
+      return "MACHINE_OR_IVR";
+    }
+
+    if (humanPhrases.some(p => t.includes(p))) {
+      return "HUMAN";
+    }
+
+    return "UNKNOWN";
+  }
+
   const tools = [
     {
       name: 'book_meeting',
@@ -469,13 +545,13 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
     },
     {
       name: 'press_keypad',
-      description: 'Sends a DTMF tone.',
+      description: 'Sends DTMF tones (keypad digits). Use this if an automated system (IVR) asks you to enter an extension, a zip code, or a menu choice.',
       parameters: {
         type: 'object',
         properties: {
-          digit: { type: 'string' }
+          digits: { type: 'string', description: 'The digits to press, e.g. "1" for sales, "12345" for a zip code, or "102" for an extension.' }
         },
-        required: ['digit']
+        required: ['digits']
       }
     },
     {
@@ -523,7 +599,13 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
     },
 
     onAudioDelta: (base64Audio) => {
+      aiSpeaking = true;
       if (kernel) kernel.emit('ai.response', { delta: base64Audio, adapter: activeAdapter });
+    },
+
+    onResponseDone: () => {
+      aiSpeaking = false;
+      lastReplyAt = Date.now();
     },
     
     onTranscription: async (text) => {
@@ -665,6 +747,14 @@ export function startOpenAIPipeline(streamSid, callSid, customParams, activeAdap
     contactId: customParams.contactId || null,
     mode: 'openai_owner',
     gatekeeperEngine: null,
+    firstAudioReceived: false,
+    // Called by handleIncomingAudio on first remote audio chunk.
+    // Sets firstAudioArrived and attempts to start the opening timer.
+    onFirstAudio: () => {
+      firstAudioArrived = true;
+      console.log(`[voice-agent:orchestrator] 📡 First remote audio for ${callSid}; call is connected.`);
+      tryStartOpeningTimer();
+    },
   });
 }
 

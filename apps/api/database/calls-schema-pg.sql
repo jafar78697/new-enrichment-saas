@@ -1,8 +1,9 @@
 CREATE TABLE IF NOT EXISTS agents (
   id SERIAL PRIMARY KEY,
+  tenant_id UUID,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
-  twilio_identity TEXT NOT NULL UNIQUE,
+  signalwire_identity TEXT NOT NULL UNIQUE,
   is_available BOOLEAN NOT NULL DEFAULT FALSE,
   role TEXT NOT NULL DEFAULT 'employee',
   password_hash TEXT,
@@ -11,10 +12,10 @@ CREATE TABLE IF NOT EXISTS agents (
   invite_accepted_at TIMESTAMP,
   status TEXT NOT NULL DEFAULT 'pending',
   last_login_at TIMESTAMP,
-  twilio_phone_number TEXT,
-  twilio_phone_sid TEXT,
-  twilio_phone_area_code TEXT,
-  twilio_phone_purchased_at TIMESTAMP,
+  signalwire_phone_number TEXT,
+  signalwire_phone_sid TEXT,
+  signalwire_phone_area_code TEXT,
+  signalwire_phone_purchased_at TIMESTAMP,
   stats_total_calls INTEGER NOT NULL DEFAULT 0,
   stats_connected_calls INTEGER NOT NULL DEFAULT 0,
   stats_total_seconds INTEGER NOT NULL DEFAULT 0,
@@ -32,8 +33,8 @@ CREATE TABLE IF NOT EXISTS agents (
   reddit_last_reset_date DATE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CHECK (twilio_identity <> ''),
-  CHECK (twilio_identity ~ '^[A-Za-z0-9_]*$')
+  CHECK (signalwire_identity <> ''),
+  CHECK (signalwire_identity ~ '^[A-Za-z0-9_]*$')
 );
 
 CREATE TABLE IF NOT EXISTS twilio_webhook_logs (
@@ -70,6 +71,7 @@ CREATE TABLE IF NOT EXISTS reddit_tasks (
 
 CREATE TABLE IF NOT EXISTS teams (
   id SERIAL PRIMARY KEY,
+  tenant_id UUID,
   name TEXT NOT NULL UNIQUE,
   description TEXT,
   leader_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
@@ -118,6 +120,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
 
 CREATE TABLE IF NOT EXISTS niches (
   id SERIAL PRIMARY KEY,
+  tenant_id UUID,
   name TEXT NOT NULL UNIQUE,
   description TEXT,
   assigned_agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
@@ -128,8 +131,9 @@ CREATE TABLE IF NOT EXISTS niches (
 
 CREATE TABLE IF NOT EXISTS contacts (
   id SERIAL PRIMARY KEY,
+  tenant_id UUID,
   name TEXT NOT NULL,
-  phone_number TEXT NOT NULL UNIQUE,
+  phone_number TEXT NOT NULL,
   company TEXT,
   email TEXT,
   notes TEXT,
@@ -160,6 +164,7 @@ CREATE TABLE IF NOT EXISTS contacts (
 
 CREATE TABLE IF NOT EXISTS calls (
   id SERIAL PRIMARY KEY,
+  tenant_id UUID,
   contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
   agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
   call_sid TEXT NOT NULL UNIQUE,
@@ -202,6 +207,14 @@ CREATE TABLE IF NOT EXISTS meta_connections (
 );
 
 CREATE INDEX IF NOT EXISTS idx_contacts_phone_number ON contacts(phone_number);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_tenant_phone_unique
+  ON contacts(tenant_id, phone_number)
+  WHERE tenant_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agents_tenant ON agents(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_calls_tenant ON calls(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_niches_tenant ON niches(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_teams_tenant ON teams(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_assigned_agent_id ON contacts(assigned_agent_id);
 CREATE INDEX IF NOT EXISTS idx_calls_contact_id ON calls(contact_id);
 CREATE INDEX IF NOT EXISTS idx_calls_agent_id ON calls(agent_id);

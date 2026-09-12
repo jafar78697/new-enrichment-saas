@@ -1,16 +1,16 @@
 /**
- * Twilio Media Streams WebSocket Server
+ * SignalWire (Compatibility API) Media Streams WebSocket Server
  *
- * Handles bidirectional audio streaming with Twilio using the Media Streams protocol.
- * Protocol: https://www.twilio.com/docs/voice/media-streams/websocket-messages
+ * Handles bidirectional audio streaming with SignalWire using the Media Streams protocol.
+ * Protocol: Compatible with Twilio Media Streams API
  *
- * Message types from Twilio:
+ * Message types from SignalWire:
  *   - connected: WebSocket connection established
  *   - start: Stream started with streamSid, callSid, custom params
  *   - media: Base64-encoded mulaw audio payload (8kHz)
  *   - stop: Stream/call ended
  *
- * Message types to Twilio:
+ * Message types to SignalWire:
  *   - media: Base64-encoded mulaw audio to play
  *   - mark: Named marker for synchronization
  *   - clear: Flush the audio playback buffer immediately (for barge-in)
@@ -26,7 +26,7 @@ const activeStreams = new Map();
 const streamEventHandlers = new Map();
 
 /**
- * Attach the WebSocket server for Twilio Media Streams to an existing HTTP server.
+ * Attach the WebSocket server for SignalWire Media Streams to an existing HTTP server.
  * Called from the main Fastify server startup.
  *
  * @param {import('http').Server} httpServer - The Node.js HTTP server
@@ -85,7 +85,8 @@ export function attachMediaServer(httpServer) {
     });
 
     function handleMessage(ws, msg) {
-      switch (msg.event) {
+      const eventType = (msg.event || '').toLowerCase();
+      switch (eventType) {
         case 'connected':
           console.log(`[voice-agent:ws] Connected event: ${msg.protocol || 'unknown protocol'}`);
           break;
@@ -123,7 +124,7 @@ export function attachMediaServer(httpServer) {
         case 'media':
           if (!streamActive) return;
 
-          // Twilio sends base64-encoded mulaw audio at 8kHz
+          // SignalWire sends base64-encoded mulaw audio at 8kHz
           const audioPayload = msg.media?.payload;
           if (audioPayload) {
             // Emit audio data to orchestrator for STT processing
@@ -137,7 +138,7 @@ export function attachMediaServer(httpServer) {
           break;
 
         case 'mark':
-          // Twilio confirms a mark we sent earlier
+          // SignalWire confirms a mark we sent earlier
           const markName = msg.mark?.name;
           if (markName && markHandlers.has(markName)) {
             const handler = markHandlers.get(markName);
@@ -203,7 +204,7 @@ function emitStreamEvent(event, data) {
  * @param {string} streamSid - The stream ID
  * @param {string} payload - Base64-encoded mulaw audio
  */
-export function sendMediaToTwilio(streamSid, payload) {
+export function sendMediaToSignalWire(streamSid, payload) {
   const stream = activeStreams.get(streamSid);
   if (!stream) {
     console.warn(`[voice-agent:ws] Cannot send media — stream ${streamSid} not found in activeStreams`);
@@ -233,7 +234,7 @@ export function sendMediaToTwilio(streamSid, payload) {
  * Send a clear command to flush Twilio's audio buffer (for barge-in).
  * @param {string} streamSid - The stream ID
  */
-export function clearTwilioAudio(streamSid) {
+export function clearSignalWireAudio(streamSid) {
   const stream = activeStreams.get(streamSid);
   if (!stream || stream.ws.readyState !== 1) {
     return false;
@@ -289,17 +290,21 @@ function createDtmfFrame(digit, frameIndex, toneFrames = 6) {
   return frame.toString('base64');
 }
 
-/** Send a 120ms in-band keypad tone followed by 80ms silence. */
-export async function sendDtmfToTwilio(streamSid, digit) {
+export async function sendDtmfToSignalWire(streamSid, digits) {
   const stream = activeStreams.get(streamSid);
-  if (!stream || stream.ws.readyState !== 1 || !DTMF_FREQUENCIES[digit]) return false;
+  if (!stream || stream.ws.readyState !== 1) return false;
 
-  for (let frameIndex = 0; frameIndex < 10; frameIndex += 1) {
-    const payload = createDtmfFrame(digit, frameIndex);
-    stream.ws.send(JSON.stringify({ event: 'media', streamSid, media: { payload } }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+  for (const digit of String(digits)) {
+    if (!DTMF_FREQUENCIES[digit]) continue;
+    for (let frameIndex = 0; frameIndex < 10; frameIndex += 1) {
+      const payload = createDtmfFrame(digit, frameIndex);
+      stream.ws.send(JSON.stringify({ event: 'media', streamSid, media: { payload } }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    // 100ms pause between digits
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  console.log(`[voice-agent:ws] In-band DTMF ${digit} sent for stream ${streamSid}`);
+  console.log(`[voice-agent:ws] In-band DTMF ${digits} sent for stream ${streamSid}`);
   return true;
 }
 
@@ -357,9 +362,9 @@ function cleanupStream(streamSid, callSid) {
 export default {
   attachMediaServer,
   onStreamEvent,
-  sendMediaToTwilio,
-  clearTwilioAudio,
-  sendDtmfToTwilio,
+  sendMediaToSignalWire,
+  clearSignalWireAudio,
+  sendDtmfToSignalWire,
   sendMark,
   getStream,
   getActiveStreamIds,

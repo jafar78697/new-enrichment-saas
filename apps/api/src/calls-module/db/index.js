@@ -28,6 +28,10 @@ export async function query(text, params = []) {
   };
 }
 
+export async function getClient() {
+  return getPool().connect();
+}
+
 export async function initializeDatabase() {
   // Database schema is managed via the pg migration script
   return Promise.resolve();

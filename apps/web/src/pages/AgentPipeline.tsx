@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { parsePhoneNumberFromString } from 'libphonenumber-js/min';
-import { Bot, Clock3, DollarSign, Gauge, Phone, PhoneCall, RefreshCw, Search, Settings2, ShieldCheck, Square, UserPlus, Volume2 } from 'lucide-react';
+import { Bot, Gauge, Phone, PhoneCall, RefreshCw, Search, Settings2, ShieldCheck, Square, UserPlus, Volume2 } from 'lucide-react';
 import { leadsApi, type CallingQueueLead, type CallingSettings, type CallingStatusResponse, type Lead, STAGE_COLORS, STAGE_LABELS, type Stage } from '../services/crmApi';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
@@ -330,9 +330,12 @@ export default function AgentPipelinePage() {
     setError('');
     setMessage('');
     try {
-      const result = await leadsApi.updateCallingSettings(callingSettings);
+      const result = await leadsApi.updateCallingSettings({
+        callsPerMinute: callingSettings.callsPerMinute,
+        maxCallsPerDay: callingSettings.maxCallsPerDay,
+      });
       setCallingSettings(result.settings);
-      setMessage('Calling speed, daily limits aur time window save ho gaye.');
+      setMessage('Calls per minute aur daily calls save ho gayi hain.');
       await loadPipeline();
     } catch (e: any) {
       setError(e?.response?.data?.error || e?.message || 'Calling settings save nahi ho sakin');
@@ -563,10 +566,6 @@ export default function AgentPipelinePage() {
       {agentStatus && !agentStatus.outboundEnabled && (
         <Alert danger text="Outbound calling server safety policy se paused hai. Leads assign ho sakti hain, lekin calls start nahi hongi." />
       )}
-      {callingStatus && !callingStatus.withinCallingWindow && (
-        <Alert danger text={`Calling sirf ${callingSettings.callingWindowStartHour}:00-${callingSettings.callingWindowEndHour}:00 (${callingSettings.callingTimezone}) mein start hogi.`} />
-      )}
-
       <section ref={settingsRef} tabIndex={-1} className="border-y border-slate-200 bg-white py-4 px-1">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
@@ -575,28 +574,11 @@ export default function AgentPipelinePage() {
           </div>
           <div className="flex flex-wrap gap-4 text-xs font-semibold text-slate-600">
             <span>Today: {callingStatus?.usageToday.attempts || 0}/{callingSettings.maxCallsPerDay} calls</span>
-            <span>{formatDurationSeconds(callingStatus?.usageToday.seconds || 0)}/{callingSettings.maxMinutesPerDay}m</span>
-            <span>${(callingStatus?.usageToday.costUsd || 0).toFixed(2)}/${callingSettings.maxCostUsdPerDay.toFixed(2)}</span>
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[repeat(7,minmax(0,1fr))_auto] gap-3 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-2 max-w-xl gap-3 items-end">
           <SettingNumber icon={<Gauge size={14} />} label="Calls / minute" value={callingSettings.callsPerMinute} min={1} max={callingStatus?.serverCaps.callsPerMinute || 3} onChange={(callsPerMinute) => setCallingSettings((current) => ({ ...current, callsPerMinute }))} />
           <SettingNumber icon={<PhoneCall size={14} />} label="Daily calls" value={callingSettings.maxCallsPerDay} min={1} max={callingStatus?.serverCaps.maxCallsPerDay || 5} onChange={(maxCallsPerDay) => setCallingSettings((current) => ({ ...current, maxCallsPerDay }))} />
-          <SettingNumber icon={<Clock3 size={14} />} label="Daily minutes" value={callingSettings.maxMinutesPerDay} min={1} max={callingStatus?.serverCaps.maxMinutesPerDay || 10} onChange={(maxMinutesPerDay) => setCallingSettings((current) => ({ ...current, maxMinutesPerDay }))} />
-          <SettingNumber icon={<DollarSign size={14} />} label="AI budget est. $" value={callingSettings.maxCostUsdPerDay} min={0.1} max={callingStatus?.serverCaps.maxCostUsdPerDay || 1} step={0.1} onChange={(maxCostUsdPerDay) => setCallingSettings((current) => ({ ...current, maxCostUsdPerDay }))} />
-          <label className="block text-xs font-semibold text-slate-600">
-            Timezone
-            <select value={callingSettings.callingTimezone} onChange={(event) => setCallingSettings((current) => ({ ...current, callingTimezone: event.target.value }))} className="mt-1 w-full h-9 px-2 border border-slate-300 rounded-md bg-white text-xs text-slate-800">
-              <option value="America/New_York">Eastern</option>
-              <option value="America/Chicago">Central</option>
-              <option value="America/Denver">Mountain</option>
-              <option value="America/Los_Angeles">Pacific</option>
-              <option value="America/Toronto">Toronto</option>
-              <option value="America/Vancouver">Vancouver</option>
-            </select>
-          </label>
-          <SettingNumber icon={<Clock3 size={14} />} label="Start hour" value={callingSettings.callingWindowStartHour} min={0} max={23} onChange={(callingWindowStartHour) => setCallingSettings((current) => ({ ...current, callingWindowStartHour }))} />
-          <SettingNumber icon={<Clock3 size={14} />} label="End hour" value={callingSettings.callingWindowEndHour} min={1} max={24} onChange={(callingWindowEndHour) => setCallingSettings((current) => ({ ...current, callingWindowEndHour }))} />
           <button onClick={() => void saveCallingSettings()} disabled={settingsBusy} className="h-9 px-4 rounded-md bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 disabled:opacity-50">
             {settingsBusy ? 'Saving...' : 'Save limits'}
           </button>

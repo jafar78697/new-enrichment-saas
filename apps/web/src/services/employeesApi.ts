@@ -1,11 +1,12 @@
-// Employees + Twilio numbers API client
+// Employees + SignalWire numbers API client
 // Reuses the base URL / JWT header logic of callsApi via a small shared request helper.
-// Token is stored under CALL_TOKEN_KEY (see callsApi.ts).
+// The unified app can be signed in with either the enrichment session or the
+// calls-module session. Prefer the current enrichment token when available.
 
 import { CALLS_API_BASE, CALL_TOKEN_KEY, CALL_USER_KEY } from './callsApi';
 
 async function request<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem(CALL_TOKEN_KEY);
+  const token = localStorage.getItem('enr_token') || localStorage.getItem(CALL_TOKEN_KEY);
   const res = await fetch(`${CALLS_API_BASE}${path}`, {
     ...init,
     headers: {
@@ -150,11 +151,11 @@ export const employeesApi = {
         .map(([k, v]) => [k, String(v)]),
     ).toString();
     return request<{ numbers: TwilioAvailableNumber[] }>(
-      `/twilio/numbers/search${qs ? `?${qs}` : ''}`,
+      `/signalwire/numbers/search${qs ? `?${qs}` : ''}`,
     );
   },
 
-  numbersPool: () => request<{ numbers: PoolNumber[] }>('/twilio/numbers/pool'),
+  numbersPool: () => request<{ numbers: PoolNumber[] }>('/signalwire/numbers/pool'),
 
   // NEW: Get employee hourly activity
   getActivity: (id: number, hours: number = 24) =>

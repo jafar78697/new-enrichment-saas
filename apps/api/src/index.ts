@@ -6,7 +6,7 @@ import rateLimit from '@fastify/rate-limit';
 import expressPlugin from '@fastify/express';
 import dotenv from 'dotenv';
 import { AuthManager, TenantGuard } from '@enrichment-saas/auth';
-import { createPool } from '@enrichment-saas/db';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -38,8 +38,15 @@ import crmRoutes from './routes/crm';
 import outreachRoutes from './routes/outreach';
 import aiMediaRoutes from './routes/ai-media';
 import socialRoutes from './routes/social';
+import phoneNumberRoutes from './routes/phone-numbers';
+import adminCustomerRoutes from './routes/admin-customers';
+import walletRoutes from './routes/wallets';
+import manualPaymentRoutes from './routes/manual-payments';
+import googleMapsRoutes from './routes/google-maps';
+import teamAccessRoutes from './routes/team-access';
 
 fastify.register(authRoutes);
+fastify.register(phoneNumberRoutes);
 fastify.register(jobRoutes);
 fastify.register(apiKeyRoutes);
 fastify.register(billingRoutes);
@@ -50,6 +57,11 @@ fastify.register(crmRoutes);
 fastify.register(outreachRoutes);
 fastify.register(aiMediaRoutes);
 fastify.register(socialRoutes);
+fastify.register(adminCustomerRoutes);
+fastify.register(walletRoutes);
+fastify.register(manualPaymentRoutes);
+fastify.register(googleMapsRoutes);
+fastify.register(teamAccessRoutes);
 
 // Register Plugins
 fastify.register(helmet);
@@ -67,6 +79,14 @@ fastify.register(rateLimit, {
 // Middleware for Auth
 import jwt from 'jsonwebtoken';
 
+function tokenHash(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function maySkipPasswordChange(url: string): boolean {
+  return url.includes('/v1/auth/change-password') || url.includes('/v1/auth/logout');
+}
+
 fastify.decorate('authenticate', async (request: any, reply: any) => {
   const authHeader = request.headers.authorization;
   if (!authHeader) {
@@ -74,23 +94,153 @@ fastify.decorate('authenticate', async (request: any, reply: any) => {
   }
 
   try {
-    // Try the original enrichment token format first
-    request.tenant = tenantGuard.authorizeRequest(authHeader);
+    const token = authHeader.split(' ')[1];
+    const tenantContext = tenantGuard.authorizeRequest(authHeader);
+    const hash = tokenHash(token);
+
+    const { rows } = await fastify.db.query(
+      `SELECT u.id as user_id, u.username, u.email, u.display_name, u.role,
+              u.must_change_password, u.auth_version, u.account_status,
+              t.id as tenant_id, t.plan, t.status as tenant_status, t.name as tenant_name,
+              w.id as workspace_id,
+              s.id as session_id
+       FROM users u
+       JOIN tenants t ON u.tenant_id = t.id
+       LEFT JOIN workspaces w ON w.tenant_id = t.id
+       JOIN user_sessions s ON s.user_id = u.id
+        AND s.tenant_id = t.id
+        AND s.token_hash = $3
+        AND s.revoked_at IS NULL
+        AND s.expires_at > NOW()
+       WHERE u.id = $1
+         AND u.tenant_id = $2
+         AND t.deleted_at IS NULL
+       LIMIT 1`,
+      [tenantContext.userId, tenantContext.tenantId, hash]
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return reply.code(401).send({ error: 'Invalid or expired session' });
+    }
+
+    if (row.tenant_status !== 'active' && row.role !== 'platform_admin') {
+      return reply.code(403).send({
+        error: `Account is ${row.tenant_status}. Contact support.`,
+        code: 'ACCOUNT_INACTIVE',
+        status: row.tenant_status,
+      });
+    }
+
+    if (row.account_status === 'suspended') {
+      return reply.code(403).send({ error: 'Your access has been suspended by your administrator.', code: 'USER_SUSPENDED' });
+    }
+
+    if (row.must_change_password && !maySkipPasswordChange(request.url)) {
+      return reply.code(403).send({
+        error: 'You must change your password before accessing this resource.',
+        code: 'PASSWORD_CHANGE_REQUIRED',
+        redirect: '/change-password',
+      });
+    }
+
+    request.tenant = {
+      tenantId: row.tenant_id,
+      userId: row.user_id,
+      workspaceId: row.workspace_id,
+      plan: row.plan,
+      role: row.role || tenantContext.role,
+      status: row.tenant_status,
+      mustChangePassword: row.must_change_password || false,
+      sessionId: row.session_id,
+    };
+    request.user = {
+      id: row.user_id,
+      username: row.username,
+      email: row.email,
+      display_name: row.display_name,
+      role: row.role,
+      tenant_id: row.tenant_id,
+    };
   } catch (err: any) {
-    // Fallback to the new calls-module token (call_token)
+    // Fallback to the legacy calls-module token. Modern SaaS tokens must have
+    // a live user_sessions row and should never land here.
     try {
       const token = authHeader.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret-change-me-change-me-change-me');
-      
-      // Mock a tenant object so Fastify enrichment routes don't crash.
-      // We map the calls-module user to a default tenant.
-      request.tenant = { 
-        tenantId: 'c1f6f7a0-f75d-46a2-afc7-810bde42c467', 
-        userId: '40c3d04e-2394-4471-b5c6-251a17063fdd', 
-        workspaceId: null, 
-        plan: 'pro',
-        role: (decoded as any).role || 'owner'
-      };
+      const decodedPayload = decoded as any;
+
+      if (decodedPayload.user_id || decodedPayload.id) {
+        const userId = decodedPayload.user_id || decodedPayload.id;
+        const { rows } = await fastify.db.query(
+          `SELECT u.id as user_id, u.tenant_id, u.role, u.must_change_password, u.account_status,
+                  t.plan, t.status, w.id as workspace_id
+           FROM users u
+           JOIN tenants t ON u.tenant_id = t.id
+           LEFT JOIN workspaces w ON w.tenant_id = t.id
+           WHERE u.id = $1
+             AND t.deleted_at IS NULL
+           LIMIT 1`,
+          [userId]
+        );
+        if (rows[0]) {
+          if (rows[0].status !== 'active' && rows[0].role !== 'platform_admin') {
+            return reply.code(403).send({ error: 'Account is inactive', code: 'ACCOUNT_INACTIVE' });
+          }
+          if (rows[0].account_status === 'suspended') {
+            return reply.code(403).send({ error: 'Your access has been suspended by your administrator.', code: 'USER_SUSPENDED' });
+          }
+          if (rows[0].must_change_password && !maySkipPasswordChange(request.url)) {
+            return reply.code(403).send({ error: 'You must change your password before accessing this resource.', code: 'PASSWORD_CHANGE_REQUIRED' });
+          }
+          request.tenant = {
+            tenantId: rows[0].tenant_id,
+            userId: rows[0].user_id,
+            workspaceId: rows[0].workspace_id,
+            plan: rows[0].plan,
+            role: rows[0].role || 'agent',
+            status: rows[0].status || 'active',
+            mustChangePassword: rows[0].must_change_password || false,
+          };
+        } else {
+          return reply.code(401).send({ error: 'User not found' });
+        }
+      } else {
+        // Calls-module employee tokens use `sub`, not `user_id`. Resolve the
+        // employee's tenant and assigned modules so /v1 enrichment routes can
+        // apply the same Access System permissions as /api contacts/calls.
+        if (decodedPayload.sub) {
+          const { rows } = await fastify.db.query(
+            `SELECT a.id as user_id, a.tenant_id, a.role, a.status,
+                    COALESCE(ARRAY_AGG(DISTINCT am.module) FILTER (WHERE am.module IS NOT NULL), '{}') AS assigned_modules,
+                    t.plan, t.status AS tenant_status, w.id AS workspace_id
+             FROM agents a
+             LEFT JOIN agent_modules am ON am.agent_id = a.id
+             LEFT JOIN tenants t ON t.id = a.tenant_id
+             LEFT JOIN workspaces w ON w.tenant_id = a.tenant_id
+             WHERE a.id = $1 AND t.deleted_at IS NULL
+             GROUP BY a.id, a.tenant_id, a.role, a.status, t.plan, t.status, w.id
+             LIMIT 1`,
+            [decodedPayload.sub],
+          );
+          if (!rows[0]) return reply.code(401).send({ error: 'User not found' });
+          if (rows[0].status !== 'active' || rows[0].tenant_status !== 'active') {
+            return reply.code(403).send({ error: 'Account is inactive', code: 'ACCOUNT_INACTIVE' });
+          }
+          request.tenant = {
+            tenantId: rows[0].tenant_id || process.env.VOICE_AGENT_TENANT_ID,
+            userId: rows[0].user_id,
+            workspaceId: rows[0].workspace_id,
+            plan: rows[0].plan || 'starter',
+            role: rows[0].role || 'employee',
+            status: rows[0].tenant_status || 'active',
+            assignedModules: rows[0].assigned_modules || [],
+          };
+          request.user = decodedPayload;
+        } else {
+          return reply.code(401).send({ error: 'Invalid token payload' });
+        }
+      }
       request.user = decoded;
     } catch (fallbackErr: any) {
       reply.code(401).send({ error: 'Invalid token: ' + fallbackErr.message });
@@ -220,14 +370,31 @@ const start = async () => {
     // @ts-ignore
     fastify.io = io;
 
+    try {
+      const { initBrowserTranscriptionSocket } = await import('./voice-agent/websocket/browser-transcription.js');
+      initBrowserTranscriptionSocket(io);
+      fastify.log.info('browser Google STT socket live');
+    } catch (err) {
+      fastify.log.warn({ err }, 'browser Google STT socket failed to initialize');
+    }
+
     await mountVoiceAgent();
     await mountCallsModule();
     
-    // One-time migration: ensure is_inbound column exists (safe to run at startup)
+    // Small additive migrations are safe on every deployment and keep live
+    // customer records compatible with the calling SaaS UI.
     try {
       const { query: dbQuery } = await import('./calls-module/db/index.js');
       await dbQuery("ALTER TABLE contact_emails_history ADD COLUMN IF NOT EXISTS is_inbound BOOLEAN DEFAULT FALSE;");
-      console.log('[startup] Migration: is_inbound column ensured.');
+      await dbQuery(`
+        ALTER TABLE contacts
+          ADD COLUMN IF NOT EXISTS meeting_time TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS next_call_at TIMESTAMPTZ;
+        CREATE INDEX IF NOT EXISTS idx_contacts_tenant_next_call_at
+          ON contacts (tenant_id, next_call_at)
+          WHERE next_call_at IS NOT NULL;
+      `);
+      console.log('[startup] Contact follow-up columns ensured.');
     } catch (migErr: any) {
       console.warn('[startup] Migration warning (non-fatal):', migErr.message);
     }

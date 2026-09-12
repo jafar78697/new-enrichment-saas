@@ -35,7 +35,7 @@ export async function processNewLead(leadData) {
 
   // 3. Initiate Bridging Call Sequence (Mocked)
   if (assignedAgent && leadData.phone) {
-    console.log(`[Twilio Mock] Calling Agent ${assignedAgent.name} at ${assignedAgent.twilio_phone_number}...`);
+    console.log(`[Twilio Mock] Calling Agent ${assignedAgent.name} at ${assignedAgent.signalwire_phone_number}...`);
     setTimeout(() => {
       console.log(`[Twilio Mock] Agent answered. Now calling Lead ${leadData.name} at ${leadData.phone}...`);
       setTimeout(() => {

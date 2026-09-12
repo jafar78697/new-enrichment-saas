@@ -1,7 +1,7 @@
 import { createSTTSession, createSilenceDetector } from '../services/stt/google-stt.service.js';
 import { createTTSStream } from '../services/tts/google-tts.service.js';
 import { streamGeminiResponse } from '../services/llm/vertex-ai.service.js';
-import { sendMediaToTwilio, clearTwilioAudio } from '../websocket/media-server.js';
+import { sendMediaToSignalWire, clearSignalWireAudio } from '../websocket/media-server.js';
 import { broadcastCallAudio, broadcastCallTranscript } from '../websocket/call-monitor.js';
 
 function splitIntoSpeakableChunks(text = '') {
@@ -35,7 +35,7 @@ export function createGoogleGatekeeperEngine({
     callSid,
     onAudio: (base64Audio) => {
       if (closed) return;
-      sendMediaToTwilio(streamSid, base64Audio);
+      sendMediaToSignalWire(streamSid, base64Audio);
       broadcastCallAudio(callSid, 'ai', base64Audio);
     },
     onError: (err) => onError?.(err),
@@ -86,7 +86,7 @@ export function createGoogleGatekeeperEngine({
       await respondToGatekeeper(text.trim());
     },
     onBargeIn: () => {
-      clearTwilioAudio(streamSid);
+      clearSignalWireAudio(streamSid);
       aiSpeaking = false;
       stt.setAiSpeaking(false);
     },
@@ -99,7 +99,7 @@ export function createGoogleGatekeeperEngine({
 
     aiSpeaking = true;
     stt.setAiSpeaking(true);
-    clearTwilioAudio(streamSid);
+    clearSignalWireAudio(streamSid);
 
     for (const chunk of chunks) {
       if (closed) break;
@@ -172,14 +172,14 @@ export function createGoogleGatekeeperEngine({
     write(base64Audio) {
       if (closed) return;
       if (aiSpeaking && Date.now() - lastProspectSpeechAt < 250) {
-        clearTwilioAudio(streamSid);
+        clearSignalWireAudio(streamSid);
         aiSpeaking = false;
         stt.setAiSpeaking(false);
       }
       stt.write(base64Audio);
     },
     stopSpeaking() {
-      clearTwilioAudio(streamSid);
+      clearSignalWireAudio(streamSid);
       aiSpeaking = false;
       stt.setAiSpeaking(false);
     },

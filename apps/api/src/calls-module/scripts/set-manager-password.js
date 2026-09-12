@@ -35,12 +35,12 @@ if (row) {
   const base = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   let identity = base || `manager_${Date.now()}`;
   let suffix = 1;
-  while (db.prepare('SELECT id FROM agents WHERE twilio_identity = ?').get(identity)) {
+  while (db.prepare('SELECT id FROM agents WHERE signalwire_identity = ?').get(identity)) {
     identity = `${base}_${suffix++}`;
   }
   const result = db
     .prepare(
-      `INSERT INTO agents (name, email, twilio_identity, role, status, password_hash, is_available, invite_accepted_at)
+      `INSERT INTO agents (name, email, signalwire_identity, role, status, password_hash, is_available, invite_accepted_at)
        VALUES (?, ?, ?, 'manager', 'active', ?, 1, CURRENT_TIMESTAMP)`,
     )
     .run(email.split('@')[0], email, identity, hash);

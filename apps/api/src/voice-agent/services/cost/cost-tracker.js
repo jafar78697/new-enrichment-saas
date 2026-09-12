@@ -7,9 +7,9 @@
 
 // Pricing constants (USD)
 const PRICING = {
-  twilio: {
-    inboundPerMinute: 0.0085,
-    outboundPerMinute: 0.013,
+  signalwire: {
+    inboundPerMinute: 0.0025,
+    outboundPerMinute: 0.0042,
     recordingPerMinute: 0.0025,
   },
   vertexAI: {
@@ -59,15 +59,15 @@ export function trackCallCost({
 }) {
   const durationMinutes = durationSeconds / 60;
 
-  // Twilio cost
-  const twilioPerMinute = direction === 'inbound'
-    ? PRICING.twilio.inboundPerMinute
-    : PRICING.twilio.outboundPerMinute;
-  const twilioVoiceCost = durationMinutes * twilioPerMinute;
-  const twilioRecordingCost = wasRecorded
-    ? durationMinutes * PRICING.twilio.recordingPerMinute
+  // SignalWire cost
+  const signalwirePerMinute = direction === 'inbound'
+    ? PRICING.signalwire.inboundPerMinute
+    : PRICING.signalwire.outboundPerMinute;
+  const signalwireVoiceCost = durationMinutes * signalwirePerMinute;
+  const signalwireRecordingCost = wasRecorded
+    ? durationMinutes * PRICING.signalwire.recordingPerMinute
     : 0;
-  const twilioTotalCost = twilioVoiceCost + twilioRecordingCost;
+  const signalwireTotalCost = signalwireVoiceCost + signalwireRecordingCost;
 
   // Realtime transcription is billed independently from speech-to-speech usage.
   const transcriptionCost = durationMinutes * PRICING.openAI.transcriptionPerMinute;
@@ -100,7 +100,7 @@ export function trackCallCost({
   const openAiCost = openAiInputCost + openAiOutputCost;
 
   // Totals
-  const totalCost = twilioTotalCost + vertexTotalCost + elevenLabsCost + openAiCost + transcriptionCost;
+  const totalCost = signalwireTotalCost + vertexTotalCost + elevenLabsCost + openAiCost + transcriptionCost;
 
   const breakdown = {
     callSid,
@@ -108,11 +108,11 @@ export function trackCallCost({
     durationMinutes: Math.round(durationMinutes * 100) / 100,
     direction,
     timestamp: new Date().toISOString(),
-    twilio: {
-      voiceCost: roundToCents(twilioVoiceCost),
-      recordingCost: roundToCents(twilioRecordingCost),
-      total: roundToCents(twilioTotalCost),
-      perMinuteRate: twilioPerMinute,
+    signalwire: {
+      voiceCost: roundToCents(signalwireVoiceCost),
+      recordingCost: roundToCents(signalwireRecordingCost),
+      total: roundToCents(signalwireTotalCost),
+      perMinuteRate: signalwirePerMinute,
     },
     transcription: {
       model: 'gpt-4o-mini-transcribe',
@@ -167,7 +167,7 @@ export function aggregateCosts(sessions) {
       totalCalls: 0,
       totalDuration: 0,
       avgCostPerCall: 0,
-      twilioCost: 0,
+      signalwireCost: 0,
       sttCost: 0,
       vertexCost: 0,
       elevenLabsCost: 0,
@@ -179,7 +179,7 @@ export function aggregateCosts(sessions) {
 
   let totalCost = 0;
   let totalDuration = 0;
-  let twilioCost = 0;
+  let signalwireCost = 0;
   let sttCost = 0;
   let vertexCost = 0;
   let elevenLabsCost = 0;
@@ -197,7 +197,7 @@ export function aggregateCosts(sessions) {
 
     totalCost += breakdown.total || 0;
     totalDuration += breakdown.durationSeconds || 0;
-    twilioCost += breakdown.twilio?.total || 0;
+    signalwireCost += breakdown.signalwire?.total || breakdown.twilio?.total || 0;
     sttCost += breakdown.transcription?.cost || breakdown.googleSTT?.cost || 0;
     vertexCost += breakdown.vertexAI?.total || 0;
     elevenLabsCost += breakdown.elevenLabs?.cost || 0;
@@ -214,7 +214,7 @@ export function aggregateCosts(sessions) {
     totalCalls: count,
     totalDuration: Math.round(totalDuration),
     avgCostPerCall: roundToCents(totalCost / count),
-    twilioCost: roundToCents(twilioCost),
+    signalwireCost: roundToCents(signalwireCost),
     sttCost: roundToCents(sttCost),
     vertexCost: roundToCents(vertexCost),
     elevenLabsCost: roundToCents(elevenLabsCost),

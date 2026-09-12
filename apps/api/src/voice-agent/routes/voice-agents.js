@@ -23,7 +23,12 @@ const agentSchema = z.object({
 });
 
 function resolveTenantId(req) {
-  const tenantId = req.tenantId || env.VOICE_AGENT_TENANT_ID || null;
+  const tenantId = req.tenantId
+    || req.tenant?.tenantId
+    || req.user?.tenant_id
+    || req.user?.tenantId
+    || env.VOICE_AGENT_TENANT_ID
+    || null;
   if (!tenantId) {
     throw new AppError('No tenant is available for this voice-agent session. Sign in with the workspace account or set VOICE_AGENT_TENANT_ID on the server.', 409);
   }

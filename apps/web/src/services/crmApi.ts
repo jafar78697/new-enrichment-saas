@@ -160,7 +160,7 @@ export const leadsApi = {
   pipeline: () => api.get<{ stages: StageCount[] }>('/leads/pipeline').then((r) => r.data),
   activeCalls: () => api.get<{ activeCalls: Record<string, string> }>('/leads/active-calls').then((r) => r.data),
   callingStatus: () => api.get<CallingStatusResponse>('/leads/ai-calling/status').then((r) => r.data),
-  updateCallingSettings: (body: CallingSettings) =>
+  updateCallingSettings: (body: Partial<CallingSettings>) =>
     api.patch<{ settings: CallingSettings; serverCaps: CallingStatusResponse['serverCaps'] }>(
       '/leads/ai-calling/settings',
       body,

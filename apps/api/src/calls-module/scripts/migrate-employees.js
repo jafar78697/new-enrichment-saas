@@ -13,10 +13,10 @@ const ADDITIONS = [
   `ALTER TABLE agents ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`,
   `ALTER TABLE agents ADD COLUMN last_login_at TEXT`,
   // Twilio phone provisioning
-  `ALTER TABLE agents ADD COLUMN twilio_phone_number TEXT`,
-  `ALTER TABLE agents ADD COLUMN twilio_phone_sid TEXT`,
-  `ALTER TABLE agents ADD COLUMN twilio_phone_area_code TEXT`,
-  `ALTER TABLE agents ADD COLUMN twilio_phone_purchased_at TEXT`,
+  `ALTER TABLE agents ADD COLUMN signalwire_phone_number TEXT`,
+  `ALTER TABLE agents ADD COLUMN signalwire_phone_sid TEXT`,
+  `ALTER TABLE agents ADD COLUMN signalwire_phone_area_code TEXT`,
+  `ALTER TABLE agents ADD COLUMN signalwire_phone_purchased_at TEXT`,
   // Aggregate metrics cache (optional — fill via triggers or job)
   `ALTER TABLE agents ADD COLUMN stats_total_calls INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE agents ADD COLUMN stats_connected_calls INTEGER NOT NULL DEFAULT 0`,
@@ -27,7 +27,7 @@ const INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_agents_role ON agents(role)`,
   `CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status)`,
   `CREATE INDEX IF NOT EXISTS idx_agents_invite_token ON agents(invite_token)`,
-  `CREATE INDEX IF NOT EXISTS idx_agents_twilio_phone_number ON agents(twilio_phone_number)`,
+  `CREATE INDEX IF NOT EXISTS idx_agents_signalwire_phone_number ON agents(signalwire_phone_number)`,
 ];
 
 let addedCount = 0;

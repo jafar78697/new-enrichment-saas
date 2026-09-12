@@ -1,4 +1,4 @@
-// Employees + Twilio number provisioning routes (manager-only).
+// Employees + SignalWire number provisioning routes (manager-only).
 //
 // New flow (no email):
 //   1. Admin POSTs { name, email } → backend auto-generates a 16-char password,
@@ -16,13 +16,13 @@ import { z } from 'zod';
 import { query } from '../db/index.js';
 import { asyncHandler, AppError } from '../utils/errors.js';
 import { requireManager, requireManagerOrLeader } from '../middleware/auth.js';
-import { twilioClient } from '../config/twilio.js';
+import { signalwireClient } from '../config/signalwire.js';
 import { CALLS_ENABLED } from '../config/env.js';
 import {
   searchUsNumbers,
   purchaseNumber,
   releaseNumber,
-} from '../services/twilio-numbers.service.js';
+} from '../services/signalwire-numbers.service.js';
 
 const router = Router();
 
@@ -48,7 +48,7 @@ async function uniqueIdentity(name) {
   let identity = name.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
   
   while (true) {
-    const res = await query('SELECT id FROM agents WHERE twilio_identity = $1', [identity]);
+    const res = await query('SELECT id FROM agents WHERE signalwire_identity = $1', [identity]);
     if (res.rows.length === 0) break;
     identity = `${identity}_${crypto.randomBytes(2).toString('hex')}`;
   }
@@ -61,9 +61,9 @@ router.get(
   requireManagerOrLeader,
   asyncHandler(async (req, res) => {
     const { rows } = await query(
-      `SELECT a.id, a.name, a.email, a.username, a.role, a.status, a.twilio_identity,
-              a.twilio_phone_number, a.twilio_phone_sid, a.twilio_phone_area_code,
-              a.twilio_phone_purchased_at, a.is_available,
+      `SELECT a.id, a.name, a.email, a.username, a.role, a.status, a.signalwire_identity,
+              a.signalwire_phone_number, a.signalwire_phone_sid, a.signalwire_phone_area_code,
+              a.signalwire_phone_purchased_at, a.is_available,
               a.last_login_at, a.invite_accepted_at, a.created_at,
               COALESCE(stats.total_calls, 0) AS total_calls,
               COALESCE(stats.connected_calls, 0) AS connected_calls,
@@ -103,9 +103,9 @@ router.get(
             GROUP BY assigned_agent_id
          ) today_leads_stats ON today_leads_stats.assigned_agent_id = a.id
         WHERE a.role IN ('employee', 'team_leader')
-        GROUP BY a.id, a.name, a.email, a.username, a.role, a.status, a.twilio_identity,
-                 a.twilio_phone_number, a.twilio_phone_sid, a.twilio_phone_area_code,
-                 a.twilio_phone_purchased_at, a.is_available, a.last_login_at,
+        GROUP BY a.id, a.name, a.email, a.username, a.role, a.status, a.signalwire_identity,
+                 a.signalwire_phone_number, a.signalwire_phone_sid, a.signalwire_phone_area_code,
+                 a.signalwire_phone_purchased_at, a.is_available, a.last_login_at,
                  a.invite_accepted_at, a.created_at, a.team_id, t.name,
                  stats.total_calls, stats.connected_calls, stats.total_seconds, stats.recordings_count,
                  today_calls_stats.today_calls, today_leads_stats.today_leads
@@ -145,9 +145,9 @@ router.get(
   }),
 );
 
-// ─── Search available US numbers (live Twilio) ───────────────────────
+// ─── Search available US numbers (live SignalWire) ───────────────────────
 router.get(
-  '/twilio/numbers/search',
+  '/signalwire/numbers/search',
   requireManager,
   asyncHandler(async (req, res) => {
     const q = z
@@ -164,20 +164,20 @@ router.get(
 
 // ─── Pool: numbers we own, joined with current assignment ─────────────
 router.get(
-  '/twilio/numbers/pool',
+  '/signalwire/numbers/pool',
   requireManager,
   asyncHandler(async (_req, res) => {
-    if (!CALLS_ENABLED || !twilioClient) {
+    if (!CALLS_ENABLED || !signalwireClient) {
       return res.json({ numbers: [], assigned: [] });
     }
-    const owned = await twilioClient.incomingPhoneNumbers.list({ limit: 100 });
+    const owned = await signalwireClient.incomingPhoneNumbers.list({ limit: 100 });
     const { rows: assignmentRows } = await query(
-      `SELECT id AS agent_id, name, email, twilio_phone_number, twilio_phone_sid
+      `SELECT id AS agent_id, name, email, signalwire_phone_number, signalwire_phone_sid
          FROM agents
-        WHERE twilio_phone_sid IS NOT NULL`,
+        WHERE signalwire_phone_sid IS NOT NULL`,
       []
     );
-    const bySid = new Map(assignmentRows.map((r) => [r.twilio_phone_sid, r]));
+    const bySid = new Map(assignmentRows.map((r) => [r.signalwire_phone_sid, r]));
     const numbers = owned.map((n) => {
       const a = bySid.get(n.sid);
       return {
@@ -216,11 +216,11 @@ router.post(
 
     const result = await query(
       `INSERT INTO agents
-        (name, username, email, twilio_identity, role, status, password_hash,
+        (tenant_id, name, username, email, signalwire_identity, role, status, password_hash,
          is_available, invite_accepted_at, team_id)
-       VALUES ($1, $2, $3, $4, 'employee', 'active', $5, false, CURRENT_TIMESTAMP, $6)
+       VALUES ($1, $2, $3, $4, $5, 'employee', 'active', $6, false, CURRENT_TIMESTAMP, $7)
        RETURNING id`,
-      [payload.name, payload.username, dummyEmail, identity, hash, payload.team_id || null]
+      [req.tenantId || null, payload.name, payload.username, dummyEmail, identity, hash, payload.team_id || null]
     );
     const newId = result.rows[0].id;
 
@@ -231,9 +231,9 @@ router.post(
     }
 
     const { rows: fresh } = await query(
-      `SELECT id, name, email, username, role, status, twilio_identity,
-              twilio_phone_number, twilio_phone_sid, twilio_phone_area_code,
-              twilio_phone_purchased_at, is_available, last_login_at,
+      `SELECT id, name, email, username, role, status, signalwire_identity,
+              signalwire_phone_number, signalwire_phone_sid, signalwire_phone_area_code,
+              signalwire_phone_purchased_at, is_available, last_login_at,
               invite_accepted_at, created_at
          FROM agents WHERE id = $1`,
       [newId]
@@ -282,15 +282,15 @@ router.post(
   }),
 );
 
-// ─── Assign / reassign a Twilio number ────────────────────────────────
+// ─── Assign / reassign a SignalWire number ────────────────────────────────
 const assignSchema = z
   .object({
     phoneNumber: z.string().optional(),
-    twilioSid: z.string().optional(),
+    signalwireSid: z.string().optional(),
     areaCode: z.string().optional(),
   })
-  .refine((v) => v.phoneNumber || v.twilioSid || v.areaCode, {
-    message: 'Provide phoneNumber, twilioSid, or areaCode',
+  .refine((v) => v.phoneNumber || v.signalwireSid || v.areaCode, {
+    message: 'Provide phoneNumber, signalwireSid, or areaCode',
   });
 
 router.post(
@@ -298,16 +298,16 @@ router.post(
   requireManager,
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const { rows: employees } = await query('SELECT id, name, twilio_phone_sid FROM agents WHERE id = $1 AND role = $2', [id, 'employee']);
+    const { rows: employees } = await query('SELECT id, name, signalwire_phone_sid FROM agents WHERE id = $1 AND role = $2', [id, 'employee']);
     const emp = employees[0];
     if (!emp) throw new AppError('Employee not found', 404);
-    const { phoneNumber, twilioSid, areaCode } = assignSchema.parse(req.body);
+    const { phoneNumber, signalwireSid, areaCode } = assignSchema.parse(req.body);
 
-    if (!CALLS_ENABLED || !twilioClient) {
-      throw new AppError('Twilio calling is not configured on this server', 503);
+    if (!CALLS_ENABLED || !signalwireClient) {
+      throw new AppError('SignalWire calling is not configured on this server', 503);
     }
 
-    if (emp.twilio_phone_sid) {
+    if (emp.signalwire_phone_sid) {
       throw new AppError(
         'Employee already has a number. Release the current one before reassigning.',
         409,
@@ -316,13 +316,13 @@ router.post(
 
     let chosen = null;
 
-    if (phoneNumber || twilioSid) {
-      const owned = await twilioClient.incomingPhoneNumbers.list({ limit: 100 });
+    if (phoneNumber || signalwireSid) {
+      const owned = await signalwireClient.incomingPhoneNumbers.list({ limit: 100 });
       const match = owned.find((n) =>
-        twilioSid ? n.sid === twilioSid : n.phoneNumber === phoneNumber,
+        signalwireSid ? n.sid === signalwireSid : n.phoneNumber === phoneNumber,
       );
-      if (!match) throw new AppError('That number is not in your Twilio account', 404);
-      const { rows: conflicts } = await query('SELECT id, name FROM agents WHERE twilio_phone_sid = $1 AND id != $2', [match.sid, id]);
+      if (!match) throw new AppError('That number is not in your SignalWire account', 404);
+      const { rows: conflicts } = await query('SELECT id, name FROM agents WHERE signalwire_phone_sid = $1 AND id != $2', [match.sid, id]);
       if (conflicts.length > 0) {
         throw new AppError(`That number is already assigned to ${conflicts[0].name}`, 409);
       }
@@ -354,17 +354,17 @@ router.post(
 
     await query(
       `UPDATE agents
-          SET twilio_phone_number = $1, twilio_phone_sid = $2,
-              twilio_phone_area_code = $3, twilio_phone_purchased_at = CURRENT_TIMESTAMP,
+          SET signalwire_phone_number = $1, signalwire_phone_sid = $2,
+              signalwire_phone_area_code = $3, signalwire_phone_purchased_at = CURRENT_TIMESTAMP,
               is_available = true, updated_at = CURRENT_TIMESTAMP
         WHERE id = $4`,
       [chosen.phoneNumber, chosen.sid, chosen.areaCode, id]
     );
 
     const { rows: fresh } = await query(
-      `SELECT id, name, email, username, role, status, twilio_identity,
-              twilio_phone_number, twilio_phone_sid, twilio_phone_area_code,
-              twilio_phone_purchased_at, is_available, last_login_at,
+      `SELECT id, name, email, username, role, status, signalwire_identity,
+              signalwire_phone_number, signalwire_phone_sid, signalwire_phone_area_code,
+              signalwire_phone_purchased_at, is_available, last_login_at,
               invite_accepted_at, created_at
          FROM agents WHERE id = $1`,
       [id]
@@ -373,25 +373,25 @@ router.post(
   }),
 );
 
-// ─── Release a Twilio number (back to pool, keeps DID purchased) ──────
+// ─── Release a SignalWire number (back to pool, keeps DID purchased) ──────
 router.post(
   '/employees/:id/release-number',
   requireManager,
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const { rows: employees } = await query(
-      'SELECT id, twilio_phone_number, twilio_phone_sid FROM agents WHERE id = $1 AND role = $2',
-      [id, 'employee']
+      'SELECT id, signalwire_phone_number, signalwire_phone_sid FROM agents WHERE id = $1',
+      [id]
     );
     const row = employees[0];
     if (!row) throw new AppError('Employee not found', 404);
-    if (!row.twilio_phone_sid) throw new AppError('Employee has no number assigned', 400);
+    if (!row.signalwire_phone_sid) throw new AppError('Employee has no number assigned', 400);
 
     await query(
       `UPDATE agents
-          SET twilio_phone_number = NULL, twilio_phone_sid = NULL,
-              twilio_phone_area_code = NULL, twilio_phone_purchased_at = NULL,
-              is_available = 0, updated_at = CURRENT_TIMESTAMP
+          SET signalwire_phone_number = NULL, signalwire_phone_sid = NULL,
+              signalwire_phone_area_code = NULL, signalwire_phone_purchased_at = NULL,
+              is_available = false, updated_at = CURRENT_TIMESTAMP
         WHERE id = $1`,
       [id]
     );
@@ -399,8 +399,8 @@ router.post(
     res.json({
       ok: true,
       released: {
-        phoneNumber: row.twilio_phone_number,
-        sid: row.twilio_phone_sid,
+        phoneNumber: row.signalwire_phone_number,
+        sid: row.signalwire_phone_sid,
       },
     });
   }),
@@ -413,32 +413,33 @@ router.patch(
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const { status } = z.object({ status: z.enum(['active', 'suspended']) }).parse(req.body);
-    const result = await query('UPDATE agents SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND role = $3', [status, id, 'employee']);
+    const result = await query('UPDATE agents SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [status, id]);
     if (result.rowCount === 0) throw new AppError('Employee not found', 404);
     res.json({ ok: true, status });
   }),
 );
 
-// ─── Delete employee (keeps Twilio number in pool, unassigned) ────────
+// ─── Delete employee (keeps SignalWire number in pool, unassigned) ────────
 router.delete(
   '/employees/:id',
   requireManager,
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     const { rows: employees } = await query(
-      'SELECT id, twilio_phone_number, twilio_phone_sid FROM agents WHERE id = $1 AND role = $2',
-      [id, 'employee']
+      'SELECT id, signalwire_phone_number, signalwire_phone_sid FROM agents WHERE id = $1',
+      [id]
     );
     const row = employees[0];
     if (!row) throw new AppError('Employee not found', 404);
+    if (row.id === req.user?.id) throw new AppError('Cannot delete your own account', 403);
 
     await query('UPDATE calls SET agent_id = NULL WHERE agent_id = $1', [id]);
     await query('DELETE FROM agents WHERE id = $1', [id]);
 
     res.json({
       ok: true,
-      numberReturnedToPool: row.twilio_phone_sid
-        ? { phoneNumber: row.twilio_phone_number, sid: row.twilio_phone_sid }
+      numberReturnedToPool: row.signalwire_phone_sid
+        ? { phoneNumber: row.signalwire_phone_number, sid: row.signalwire_phone_sid }
         : null,
     });
   }),
@@ -480,7 +481,7 @@ router.get(
     
     const { rows: summary } = await query(
         `SELECT 
-          a.id, a.name, a.email, a.username, a.status, a.twilio_phone_number,
+          a.id, a.name, a.email, a.username, a.status, a.signalwire_phone_number,
           a.last_login_at,
           COUNT(c.id) as calls_in_period,
           SUM(COALESCE(c.duration_seconds, 0)) as talk_time_in_period,

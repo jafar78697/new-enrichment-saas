@@ -5,6 +5,20 @@ import { requireAuth } from '../middleware/auth.js';
 const router = Router();
 
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
+const DEFAULT_US_LOCATION = 'United States';
+
+function normalizeUSPhone(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (/^[2-9]\d{9}$/.test(digits)) return `+1${digits}`;
+  if (/^1[2-9]\d{9}$/.test(digits)) return `+${digits}`;
+  return null;
+}
+
+function isUSPlace(place) {
+  const country = place.addressComponents?.find((component) => component.types?.includes('country'));
+  if (country?.shortText) return country.shortText === 'US';
+  return /(?:USA|United States)$/i.test(place.formattedAddress || '');
+}
 
 // POST /api/google-maps/scrape
 router.post(
@@ -12,19 +26,27 @@ router.post(
   requireAuth,
   async (req, res) => {
     try {
-      const { keywords, location, niche_name } = req.body;
+      const { keywords, location, niche_name, google_cloud_account } = req.body;
+      const requestedLocation = String(location || '').trim() || DEFAULT_US_LOCATION;
       const limit = 1000; // A high arbitrary limit to let it fetch all available pages (Google max is usually ~60-120 per search anyway)
 
-      console.log('[google-maps] Route called with:', JSON.stringify({ keywords, location, niche_name }));
+      console.log('[google-maps] Route called with:', JSON.stringify({ keywords, location: requestedLocation, niche_name, google_cloud_account }));
 
       if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
         return res.status(400).json({ error: 'At least one keyword is required in keywords array.' });
       }
 
-      const apiKey = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyBaLbEYExP3eJtIuEtnS4x1W2B3rH_h-1M';
+      if (!google_cloud_account || !['account_1', 'account_2'].includes(google_cloud_account)) {
+        return res.status(400).json({ error: 'Please select a valid Google Cloud account for scraping.' });
+      }
+
+      let apiKey = null;
+      if (google_cloud_account === 'account_1') apiKey = process.env.GOOGLE_MAPS_API_KEY_1;
+      if (google_cloud_account === 'account_2') apiKey = process.env.GOOGLE_MAPS_API_KEY_2;
+
       if (!apiKey) {
-        console.warn('[google-maps] GOOGLE_MAPS_API_KEY is not set.');
-        return res.status(400).json({ error: 'Google Maps API key is not configured on the server.' });
+        console.warn('[google-maps] Requested GOOGLE_MAPS_API_KEY is not set.');
+        return res.status(400).json({ error: 'The selected Google Maps API key is not configured on the server.' });
       }
 
       let niche_id = null;
@@ -49,13 +71,19 @@ router.post(
       const allLeads = [];
 
       for (const keyword of keywords) {
-        console.log(`[google-maps] Searching for: ${keyword} ${location ? 'in ' + location : ''} limit: ${limit}`);
+        console.log(`[google-maps] Searching for: ${keyword} in ${requestedLocation} limit: ${limit}`);
+
+        try {
+          await query('INSERT INTO google_maps_usage (account_id, keyword) VALUES ($1, $2)', [google_cloud_account, keyword]);
+        } catch (err) {
+          console.error('[google-maps] Failed to log usage:', err);
+        }
 
         let pageToken = undefined;
         let leadsForKeyword = 0;
 
         while (leadsForKeyword < limit) {
-          const textQuery = location && location.trim() !== '' ? `${keyword} in ${location}` : keyword;
+          const textQuery = `${keyword} in ${requestedLocation}`;
           const body = {
             textQuery: textQuery,
             pageSize: 20
@@ -71,7 +99,7 @@ router.post(
             headers: {
               'Content-Type': 'application/json',
               'X-Goog-Api-Key': apiKey,
-              'X-Goog-FieldMask': 'places.id,places.displayName,places.nationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,nextPageToken'
+              'X-Goog-FieldMask': 'places.id,places.displayName,places.nationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.formattedAddress,places.addressComponents,nextPageToken'
             },
             body: JSON.stringify(body)
           });
@@ -88,18 +116,23 @@ router.post(
             break;
           }
 
-          const leads = data.places.map((place) => ({
-            id: place.id,
-            name: place.displayName?.text || 'Unknown',
-            phone: place.nationalPhoneNumber || null,
-            website: place.websiteUri || null,
-            rating: place.rating || 0,
-            reviews: place.userRatingCount || 0,
-            address: '',
-            socialLinks: [],
-            status: niche_id ? 'enriched' : 'scraped',
-            niche_id: niche_id || null
-          }));
+          const leads = data.places.flatMap((place) => {
+            const phone = normalizeUSPhone(place.nationalPhoneNumber);
+            if (!phone || !isUSPlace(place)) return [];
+
+            return [{
+              id: place.id,
+              name: place.displayName?.text || 'Unknown',
+              phone,
+              website: place.websiteUri || null,
+              rating: place.rating || 0,
+              reviews: place.userRatingCount || 0,
+              address: place.formattedAddress || '',
+              socialLinks: [],
+              status: niche_id ? 'enriched' : 'scraped',
+              niche_id: niche_id || null
+            }];
+          });
 
           allLeads.push(...leads);
           leadsForKeyword += leads.length;
@@ -166,6 +199,36 @@ router.post(
       return res.json({ success: true, leads: allLeads });
     } catch (err) {
       console.error('[google-maps] Error:', err);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  }
+);
+
+// GET /api/google-maps/usage
+router.get(
+  '/usage',
+  requireAuth,
+  async (req, res) => {
+    try {
+      const result = await query(`
+        SELECT account_id, COUNT(*) as count 
+        FROM google_maps_usage 
+        WHERE created_at = CURRENT_DATE 
+        GROUP BY account_id
+      `);
+      
+      const usage = {
+        account_1: 0,
+        account_2: 0
+      };
+      
+      result.rows.forEach(row => {
+        usage[row.account_id] = parseInt(row.count, 10);
+      });
+      
+      return res.json({ success: true, usage });
+    } catch (err) {
+      console.error('[google-maps] Error fetching usage:', err);
       return res.status(500).json({ error: 'Internal Server Error' });
     }
   }

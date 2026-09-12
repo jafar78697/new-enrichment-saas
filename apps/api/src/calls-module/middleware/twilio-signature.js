@@ -1,4 +1,4 @@
-import { twilio } from '../config/twilio.js';
+import { twilio } from '../config/signalwire.js';
 import { env } from '../config/env.js';
 import { getRequestBaseUrl } from '../utils/http.js';
 

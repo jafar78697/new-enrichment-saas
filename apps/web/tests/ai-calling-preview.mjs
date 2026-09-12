@@ -31,7 +31,7 @@ const result = await build({
       leads=[{id:'lead-1',company_name:contacts[0].company,domain:'example.test',primary_phone:contacts[0].phone_number,assigned_to_ai:true,lead_stage:'calling',last_contacted_at:new Date().toISOString(),raw_data:{source_contact_id:'1',niche_id:1}}];
     }
     let settings = {callsPerMinute:1,maxCallsPerDay:5,maxMinutesPerDay:10,maxCostUsdPerDay:1,callingTimezone:'America/New_York',callingWindowStartHour:9,callingWindowEndHour:17};
-    const status = () => ({isRunning:running,queueCount:leads.filter(l=>l.lead_stage==='assigned'&&l.ai_voice_consent).length,
+    const status = () => ({isRunning:running,queueCount:leads.filter(l=>l.lead_stage==='assigned'&&!l.do_not_call).length,
       pendingConsentCount:leads.filter(l=>l.lead_stage==='assigned'&&!l.ai_voice_consent).length,
       activeCallSid:running?'fixture-call-1':null,activeLeadId:running?leads[0]?.id:null,
       nextLead:leads.find(l=>l.lead_stage==='assigned')||null,lastCall:null,recentActivity:[],

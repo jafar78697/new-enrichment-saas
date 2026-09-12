@@ -40,6 +40,7 @@ class OutreachImapService {
                     host: 'imap.gmail.com', // Defaulting to gmail for now as per legacy system
                     port: 993,
                     tls: true,
+                    tlsOptions: { rejectUnauthorized: false },
                     authTimeout: 30000,
                 },
             };

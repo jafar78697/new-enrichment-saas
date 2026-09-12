@@ -93,8 +93,6 @@ export function createSTTSession({ streamSid, callSid, sampleRate = 8000, isPCM 
         useEnhanced: true,
         enableAutomaticPunctuation: true,
         enableWordTimeOffsets: false,
-        interimResults: true,
-        singleUtterance: true, // Forces FAST endpointing!
         speechContexts: [
           {
             phrases: [
@@ -108,6 +106,7 @@ export function createSTTSession({ streamSid, callSid, sampleRate = 8000, isPCM 
         ],
       },
       interimResults: true,
+      singleUtterance: true,
     };
 
     return client.streamingRecognize(request);
@@ -147,7 +146,7 @@ export function createSTTSession({ streamSid, callSid, sampleRate = 8000, isPCM 
 
         if (alternative) {
           const text = alternative.transcript || '';
-          const confidence = alternative.confidence || 0;
+          const confidence = alternative.confidence || (result.isFinal ? 0.8 : 0.6);
           const isFinal = result.isFinal || false;
 
           if (text.trim()) {
@@ -161,7 +160,7 @@ export function createSTTSession({ streamSid, callSid, sampleRate = 8000, isPCM 
 
             // Check for barge-in
             const isSignificantSpeech = text.trim().length > 4;
-            if (isAiSpeaking && !isFinal && confidence > env.VOICE_BARGE_IN_CONFIDENCE && isSignificantSpeech) {
+            if (isAiSpeaking && !isFinal && confidence >= env.VOICE_BARGE_IN_CONFIDENCE && isSignificantSpeech) {
               console.log(`[voice-agent:stt] BARGE-IN detected for ${callSid}: "${text}"`);
               onBargeIn({ text, confidence });
             }

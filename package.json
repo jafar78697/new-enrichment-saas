@@ -10,9 +10,21 @@
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "dev": "pnpm -r dev",
+    "deploy:calling": "bash deploy-calling-saas.sh",
     "deploy:all": "bash deploy-all.sh"
   },
   "devDependencies": {
     "typescript": "^5.4.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/react": "^18.2.0",
+      "@types/react-dom": "^18.2.0"
+    },
+    "onlyBuiltDependencies": [
+      "@google/genai",
+      "better-sqlite3",
+      "protobufjs"
+    ]
   }
 }

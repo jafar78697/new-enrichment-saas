@@ -74,6 +74,20 @@ function getWorkerConfigError() {
   return null;
 }
 
+async function hasActiveCallingSubscription(tenantId) {
+  const { rows } = await query(
+    `SELECT 1
+     FROM customer_subscriptions
+     WHERE tenant_id = $1
+       AND status = 'active'
+       AND start_date <= NOW()
+       AND (end_date IS NULL OR end_date > NOW())
+     LIMIT 1`,
+    [tenantId],
+  );
+  return Boolean(rows[0]);
+}
+
 async function runWorkerTick() {
   if (process.env.ENABLE_AI_OUTBOUND_CALLER !== 'true' || process.env.AI_OUTBOUND_ENABLED !== 'true') return;
   if (workerTickRunning) return;
@@ -97,6 +111,16 @@ async function runWorkerTick() {
         if (!releaseLock) continue;
         const { rows: currentControls } = await query('SELECT is_running FROM ai_calling_controls WHERE tenant_id = $1', [control.tenant_id]);
         if (!currentControls[0]?.is_running) continue;
+        if (!await hasActiveCallingSubscription(control.tenant_id)) {
+          await query(
+            `UPDATE ai_calling_controls
+             SET is_running = false, updated_at = NOW()
+             WHERE tenant_id = $1`,
+            [control.tenant_id],
+          );
+          console.warn(`[outbound-caller] Subscription expired for tenant ${control.tenant_id}; calling paused.`);
+          continue;
+        }
         if (!isWithinCallingWindow(control)) continue;
 
         const { rows: dailyRows } = await query(
