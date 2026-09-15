@@ -57,6 +57,12 @@ function isEmergencyDestination(raw) {
 
 const CALL_RATE_PER_MINUTE_CENTS = Number(process.env.CALL_RATE_PER_MINUTE_CENTS || '1.5');
 const DEMO_CALL_LIMIT = 3;
+// Provider-side upper bound for unanswered outbound calls. The browser has
+// the same guard, but this protects REST-originated calls and slow clients.
+const NO_ANSWER_TIMEOUT_SECONDS = 60;
+// Prevent rapid repeat calls to the same person across all employees in a
+// customer account. This is enforced server-side, before reserving balance.
+const DESTINATION_COOLDOWN_MINUTES = 15;
 
 async function requireActiveCallingSubscription(client, tenantId) {
   const { rows } = await client.query(
@@ -165,6 +171,44 @@ async function settleWalletReservation(client, reservationId, finalAmount) {
   );
 }
 
+async function releaseStaleOutboundCalls(client, tenantId) {
+  const { rows: staleRows } = await client.query(
+    `SELECT id, reservation_id, provider_call_id
+     FROM tracked_calls
+     WHERE tenant_id = $1
+       AND status IN ('initiated', 'ringing')
+       AND settled = FALSE
+       AND created_at < NOW() - INTERVAL '5 minutes'
+     FOR UPDATE`,
+    [tenantId]
+  );
+
+  for (const staleCall of staleRows) {
+    if (staleCall.reservation_id) {
+      await settleWalletReservation(client, staleCall.reservation_id, 0);
+    }
+    await client.query(
+      `UPDATE tracked_calls
+       SET status = 'no_answer', ended_at = COALESCE(ended_at, NOW()), settled = TRUE
+       WHERE id = $1
+         AND settled = FALSE`,
+      [staleCall.id]
+    );
+    if (staleCall.provider_call_id) {
+      await client.query(
+        `UPDATE calls
+         SET status = 'no_answer', ended_at = COALESCE(ended_at, NOW()), updated_at = NOW()
+         WHERE tenant_id = $1
+           AND (call_sid = $2 OR child_call_sid = $2)
+           AND status NOT IN ('completed', 'failed', 'no_answer', 'busy', 'canceled')`,
+        [tenantId, staleCall.provider_call_id]
+      );
+    }
+  }
+
+  return staleRows.length;
+}
+
 async function authorizeTrackedOutboundCall(req, payload) {
   if (!req.tenantId) throw new AppError('Tenant context is required for calling', 403);
   if (!canAccessAgent(req.user, payload.agentId)) {
@@ -188,10 +232,23 @@ async function authorizeTrackedOutboundCall(req, payload) {
     await requireActiveCallingSubscription(client, req.tenantId);
 
     const { rows: tenantRows } = await client.query(
-      `SELECT plan FROM tenants WHERE id = $1 FOR UPDATE`,
+      `SELECT plan, created_at FROM tenants WHERE id = $1 FOR UPDATE`,
       [req.tenantId]
     );
     if (tenantRows[0]?.plan === 'demo') {
+      const { rows: trialRows } = await client.query(
+        `SELECT * FROM tenant_demo_trials WHERE tenant_id = $1`,
+        [req.tenantId]
+      );
+      const trial = trialRows[0];
+      if (!trial) {
+         throw new AppError('You must start a demo session from the dashboard first.', 403);
+      }
+      if (new Date(trial.expires_at) < new Date() || trial.status === 'expired') {
+         throw new AppError('Your 1-hour free demo has expired. Please upgrade your account to continue calling.', 403);
+      }
+
+      // Enforce call limit
       const { rows: demoUsageRows } = await client.query(
         `SELECT COUNT(*)::int AS used
          FROM tracked_calls
@@ -209,7 +266,7 @@ async function authorizeTrackedOutboundCall(req, payload) {
     }
 
     const { rows: agentRows } = await client.query(
-      `SELECT id, signalwire_phone_number, status
+      `SELECT id, signalwire_phone_number, status, platform_user_id
        FROM agents
        WHERE id = $1
          AND tenant_id = $2
@@ -220,8 +277,41 @@ async function authorizeTrackedOutboundCall(req, payload) {
     const agent = agentRows[0];
     if (!agent) throw new AppError('Calling agent not found or inactive', 404);
 
-    const callerId = cleanPhoneNumber(agent.signalwire_phone_number || env.SIGNALWIRE_PHONE_NUMBER || env.TWILIO_PHONE_NUMBER || '');
-    if (!callerId) throw new AppError('No caller ID is configured for this account.', 400);
+    // Enforce can_call permission set by the admin in the users table.
+    // platform_user_id links the calls-module agent to the enrichment user record.
+    if (req.user.platform_user_id) {
+      const { rows: permRows } = await client.query(
+        `SELECT can_call FROM users WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+        [req.user.platform_user_id, req.tenantId]
+      );
+      if (permRows[0] && permRows[0].can_call === false) {
+        throw new AppError('Your calling access has been disabled by the administrator.', 403, { code: 'CALLING_PERMISSION_DENIED' });
+      }
+    } else if (agent.platform_user_id) {
+      // Fallback: look up by agent's own platform_user_id
+      const { rows: permRows } = await client.query(
+        `SELECT can_call FROM users WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+        [agent.platform_user_id, req.tenantId]
+      );
+      if (permRows[0] && permRows[0].can_call === false) {
+        throw new AppError('Your calling access has been disabled by the administrator.', 403, { code: 'CALLING_PERMISSION_DENIED' });
+      }
+    }
+
+    // Always originate from the employee's own assigned number. A shared
+    // platform/demo fallback would make multiple employees use one caller ID.
+    const callerId = cleanPhoneNumber(agent.signalwire_phone_number || '');
+    if (!callerId) throw new AppError('This employee has no assigned calling number.', 400);
+
+    const { rows: numberRows } = await client.query(
+      `SELECT 1 FROM phone_numbers
+       WHERE tenant_id = $1 AND phone_number = $2 AND status = 'active'
+       LIMIT 1`,
+      [req.tenantId, callerId]
+    );
+    if (numberRows.length === 0) {
+      throw new AppError('This employee calling number is not active for this customer.', 403);
+    }
 
     const { rows: limitRows } = await client.query(
       `SELECT max_concurrent_calls, max_daily_call_attempts, max_daily_unique_destinations, max_call_seconds
@@ -233,6 +323,25 @@ async function authorizeTrackedOutboundCall(req, payload) {
     const limits = limitRows[0];
     if (!limits) throw new AppError('Tenant calling limits are not configured', 403);
 
+    // Browser refreshes, closed tabs, and lost Relay events can leave an
+    // initiated/ringing record behind. Recover only calls that have been
+    // ringing for more than five minutes; connected calls are never touched.
+    await releaseStaleOutboundCalls(client, req.tenantId);
+
+    // Apply the 15-minute cooldown strictly to the EXACT same destination number,
+    // and ONLY if the previous call actually connected (duration_seconds > 0).
+    const { rows: recentCalls } = await client.query(
+      `SELECT destination_number FROM tracked_calls
+       WHERE tenant_id = $1 
+         AND destination_number = $2 
+         AND duration_seconds > 0
+         AND created_at >= NOW() - INTERVAL '${DESTINATION_COOLDOWN_MINUTES} minutes'`,
+      [req.tenantId, toStr]
+    );
+    if (recentCalls.length > 0) {
+      throw new AppError(`This person was called recently. Please wait ${DESTINATION_COOLDOWN_MINUTES} minutes before calling again.`, 429);
+    }
+
     const maxCallSeconds = Math.min(
       Number(payload.expectedMaxDurationSeconds || limits.max_call_seconds || 1800),
       Number(limits.max_call_seconds || 1800)
@@ -241,10 +350,12 @@ async function authorizeTrackedOutboundCall(req, payload) {
     const { rows: activeRows } = await client.query(
       `SELECT COUNT(*) AS active_calls
        FROM tracked_calls
-       WHERE tenant_id = $1 AND status IN ('initiated', 'ringing', 'connected')`,
+       WHERE tenant_id = $1
+         AND settled = FALSE
+         AND status IN ('initiated', 'ringing', 'connected')`,
       [req.tenantId]
     );
-    if (Number(activeRows[0]?.active_calls || 0) >= Number(limits.max_concurrent_calls || 1)) {
+    if (Number(limits.max_concurrent_calls || 0) > 0 && Number(activeRows[0]?.active_calls || 0) >= Number(limits.max_concurrent_calls)) {
       throw new AppError(`Max concurrent calls limit reached (${limits.max_concurrent_calls})`, 429);
     }
 
@@ -258,10 +369,10 @@ async function authorizeTrackedOutboundCall(req, payload) {
     const counter = counterRows[0];
     const destinationNumbers = counter?.destination_numbers || [];
     const isNewDestination = !destinationNumbers.includes(toStr);
-    if (Number(counter?.total_attempts || 0) >= Number(limits.max_daily_call_attempts || 0)) {
+    if (Number(limits.max_daily_call_attempts || 0) > 0 && Number(counter?.total_attempts || 0) >= Number(limits.max_daily_call_attempts)) {
       throw new AppError(`Daily call attempt limit reached (${limits.max_daily_call_attempts})`, 429);
     }
-    if (isNewDestination && Number(counter?.unique_destinations || 0) >= Number(limits.max_daily_unique_destinations || 0)) {
+    if (Number(limits.max_daily_unique_destinations || 0) > 0 && isNewDestination && Number(counter?.unique_destinations || 0) >= Number(limits.max_daily_unique_destinations)) {
       throw new AppError(`Daily unique destination limit reached (${limits.max_daily_unique_destinations})`, 429);
     }
 
@@ -370,10 +481,14 @@ router.get(
     } catch (error) {
       throw error;
     }
+    const finalCallerId = cleanPhoneNumber(agent.signalwire_phone_number) || voiceCredentials.callerId;
+    console.log('[SignalWire Token API] Agent:', agent.id, 'Returning callerId:', finalCallerId);
+
+    res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.json({
       token: voiceCredentials.token,
       projectId: voiceCredentials.projectId,
-      callerId: voiceCredentials.callerId,
+      callerId: cleanPhoneNumber(agent.signalwire_phone_number) || voiceCredentials.callerId,
       maxCallSeconds: voiceCredentials.maxCallSeconds,
       agent
     });
@@ -436,12 +551,32 @@ router.post(
              duration_seconds = $3,
              billable_seconds = $4,
              cost_cents = $5,
-             status = $6,
+             status = CASE
+               WHEN $6 IN ('completed', 'failed', 'busy', 'no_answer', 'canceled') THEN $6
+               ELSE 'completed'
+             END,
              ended_at = NOW(),
              settled = TRUE
          WHERE id = $1`,
         [payload.trackedCallId, payload.providerCallId || null, payload.durationSeconds, billableSeconds, finalCostCents, payload.status]
       );
+
+      const providerCallId = payload.providerCallId || tracked.provider_call_id;
+      if (providerCallId) {
+        await client.query(
+          `UPDATE calls
+           SET status = CASE
+                 WHEN $3 IN ('completed', 'failed', 'busy', 'no_answer', 'canceled') THEN $3
+                 ELSE 'completed'
+               END,
+               duration_seconds = $4,
+               ended_at = NOW(),
+               updated_at = NOW()
+           WHERE tenant_id = $1
+             AND (call_sid = $2 OR child_call_sid = $2)`,
+          [req.tenantId, providerCallId, payload.status, payload.durationSeconds]
+        );
+      }
 
       await client.query('COMMIT');
       res.json({ success: true, costCents: finalCostCents });
@@ -509,7 +644,15 @@ router.post(
         errResponse.hangup();
         return res.type('text/xml').send(errResponse.toString());
       }
-      callerId = agent.signalwire_phone_number || callerId;
+      if (!agent.signalwire_phone_number) {
+        const errResponse = new twilio.twiml.VoiceResponse();
+        errResponse.say({ voice: 'alice' }, 'This employee has no assigned calling number.');
+        errResponse.hangup();
+        return res.type('text/xml').send(errResponse.toString());
+      }
+      callerId = cleanPhoneNumber(agent.signalwire_phone_number);
+    } else {
+      callerId = cleanPhoneNumber(callerId);
     }
 
     if (!callerId) {
@@ -734,19 +877,24 @@ router.post(
       `SELECT signalwire_phone_number FROM agents WHERE id = $1 ${req.tenantId ? 'AND tenant_id = $2' : ''} LIMIT 1`,
       req.tenantId ? [payload.agentId, req.tenantId] : [payload.agentId]
     );
-    const callerId = agentResult.rows[0]?.signalwire_phone_number || env.SIGNALWIRE_PHONE_NUMBER || env.TWILIO_PHONE_NUMBER;
+    const callerId = cleanPhoneNumber(agentResult.rows[0]?.signalwire_phone_number || '');
+    if (!callerId) throw new AppError('This employee has no assigned calling number.', 400);
 
+    let parentStatus = 'initiated';
     if (payload.trackedCallId && req.tenantId) {
       const trackedResult = await query(
         `UPDATE tracked_calls
-         SET provider_call_id = $1, status = 'ringing'
+         SET provider_call_id = COALESCE(provider_call_id, $1),
+             status = CASE WHEN settled = TRUE THEN status ELSE 'ringing' END
          WHERE id = $2 AND tenant_id = $3
-         RETURNING id`,
+         RETURNING id, settled, status`,
         [payload.callSid, payload.trackedCallId, req.tenantId]
       );
       if (trackedResult.rowCount === 0) {
         throw new AppError('Tracked call not found for this tenant', 404);
       }
+      const trackedState = trackedResult.rows[0];
+      parentStatus = trackedState.settled ? trackedState.status : 'initiated';
     }
 
     await upsertOutboundParentCall({
@@ -756,7 +904,7 @@ router.post(
       contactId: payload.contactId || null,
       from: callerId,
       to: toStr,
-      status: 'initiated',
+      status: parentStatus,
       shouldRecord: payload.record === true
     });
 
@@ -805,6 +953,7 @@ router.post(
       call = await signalwireClient.calls.create({
       from: authorization.callerId,
       to: authorization.to,
+      timeout: NO_ANSWER_TIMEOUT_SECONDS,
       url: absoluteUrl(req, '/api/signalwire/twiml/outbound'),
       statusCallback: absoluteUrl(req, '/api/signalwire/webhooks/call-status'),
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],

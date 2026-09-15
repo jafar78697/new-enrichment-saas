@@ -58,6 +58,7 @@ export interface UseSignalWireDeviceResult {
 }
 
 const CALLS_ORIGIN = (import.meta.env.VITE_CALLS_URL as string | undefined) || window.location.origin;
+const NO_ANSWER_TIMEOUT_SECONDS = 60;
 
 function toLinear16(input: Float32Array, inputRate: number, outputRate = 16000): ArrayBuffer {
   const ratio = inputRate / outputRate;
@@ -100,6 +101,10 @@ function callEndReason(call: RelayCall): string {
 
   if (reportedReason) return `Call ended before connecting: ${reportedReason}.`;
   return 'Call ended before connecting. Check the number and that this account can dial its country.';
+}
+
+function isTerminalCall(call: RelayCall | null | undefined): boolean {
+  return Boolean(call && ['hangup', 'destroy', 'purge'].includes(call.state));
 }
 
 export function useSignalWireDevice(agentId: number | null | undefined): UseSignalWireDeviceResult {
@@ -253,6 +258,10 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
   }, [clearCallConnectTimeout, finishCall]);
 
   const handleCallNotification = useCallback((notification: any) => {
+    // Keep the raw Relay update in the browser console. Browser SDK call
+    // UUIDs are not REST call SIDs, so this is the only place we can see the
+    // provider's immediate hangup cause for browser-originated calls.
+    console.info('[CallingService] SignalWire notification', notification);
     if (notification?.type !== 'callUpdate') return;
     const call = notification.call as RelayCall | undefined;
     if (!call) return;
@@ -351,6 +360,19 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
       cancelled = true;
       clearCallTimeout();
       clearCallConnectTimeout();
+      // Route changes, refreshes, and tab closes must not leave a live PSTN
+      // leg or a reserved tracked call behind. The server also recovers
+      // stale initiated/ringing rows as a second line of defense.
+      if (activeCallRef.current) {
+        try {
+          activeCallRef.current.hangup();
+        } catch {
+          // The Relay client may already be disconnected during teardown.
+        }
+      }
+      if (activeTrackedCallIdRef.current) {
+        settleTrackedCall(connectedRef.current ? 'completed' : 'no_answer');
+      }
       if (client) {
         if (readyHandler) client.off('signalwire.ready', readyHandler);
         if (errorHandler) client.off('signalwire.error', errorHandler);
@@ -368,7 +390,7 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
         remoteAudioRef.current = null;
       }
     };
-  }, [agentId, clearCallConnectTimeout, clearCallTimeout, handleCallNotification, stopTranscription]);
+  }, [agentId, clearCallConnectTimeout, clearCallTimeout, handleCallNotification, settleTrackedCall, stopTranscription]);
 
   useEffect(() => {
     if (callStatus !== 'connected') return;
@@ -489,6 +511,7 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
   const startCall = useCallback(async ({
     phoneNumber,
     contactId,
+    record = false,
   }: {
     phoneNumber: string;
     contactId?: number | string | null;
@@ -542,6 +565,15 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
         },
       });
 
+      // Relay can emit a terminal update before newCall() resolves. Do not
+      // resurrect an already-ended call in activeCallRef in that race.
+      if (isTerminalCall(call)) {
+        const reason = connectedRef.current ? '' : callEndReason(call);
+        if (reason && !endedLocallyRef.current) setError(reason);
+        finishCall(connectedRef.current ? 'completed' : 'no_answer', 'ended');
+        throw new Error(reason || 'The call ended before connecting.');
+      }
+
       activeCallRef.current = call;
       callStartInProgressRef.current = false;
       setActiveCallSid(call.id);
@@ -562,9 +594,9 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
         if (activeCallRef.current?.id !== call.id || connectedRef.current) return;
         endedLocallyRef.current = true;
         call.hangup();
-        setError('The call did not connect within 45 seconds. Please try again or check the destination number.');
+        setError(`The call did not connect within ${NO_ANSWER_TIMEOUT_SECONDS} seconds. Please try again or check the destination number.`);
         finishCall('no_answer');
-      }, 45_000);
+      }, NO_ANSWER_TIMEOUT_SECONDS * 1000);
 
       if (agentId) {
         try {
@@ -574,7 +606,7 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
             contactId,
             callSid: call.id,
             trackedCallId: authorization?.trackedCallId,
-            record: false,
+            record,
           });
         } catch (logError) {
           console.error('[CallingService] Failed to log browser call in CRM', logError);
@@ -586,7 +618,9 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
       callStartInProgressRef.current = false;
       const message = describeError(callError, 'Unable to start browser call');
       setError(message);
-      finishCall('failed', 'idle');
+      // Keep the popup in the ended state so an immediate Relay failure is
+      // visible to the user instead of silently returning to Ready/closing.
+      finishCall('failed', 'ended');
       throw new Error(message);
     }
   }, [agentId, callerId, deviceStatus, finishCall, handleCallNotification, maxCallSeconds, updateCallStatus]);
@@ -629,6 +663,24 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
 
   const sendDtmf = useCallback((digit: string) => {
     activeCallRef.current?.dtmf(digit);
+  }, []);
+
+  // Gracefully terminate the call if the user refreshes or closes the page
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (activeCallRef.current) {
+        endedLocallyRef.current = true;
+        activeCallRef.current.hangup();
+      }
+      if (incomingCallRef.current) {
+        endedLocallyRef.current = true;
+        incomingCallRef.current.hangup();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
   }, []);
 
   return useMemo(
