@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   AlertTriangle,
@@ -9,6 +10,7 @@ import {
   Power,
   PowerOff,
   RefreshCw,
+  SlidersHorizontal,
   Trash2,
   UserPlus,
   Users,
@@ -25,6 +27,9 @@ type Employee = {
   account_status: 'active' | 'suspended';
   phone_number?: string | null;
   created_at: string;
+  agent_id?: number | string | null;
+  can_call?: boolean;
+  can_scrape?: boolean;
 };
 
 type Capacity = {
@@ -47,7 +52,7 @@ type Credentials = {
   must_change_password: boolean;
 };
 
-const emptyForm = { first_name: '', last_name: '', email: '' };
+const emptyForm = { first_name: '', last_name: '', email: '', can_call: true, can_scrape: false };
 
 export default function TeamAccess() {
   const { notify, confirm } = useNotifications();
@@ -58,6 +63,8 @@ export default function TeamAccess() {
   const [busyId, setBusyId] = useState('');
   const [credentials, setCredentials] = useState<Credentials | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editingPermissions, setEditingPermissions] = useState<Employee | null>(null);
+  const [permissionForm, setPermissionForm] = useState({ can_call: true, can_scrape: false });
 
   async function loadTeam() {
     setLoading(true);
@@ -122,6 +129,26 @@ export default function TeamAccess() {
       await loadTeam();
     } catch (error: any) {
       notify(error?.response?.data?.error || 'Employee status could not be updated.', 'error');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  function openPermissions(employee: Employee) {
+    setEditingPermissions(employee);
+    setPermissionForm({ can_call: employee.can_call !== false, can_scrape: employee.can_scrape === true });
+  }
+
+  async function savePermissions() {
+    if (!editingPermissions) return;
+    setBusyId(editingPermissions.id);
+    try {
+      await axios.patch(`${API_URL}/v1/team-access/employees/${editingPermissions.id}/permissions`, permissionForm);
+      notify('Employee permissions updated.', 'success');
+      setEditingPermissions(null);
+      await loadTeam();
+    } catch (error: any) {
+      notify(error?.response?.data?.error || 'Employee permissions could not be updated.', 'error');
     } finally {
       setBusyId('');
     }
@@ -220,6 +247,17 @@ export default function TeamAccess() {
             <label className="text-sm text-textMuted">Email <span className="text-xs">(optional)</span>
               <input className="input-field mt-2" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="employee@company.com" />
             </label>
+            <div className="md:col-span-3">
+              <div className="mb-2 text-sm font-semibold text-white">Employee permissions</div>
+              <div className="flex flex-wrap gap-3">
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface/40 px-3 py-2 text-sm text-textMuted">
+                  <input type="checkbox" checked={form.can_call} onChange={(event) => setForm({ ...form, can_call: event.target.checked })} /> Cold Calling
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface/40 px-3 py-2 text-sm text-textMuted">
+                  <input type="checkbox" checked={form.can_scrape} onChange={(event) => setForm({ ...form, can_scrape: event.target.checked })} /> Lead Scraping
+                </label>
+              </div>
+            </div>
             <button className="btn-primary inline-flex h-[42px] items-center justify-center gap-2 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50" disabled={saving || capacity.employees_available < 1}>
               {saving ? <RefreshCw size={17} className="animate-spin" /> : <UserPlus size={17} />} Add Employee
             </button>
@@ -248,8 +286,22 @@ export default function TeamAccess() {
                     <span className={`h-1.5 w-1.5 rounded-full ${employee.account_status === 'active' ? 'bg-emerald-400' : 'bg-red-400'}`} />
                     {employee.account_status === 'active' ? 'Active' : 'Suspended'}
                   </span>
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                    {employee.can_call !== false && <span className="rounded border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-blue-300">Cold Calling</span>}
+                    {employee.can_scrape === true && <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">Lead Scraping</span>}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {employee.agent_id && (
+                    <Link
+                      to={`/employee-work/${employee.agent_id}`}
+                      className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2.5 text-sm font-semibold text-primary hover:bg-primary/20"
+                      title={`View ${employee.display_name}'s work`}
+                    >
+                      Work
+                    </Link>
+                  )}
+                  <button className="rounded-lg border border-border p-2.5 text-textMuted hover:border-primary/50 hover:text-primary disabled:opacity-40" onClick={() => openPermissions(employee)} disabled={busyId === employee.id} title="Edit permissions"><SlidersHorizontal size={17} /></button>
                   <button className="rounded-lg border border-border p-2.5 text-textMuted hover:border-primary/50 hover:text-primary disabled:opacity-40" onClick={() => resetPassword(employee)} disabled={busyId === employee.id} title="Generate new password"><KeyRound size={17} /></button>
                   <button className="rounded-lg border border-border p-2.5 text-textMuted hover:border-amber-500/50 hover:text-amber-400 disabled:opacity-40" onClick={() => toggleStatus(employee)} disabled={busyId === employee.id} title={employee.account_status === 'active' ? 'Suspend access' : 'Restore access'}>
                     {employee.account_status === 'active' ? <PowerOff size={17} /> : <Power size={17} />}
@@ -280,6 +332,29 @@ export default function TeamAccess() {
             <div className="mt-5 flex gap-3">
               <button onClick={copyCredentials} className="btn-primary flex flex-1 items-center justify-center gap-2">{copied ? <Check size={17} /> : <Copy size={17} />}{copied ? 'Copied' : 'Copy Access Details'}</button>
               <button onClick={() => setCredentials(null)} className="btn-secondary">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingPermissions && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onMouseDown={() => setEditingPermissions(null)}>
+          <div className="w-full max-w-md rounded-lg border border-primary/30 bg-surface p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="permissions-title">
+            <h2 id="permissions-title" className="text-xl font-bold text-white">Edit Employee Permissions</h2>
+            <p className="mt-1 text-sm text-textMuted">{editingPermissions.display_name} ki access yahan se change karein.</p>
+            <div className="mt-5 space-y-3">
+              <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background/40 p-4 text-sm text-white">
+                <span><span className="block font-semibold">Cold Calling</span><span className="mt-1 block text-xs text-textMuted">Employee leads ko call kar sakta hai.</span></span>
+                <input type="checkbox" checked={permissionForm.can_call} onChange={(event) => setPermissionForm({ ...permissionForm, can_call: event.target.checked })} />
+              </label>
+              <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background/40 p-4 text-sm text-white">
+                <span><span className="block font-semibold">Lead Scraping</span><span className="mt-1 block text-xs text-textMuted">Employee Google Maps leads extract kar sakta hai.</span></span>
+                <input type="checkbox" checked={permissionForm.can_scrape} onChange={(event) => setPermissionForm({ ...permissionForm, can_scrape: event.target.checked })} />
+              </label>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button className="btn-secondary" onClick={() => setEditingPermissions(null)}>Cancel</button>
+              <button className="btn-primary" onClick={savePermissions} disabled={busyId === editingPermissions.id}>{busyId === editingPermissions.id ? 'Saving...' : 'Save Permissions'}</button>
             </div>
           </div>
         </div>

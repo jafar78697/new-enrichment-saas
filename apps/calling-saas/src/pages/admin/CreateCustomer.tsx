@@ -1,9 +1,37 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { UserPlus, Copy, AlertCircle, Check } from 'lucide-react';
+import { UserPlus, Copy, AlertCircle, Check, FileUp } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+function parseCsvLine(line: string): string[] {
+  const values: string[] = [];
+  let value = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"' && line[i + 1] === '"') { value += '"'; i += 1; continue; }
+    if (char === '"') { quoted = !quoted; continue; }
+    if (char === ',' && !quoted) { values.push(value.trim()); value = ''; continue; }
+    value += char;
+  }
+  values.push(value.trim());
+  return values;
+}
+
+function parseBulkCsv(text: string) {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) throw new Error('CSV mein header aur kam az kam ek customer row honi chahiye.');
+  const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase().replace(/\s+/g, '_'));
+  if (!headers.includes('customer_name') && !headers.includes('name')) {
+    throw new Error('CSV header mein customer_name zaroor hona chahiye.');
+  }
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return Object.fromEntries(headers.map((header, index) => [header, values[index] || undefined]));
+  });
+}
 
 export default function CreateCustomer() {
   const navigate = useNavigate();
@@ -23,6 +51,12 @@ export default function CreateCustomer() {
   const [error, setError] = useState('');
   const [credentials, setCredentials] = useState<{ username: string; temporary_password: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [mode, setMode] = useState<'single' | 'bulk'>('single');
+  const [bulkCsv, setBulkCsv] = useState('customer_name,contact_phone,email,username,max_seats,max_phone_numbers\nAcme Sales,+1 212 555 0100,owner@acme.example,acme_sales,3,3');
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkError, setBulkError] = useState('');
+  const [bulkResult, setBulkResult] = useState<any>(null);
+  const [bulkCopied, setBulkCopied] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,6 +96,35 @@ export default function CreateCustomer() {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleBulkSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setBulkError('');
+    setBulkLoading(true);
+    try {
+      const customers = parseBulkCsv(bulkCsv);
+      const idempotencyKey = crypto.randomUUID();
+      const res = await axios.post(`${API_URL}/v1/admin/customers/bulk`, { customers }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Idempotency-Key': idempotencyKey },
+      });
+      setBulkResult(res.data);
+    } catch (err: any) {
+      setBulkError(err?.response?.data?.error || err?.message || 'Bulk customer provisioning failed.');
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  function copyBulkCredentials() {
+    if (!bulkResult?.credentials) return;
+    const text = bulkResult.credentials.map((entry: any) => {
+      const customer = bulkResult.customers?.find((item: any) => item.row === entry.row)?.customer;
+      return `${customer?.customer_name || `Row ${entry.row}`}\nUsername: ${entry.username}\nTemporary Password: ${entry.temporary_password}\nLogin URL: ${entry.login_url}`;
+    }).join('\n\n');
+    navigator.clipboard.writeText(text);
+    setBulkCopied(true);
+    setTimeout(() => setBulkCopied(false), 2000);
   }
 
   // If credentials are shown, display them
@@ -116,6 +179,28 @@ export default function CreateCustomer() {
     );
   }
 
+  if (bulkResult) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-surface/40 backdrop-blur-xl border border-emerald-500/30 rounded-2xl p-8">
+          <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-400 mx-auto mb-6"><Check size={32} /></div>
+          <h2 className="text-2xl font-bold text-center mb-2">{bulkResult.count} Customers Created</h2>
+          <p className="text-textMuted text-center text-sm mb-6">Ye credentials sirf ab dikh rahe hain. Inhein copy karke securely customers ko bhej dein.</p>
+          <div className="overflow-x-auto rounded-xl border border-border/40 mb-6">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border/40 text-textMuted"><th className="text-left p-3">Customer</th><th className="text-left p-3">Username</th><th className="text-left p-3">Temporary password</th><th className="text-left p-3">Login URL</th></tr></thead>
+              <tbody>{(bulkResult.credentials || []).map((entry: any) => {
+                const customer = bulkResult.customers?.find((item: any) => item.row === entry.row)?.customer;
+                return <tr key={entry.row} className="border-b border-border/20"><td className="p-3 text-white">{customer?.customer_name || `Row ${entry.row}`}</td><td className="p-3 font-mono">{entry.username}</td><td className="p-3 font-mono text-amber-400">{entry.temporary_password}</td><td className="p-3 text-primary whitespace-nowrap">{entry.login_url}</td></tr>;
+              })}</tbody>
+            </table>
+          </div>
+          <div className="flex gap-3"><button onClick={copyBulkCredentials} className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-primary text-white font-semibold">{bulkCopied ? <Check size={18} /> : <Copy size={18} />}{bulkCopied ? 'Copied!' : 'Copy All Credentials'}</button><button onClick={() => { setBulkResult(null); setMode('bulk'); }} className="flex-1 py-3 rounded-xl bg-surface/60 border border-border/50 text-text font-semibold">Create Another Batch</button></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-2xl mx-auto">
       <h1 className="text-3xl font-bold flex items-center gap-3 mb-8">
@@ -130,7 +215,22 @@ export default function CreateCustomer() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-surface/30 backdrop-blur-md border border-border/50 rounded-2xl p-8 space-y-6">
+      <div className="flex gap-2 mb-6 rounded-xl bg-surface/30 border border-border/50 p-1 max-w-md">
+        <button type="button" onClick={() => setMode('single')} className={`flex-1 py-2 rounded-lg text-sm font-semibold ${mode === 'single' ? 'bg-primary text-white' : 'text-textMuted'}`}>Single Customer</button>
+        <button type="button" onClick={() => setMode('bulk')} className={`flex-1 py-2 rounded-lg text-sm font-semibold ${mode === 'bulk' ? 'bg-primary text-white' : 'text-textMuted'}`}>Bulk CSV</button>
+      </div>
+
+      {mode === 'bulk' && (
+        <form onSubmit={handleBulkSubmit} className="bg-surface/30 backdrop-blur-md border border-border/50 rounded-2xl p-8 space-y-5 mb-6">
+          <div><h3 className="text-lg font-semibold flex items-center gap-2"><FileUp size={19} className="text-primary" /> Bulk Customer Provisioning</h3><p className="text-textMuted text-sm mt-1">Har batch transaction mein create hota hai. Kisi row mein error ho to poora batch rollback hota hai.</p></div>
+          {bulkError && <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl text-sm"><AlertCircle size={16} />{bulkError}</div>}
+          <textarea value={bulkCsv} onChange={(event) => setBulkCsv(event.target.value)} rows={10} className="w-full px-4 py-3 rounded-xl bg-background/60 border border-border/50 text-text font-mono text-sm focus:outline-none focus:border-primary/50" spellCheck={false} />
+          <p className="text-xs text-textMuted">Required: <code>customer_name</code>. Optional: contact_phone, email, username, max_seats, max_phone_numbers, max_concurrent_calls, max_daily_unique_destinations, max_daily_call_attempts, max_call_seconds.</p>
+          <button type="submit" disabled={bulkLoading} className="w-full py-3.5 rounded-xl bg-primary text-white font-semibold disabled:opacity-50">{bulkLoading ? 'Creating secure batch...' : 'Create Customer Batch'}</button>
+        </form>
+      )}
+
+      {mode === 'single' && <form onSubmit={handleSubmit} className="bg-surface/30 backdrop-blur-md border border-border/50 rounded-2xl p-8 space-y-6">
         {/* Basic Info */}
         <div className="space-y-4">
           <h3 className="text-lg font-semibold border-b border-border/30 pb-2">Basic Information</h3>
@@ -180,44 +280,6 @@ export default function CreateCustomer() {
           </div>
         </div>
 
-        {/* Limits */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold border-b border-border/30 pb-2">Account Limits</h3>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-textMuted mb-2">Max Seats</label>
-              <input type="number" min={1} value={form.max_seats} onChange={e => setForm({ ...form, max_seats: parseInt(e.target.value) || 1 })}
-                className="w-full px-4 py-2.5 rounded-xl bg-background/60 border border-border/50 text-text focus:outline-none focus:border-primary/50 transition-all" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-textMuted mb-2">Max Phone Numbers</label>
-              <input type="number" min={1} value={form.max_phone_numbers} onChange={e => setForm({ ...form, max_phone_numbers: parseInt(e.target.value) || 1 })}
-                className="w-full px-4 py-2.5 rounded-xl bg-background/60 border border-border/50 text-text focus:outline-none focus:border-primary/50 transition-all" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-textMuted mb-2">Concurrent Calls</label>
-              <input type="number" min={1} value={form.max_concurrent_calls} onChange={e => setForm({ ...form, max_concurrent_calls: parseInt(e.target.value) || 1 })}
-                className="w-full px-4 py-2.5 rounded-xl bg-background/60 border border-border/50 text-text focus:outline-none focus:border-primary/50 transition-all" />
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-textMuted mb-2">Daily Destinations</label>
-              <input type="number" min={1} value={form.max_daily_unique_destinations} onChange={e => setForm({ ...form, max_daily_unique_destinations: parseInt(e.target.value) || 50 })}
-                className="w-full px-4 py-2.5 rounded-xl bg-background/60 border border-border/50 text-text focus:outline-none focus:border-primary/50 transition-all" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-textMuted mb-2">Daily Attempts</label>
-              <input type="number" min={1} value={form.max_daily_call_attempts} onChange={e => setForm({ ...form, max_daily_call_attempts: parseInt(e.target.value) || 200 })}
-                className="w-full px-4 py-2.5 rounded-xl bg-background/60 border border-border/50 text-text focus:outline-none focus:border-primary/50 transition-all" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-textMuted mb-2">Max Call (seconds)</label>
-              <input type="number" min={60} value={form.max_call_seconds} onChange={e => setForm({ ...form, max_call_seconds: parseInt(e.target.value) || 1800 })}
-                className="w-full px-4 py-2.5 rounded-xl bg-background/60 border border-border/50 text-text focus:outline-none focus:border-primary/50 transition-all" />
-            </div>
-          </div>
-        </div>
 
         <button
           type="submit"
@@ -233,7 +295,7 @@ export default function CreateCustomer() {
             </>
           )}
         </button>
-      </form>
+      </form>}
     </div>
   );
 }

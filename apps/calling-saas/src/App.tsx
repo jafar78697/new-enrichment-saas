@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { Phone, Users, Settings, Activity, Shield, LogOut, ShoppingCart, ClipboardPaste, CreditCard, Sparkles } from 'lucide-react';
+import { Phone, Users, Settings, Activity, Shield, LogOut, ShoppingCart, ClipboardPaste, CreditCard, Sparkles, PhoneCall } from 'lucide-react';
 import PhoneNumbers from './pages/PhoneNumbers';
 import Enrichment from './pages/Enrichment';
 import LandingPage from './pages/LandingPage';
@@ -12,12 +12,18 @@ import Billing from './pages/Billing';
 import DashboardHome from './pages/DashboardHome';
 import Leads from './pages/Leads';
 import PublicPricing from './pages/PublicPricing';
+import DocsLayout from './pages/Docs/DocsLayout';
+import Overview from './pages/Docs/Overview';
+import GettingStarted from './pages/Docs/GettingStarted';
+import Architecture from './pages/Docs/Architecture';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import CustomerList from './pages/admin/CustomerList';
 import CreateCustomer from './pages/admin/CreateCustomer';
 import AdminPhoneNumbers from './pages/admin/AdminPhoneNumbers';
 import FloatingDialerWrapper from './components/FloatingDialerWrapper';
 import TeamAccess from './pages/TeamAccess';
+import CallHistory from './pages/CallHistory';
+import EmployeeWork from './pages/EmployeeWork';
 import { NotificationProvider } from './components/Notifications';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -51,10 +57,11 @@ function Sidebar() {
   
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: <Activity size={20} /> },
-    { path: '/enrichment', label: 'Lead Enrichment', icon: <Users size={20} /> },
-    { path: '/leads', label: 'Lead List', icon: <ClipboardPaste size={20} /> },
-    { path: '/numbers', label: 'Phone Numbers', icon: <Phone size={20} /> },
-    { path: '/billing', label: user?.plan === 'demo' ? 'Upgrade Account' : 'Billing', icon: <CreditCard size={20} /> },
+    ...(user?.role !== 'agent' || user.can_scrape ? [{ path: '/enrichment', label: 'Lead Enrichment', icon: <Users size={20} /> }] : []),
+    ...(user?.role !== 'agent' || user.can_call ? [{ path: '/leads', label: 'Lead List', icon: <ClipboardPaste size={20} /> }] : []),
+    ...(user?.role !== 'agent' || user.can_call ? [{ path: '/numbers', label: 'Phone Numbers', icon: <Phone size={20} /> }] : []),
+    ...(user?.role === 'tenant_owner' || user?.role === 'platform_admin' || (user?.role === 'agent' && user.can_call) ? [{ path: '/calls', label: 'Call History', icon: <Activity size={20} /> }] : []),
+    ...(user?.role !== 'agent' ? [{ path: '/billing', label: user?.plan === 'demo' ? 'Upgrade Account' : 'Billing', icon: <CreditCard size={20} /> }] : []),
     ...(user?.role === 'tenant_owner' ? [{ path: '/settings', label: 'Settings', icon: <Settings size={20} /> }] : []),
   ];
 
@@ -77,11 +84,11 @@ function Sidebar() {
   return (
     <div className="w-64 h-screen border-r border-border/50 bg-surface/30 backdrop-blur-xl flex flex-col p-4 fixed left-0 top-0">
       <div className="flex items-center gap-3 px-2 mb-8 mt-2">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-primary to-secondary flex items-center justify-center">
-          <Activity size={18} className="text-white" />
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-white/10">
+          <PhoneCall size={18} className="text-white drop-shadow-sm" />
         </div>
-        <span className="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-          JentoAI
+        <span className="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-50 to-gray-400">
+          Jento Calling
         </span>
       </div>
       
@@ -143,7 +150,7 @@ function Sidebar() {
           
           {wallets?.maps_credits?.available > 0 && (
             <div className="mt-2 pt-2 border-t border-border/50 flex justify-between items-center text-xs">
-              <span className="text-textMuted">Maps Credits</span>
+              <span className="text-textMuted">Available Leads</span>
               <span className="font-bold text-emerald-400">{wallets.maps_credits.available.toLocaleString()}</span>
             </div>
           )}
@@ -170,24 +177,11 @@ function Sidebar() {
 }
 
 function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-
   return (
     <div className="min-h-screen bg-background text-text flex">
       <Sidebar />
       <main className="flex-1 ml-64 p-8 relative">
         <div className="absolute top-0 left-0 w-full h-96 bg-primary/5 blur-[120px] -z-10 pointer-events-none rounded-full"></div>
-        {user?.plan === 'demo' && (
-          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-            <div>
-              <div className="font-semibold text-amber-200">You are using the free demo</div>
-              <div className="text-sm text-textMuted mt-0.5">Includes 3 calls and 2 Google Maps keyword searches.</div>
-            </div>
-            <Link to="/billing" className="btn-primary inline-flex items-center justify-center gap-2 shrink-0">
-              <CreditCard size={17} /> Upgrade Your Account
-            </Link>
-          </div>
-        )}
         {children}
       </main>
       <FloatingDialerWrapper />
@@ -256,6 +250,34 @@ function CustomerAdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function EmployeePermissionRoute({ children, permission }: { children: React.ReactNode; permission: 'can_call' | 'can_scrape' }) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (user?.role === 'agent' && user[permission] === false) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
+function CustomerOnlyRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (user?.role === 'agent') return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
+function RecordingAdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (user?.role !== 'tenant_owner' && user?.role !== 'platform_admin') return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
+function CallingAccessRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (user?.role === 'agent' && user.can_call === false) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 function HomeRoute() {
   const { isAuthenticated, isAdmin, loading, user } = useAuth();
 
@@ -282,12 +304,21 @@ function AppRoutes() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/change-password" element={<ChangePassword />} />
 
+      {/* Docs routes */}
+      <Route path="/docs" element={<DocsLayout />}>
+        <Route index element={<Overview />} />
+        <Route path="getting-started" element={<GettingStarted />} />
+        <Route path="architecture" element={<Architecture />} />
+      </Route>
+
       {/* Protected customer routes */}
       <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout><DashboardHome /></DashboardLayout></ProtectedRoute>} />
-      <Route path="/enrichment" element={<ProtectedRoute><DashboardLayout><Enrichment /></DashboardLayout></ProtectedRoute>} />
-      <Route path="/leads" element={<ProtectedRoute><DashboardLayout><Leads /></DashboardLayout></ProtectedRoute>} />
-      <Route path="/numbers" element={<ProtectedRoute><DashboardLayout><PhoneNumbers /></DashboardLayout></ProtectedRoute>} />
-      <Route path="/billing" element={<ProtectedRoute><DashboardLayout><Billing /></DashboardLayout></ProtectedRoute>} />
+      <Route path="/enrichment" element={<ProtectedRoute><EmployeePermissionRoute permission="can_scrape"><DashboardLayout><Enrichment /></DashboardLayout></EmployeePermissionRoute></ProtectedRoute>} />
+      <Route path="/leads" element={<ProtectedRoute><EmployeePermissionRoute permission="can_call"><DashboardLayout><Leads /></DashboardLayout></EmployeePermissionRoute></ProtectedRoute>} />
+      <Route path="/numbers" element={<ProtectedRoute><EmployeePermissionRoute permission="can_call"><DashboardLayout><PhoneNumbers /></DashboardLayout></EmployeePermissionRoute></ProtectedRoute>} />
+      <Route path="/calls" element={<ProtectedRoute><CallingAccessRoute><DashboardLayout><CallHistory /></DashboardLayout></CallingAccessRoute></ProtectedRoute>} />
+      <Route path="/employee-work/:agentId" element={<ProtectedRoute><RecordingAdminRoute><DashboardLayout><EmployeeWork /></DashboardLayout></RecordingAdminRoute></ProtectedRoute>} />
+      <Route path="/billing" element={<ProtectedRoute><CustomerOnlyRoute><DashboardLayout><Billing /></DashboardLayout></CustomerOnlyRoute></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><CustomerAdminRoute><DashboardLayout><TeamAccess /></DashboardLayout></CustomerAdminRoute></ProtectedRoute>} />
 
       {/* Admin routes */}

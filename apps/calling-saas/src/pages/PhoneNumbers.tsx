@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { Phone, Search, ShoppingCart, CheckCircle2 } from 'lucide-react';
 import axios from 'axios';
 import { useNotifications } from '../components/Notifications';
+import { useAuth } from '../context/AuthContext';
 
 export default function PhoneNumbers() {
+  const { user } = useAuth();
   const { notify } = useNotifications();
   const [areaCode, setAreaCode] = useState('');
   const [searching, setSearching] = useState(false);
@@ -75,7 +77,8 @@ export default function PhoneNumbers() {
         <p className="text-textMuted">Buy and manage phone numbers for your calling agents.</p>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+      <div className={`grid grid-cols-1 ${user?.role === 'agent' ? '' : 'lg:grid-cols-2'} gap-8 mb-8`}>
+        {user?.role !== 'agent' && (
         <div className="glass-card p-6">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-6">
             <Search size={18} className="text-primary" /> Find New Numbers
@@ -128,6 +131,7 @@ export default function PhoneNumbers() {
             )}
           </div>
         </div>
+        )}
 
         <div className="glass-card p-6">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-6">

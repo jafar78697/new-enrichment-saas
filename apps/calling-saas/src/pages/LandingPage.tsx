@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom';
 import {
-  Activity,
   CheckCircle,
   CreditCard,
   Globe2,
@@ -18,10 +17,10 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-30 border-b border-border/40 bg-background/85 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-tr from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/20">
-              <Activity size={23} className="text-white" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-white/10">
+              <PhoneCall size={22} className="text-white drop-shadow-sm" />
             </div>
-            <span className="font-bold text-2xl tracking-tight text-white">JentoAI</span>
+            <span className="font-bold text-2xl tracking-tight text-white">Jento Calling</span>
           </div>
 
           <div className="hidden md:flex items-center gap-7 text-sm text-textMuted">

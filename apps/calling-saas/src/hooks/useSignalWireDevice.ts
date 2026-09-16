@@ -34,6 +34,13 @@ type RelayClient = {
   remoteElement: HTMLAudioElement;
 };
 
+export interface TranscriptMessage {
+  id: string;
+  speaker: 'Client' | 'You';
+  text: string;
+  isFinal: boolean;
+}
+
 export interface UseSignalWireDeviceResult {
   deviceStatus: DeviceStatus;
   activeCallSid: string | null;
@@ -42,6 +49,7 @@ export interface UseSignalWireDeviceResult {
   timerSeconds: number;
   incomingCall: { id: string; callerName: string; callerNumber: string } | null;
   liveTranscript: string;
+  transcriptMessages: TranscriptMessage[];
   isTranscribing: boolean;
   transcriptStatus: string;
   error: string;
@@ -130,6 +138,7 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
   const transcriptionRetryAttemptsRef = useRef(0);
   const startTranscriptionRef = useRef<() => void>(() => {});
   const finalTranscriptRef = useRef('');
+  const recognitionRef = useRef<any>(null);
 
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatus>('offline');
   const [activeCallSid, setActiveCallSid] = useState<string | null>(null);
@@ -138,6 +147,7 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [incomingCall, setIncomingCall] = useState<UseSignalWireDeviceResult['incomingCall']>(null);
   const [liveTranscript, setLiveTranscript] = useState('');
+  const [transcriptMessages, setTranscriptMessages] = useState<TranscriptMessage[]>([]);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcriptStatus, setTranscriptStatus] = useState('');
   const [error, setError] = useState('');
@@ -393,8 +403,61 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
   }, [agentId, clearCallConnectTimeout, clearCallTimeout, handleCallNotification, settleTrackedCall, stopTranscription]);
 
   useEffect(() => {
-    if (callStatus !== 'connected') return;
+    if (callStatus !== 'connected') {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (e) {}
+        recognitionRef.current = null;
+      }
+      return;
+    }
     const interval = window.setInterval(() => setTimerSeconds((seconds) => seconds + 1), 1000);
+    
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition && !recognitionRef.current) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => {
+        let text = '';
+        let isFinal = false;
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          text += event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            isFinal = true;
+          }
+        }
+        
+        text = text.trim();
+        if (!text) return;
+
+        setTranscriptMessages(prev => {
+           const existing = [...prev];
+           const lastYouIndex = existing.map(m => m.speaker).lastIndexOf('You');
+           
+           if (lastYouIndex >= 0 && !existing[lastYouIndex].isFinal) {
+              existing[lastYouIndex] = { ...existing[lastYouIndex], text, isFinal };
+           } else {
+              existing.push({ id: Math.random().toString(36).substring(7), speaker: 'You', text, isFinal });
+           }
+           return existing;
+        });
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('[CallingService] SpeechRecognition error', event.error);
+      };
+
+      try {
+        recognition.start();
+        recognitionRef.current = recognition;
+      } catch (e) {
+        console.warn('[CallingService] Could not start local SpeechRecognition', e);
+      }
+    }
+
     return () => window.clearInterval(interval);
   }, [callStatus]);
 
@@ -454,10 +517,21 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
         if (payload.isFinal) {
           finalTranscriptRef.current = [finalTranscriptRef.current, text].filter(Boolean).join('\n');
           setLiveTranscript(finalTranscriptRef.current);
-          return;
+        } else {
+          setLiveTranscript([finalTranscriptRef.current, text].filter(Boolean).join('\n'));
         }
 
-        setLiveTranscript([finalTranscriptRef.current, text].filter(Boolean).join('\n'));
+        setTranscriptMessages(prev => {
+          const existing = [...prev];
+          const lastClientIndex = existing.map(m => m.speaker).lastIndexOf('Client');
+          
+          if (lastClientIndex >= 0 && !existing[lastClientIndex].isFinal) {
+             existing[lastClientIndex] = { ...existing[lastClientIndex], text, isFinal: Boolean(payload.isFinal) };
+          } else {
+             existing.push({ id: Math.random().toString(36).substring(7), speaker: 'Client', text, isFinal: Boolean(payload.isFinal) });
+          }
+          return existing;
+        });
       });
       const markTranscriptUnavailable = () => {
         sessionReady = false;
@@ -692,6 +766,7 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
       timerSeconds,
       incomingCall,
       liveTranscript,
+      transcriptMessages,
       isTranscribing,
       transcriptStatus,
       error,
@@ -702,7 +777,7 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
       rejectIncoming,
       sendDtmf,
     }),
-    [acceptIncoming, activeCallSid, callStatus, deviceStatus, endCall, error, incomingCall, isMuted, isTranscribing, liveTranscript, rejectIncoming, sendDtmf, startCall, timerSeconds, toggleMute, transcriptStatus],
+    [acceptIncoming, activeCallSid, callStatus, deviceStatus, endCall, error, incomingCall, isMuted, isTranscribing, liveTranscript, transcriptMessages, rejectIncoming, sendDtmf, startCall, timerSeconds, toggleMute, transcriptStatus],
   );
 }
 

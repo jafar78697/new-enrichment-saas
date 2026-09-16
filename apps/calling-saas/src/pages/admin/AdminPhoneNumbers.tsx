@@ -31,7 +31,9 @@ interface AssignedNumber {
   id: string;
   phone_number: string;
   status: string;
+  tenant_id?: string;
   assigned_username?: string;
+  source?: 'purchased' | 'demo';
 }
 
 function authHeaders() {
@@ -42,11 +44,13 @@ export default function AdminPhoneNumbers() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [availableNumbers, setAvailableNumbers] = useState<AvailableNumber[]>([]);
+  const [unassignedNumbers, setUnassignedNumbers] = useState<AssignedNumber[]>([]);
   const [assignedNumbers, setAssignedNumbers] = useState<AssignedNumber[]>([]);
   const [areaCode, setAreaCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [purchasingNumber, setPurchasingNumber] = useState<string | null>(null);
+  const [reassigningId, setReassigningId] = useState<string | null>(null);
   const [enablingIncomingId, setEnablingIncomingId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
 
@@ -93,8 +97,21 @@ export default function AdminPhoneNumbers() {
     }
   }
 
+  async function loadUnassignedNumbers() {
+    try {
+      const response = await axios.get(`${API_URL}/v1/admin/unassigned-phone-numbers`, {
+        headers: authHeaders(),
+      });
+      setUnassignedNumbers(response.data.phoneNumbers || []);
+    } catch (error) {
+      console.error('Failed to load unassigned numbers', error);
+      setUnassignedNumbers([]);
+    }
+  }
+
   useEffect(() => {
     loadCustomers();
+    loadUnassignedNumbers();
   }, []);
 
   useEffect(() => {
@@ -148,6 +165,27 @@ export default function AdminPhoneNumbers() {
       setNotice('Unable to purchase the phone number.');
     } finally {
       setPurchasingNumber(null);
+    }
+  }
+
+  async function reassignNumber(numberId: string, phoneNumber: string) {
+    if (!selectedCustomerId) return;
+
+    setReassigningId(numberId);
+    setNotice('');
+    try {
+      await axios.post(
+        `${API_URL}/v1/admin/customers/${selectedCustomerId}/phone-numbers/${numberId}/reassign`,
+        { source: unassignedNumbers.find((number) => number.id === numberId)?.source || 'purchased' },
+        { headers: authHeaders() },
+      );
+      await loadAssignedNumbers(selectedCustomerId);
+      await loadUnassignedNumbers();
+      setNotice(`${phoneNumber} was reassigned to ${selectedCustomer?.customer_name || selectedCustomer?.username}.`);
+    } catch (error: any) {
+      setNotice(error.response?.data?.error || 'Unable to reassign the phone number.');
+    } finally {
+      setReassigningId(null);
     }
   }
 
@@ -267,6 +305,32 @@ export default function AdminPhoneNumbers() {
               ))
             )}
           </div>
+
+          {unassignedNumbers.length > 0 && selectedCustomer?.tenant_id !== unassignedNumbers[0]?.tenant_id && (
+            <div className="mt-8 border-t border-border/60 pt-5 space-y-3">
+              <h3 className="text-sm font-semibold text-white mb-3">Not Assigned Numbers</h3>
+              {unassignedNumbers.map((number) => (
+                <div key={number.id} className="flex flex-col gap-4 border-b border-border/60 pb-4 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="font-mono text-base font-semibold text-white">{number.phone_number}</div>
+                    <div className="mt-1 text-xs text-emerald-400">Ready to assign · {number.source === 'demo' ? 'Demo pool' : 'Purchased'}</div>
+                  </div>
+                  <button
+                    onClick={() => reassignNumber(number.id, number.phone_number)}
+                    disabled={reassigningId !== null}
+                    className="btn-secondary inline-flex shrink-0 items-center justify-center gap-2"
+                  >
+                    {reassigningId === number.id ? (
+                      <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                    ) : (
+                      <UserRound size={16} />
+                    )}
+                    Assign to Customer
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <aside className="glass-card p-6">

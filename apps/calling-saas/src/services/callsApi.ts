@@ -48,6 +48,7 @@ export interface Agent {
   id: number;
   name: string;
   email: string;
+  role?: string;
   signalwire_identity: string;
   is_available: boolean;
   created_at: string;

@@ -1,0 +1,37 @@
+# Jento Calling - AI System Guide
+
+**Website:** https://voicecalling.space/
+
+## Purpose
+Jento Calling is an outbound sales and cold calling platform tailored for USA and Canada sales teams. It includes VoIP capabilities, real-time live transcription (via Google Speech-to-Text), and lead enrichment tools powered by Google Maps.
+
+## Core Features
+1. **Automated Dialer:** Low-latency browser dialer utilizing WebRTC to place VoIP calls via SignalWire.
+2. **Live Chat-style Transcription:** Real-time speech separation between the agent ("You") and the prospect ("Client").
+3. **Lead Enrichment:** Directly search for businesses via Google Maps, fetch their details, and add them to the local Lead List CRM.
+4. **Team Management:** Role-based access (Managers, Agents). Managers can review call recordings and monitor metrics.
+
+## Technical Architecture
+- **Frontend:** React + Vite + Tailwind CSS.
+- **Backend:** Node.js (Fastify API) + PostgreSQL.
+- **VoIP / PBX:** SignalWire.
+- **Transcription Service:** Google Cloud Speech-to-Text using Web Sockets.
+  - The frontend streams local microphone audio using the `Web Speech API`.
+  - The frontend captures remote incoming audio using `AudioContext` and streams it over `Socket.io` to the backend. The backend forwards it to Google STT and returns the transcript.
+- **Environment:** Hosted on Google Cloud VM using PM2 for process management.
+
+## API Documentation
+The application uses REST API endpoints for primary data exchange. Standard authentication uses JWT tokens via the `Authorization: Bearer <token>` header.
+
+### Selected Key Endpoints
+- `POST /v1/calls`: Initiates a new outbound call. Creates a temporary token to connect securely to the SignalWire WebRTC relay.
+- `GET /v1/leads`: Returns the current user's lead list.
+- `POST /v1/enrichment/search`: Queries Google Maps for businesses and enriches them.
+
+## Intended Audience
+This platform is used by sales agents, SDRs, and managers who require a robust, compliance-friendly outbound dialing system without configuring standalone softphones.
+
+## Usage Limitations
+- The system enforces a standard compliance layer for USA/Canada.
+- "Demo Mode" allows new users to place up to 3 test calls before upgrading.
+- The AI transcription relies on standard Chrome/Edge browser capabilities for the local microphone capture.

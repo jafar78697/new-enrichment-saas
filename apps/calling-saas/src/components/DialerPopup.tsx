@@ -5,6 +5,7 @@ import { LoaderCircle, PhoneCall, PhoneOff, Volume2 } from 'lucide-react';
 import useSignalWireDevice, { type CallStatus, type DeviceStatus } from '../hooks/useSignalWireDevice';
 import { callsApi, type Agent } from '../services/callsApi';
 import { toast } from 'sonner';
+import { useAuth } from '../context/AuthContext';
 
 export interface DialerPopupProps {
   phone: string;
@@ -162,6 +163,7 @@ export default function DialerPopup({
   isOpen = true,
   autoStart = false,
 }: DialerPopupProps) {
+  const { user } = useAuth();
   const agentId = useResolvedAgentId();
   const [manualPhone, setManualPhone] = useState<string>(() => smartClean(phone));
   const [dtmfLog, setDtmfLog] = useState('');
@@ -187,7 +189,7 @@ export default function DialerPopup({
     activeCallSid,
     error,
     incomingCall,
-    liveTranscript,
+    transcriptMessages,
     isTranscribing,
     transcriptStatus,
     startCall,
@@ -300,7 +302,7 @@ export default function DialerPopup({
     setIsStarting(true);
 
     try {
-      await startCall({ phoneNumber: cleanPhone, contactId, record: false });
+      await startCall({ phoneNumber: cleanPhone, contactId, record: Boolean(user?.call_recording_enabled) });
       // A brief lock prevents a double-click from immediately becoming a hang-up.
       startUnlockTimerRef.current = window.setTimeout(() => {
         startInProgressRef.current = false;
@@ -310,7 +312,7 @@ export default function DialerPopup({
       startInProgressRef.current = false;
       setIsStarting(false);
     }
-  }, [canCall, cleanPhone, contactId, startCall]);
+  }, [canCall, cleanPhone, contactId, startCall, user?.call_recording_enabled]);
 
   useEffect(() => {
     if (!autoStart || autoStartAttemptedRef.current || !canCall) return;
@@ -579,16 +581,23 @@ export default function DialerPopup({
 
         {callStatus === 'connected' ? (
           <section className="mx-6 mb-4 flex min-h-[390px] flex-col rounded-xl border border-slate-200 bg-slate-50 text-left">
-            <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600 bg-white rounded-t-xl">
               <Volume2 size={15} className={isTranscribing ? 'text-emerald-600' : 'text-slate-400'} />
               Live transcription
               <span className={`ml-auto h-2 w-2 rounded-full ${isTranscribing ? 'bg-emerald-500' : 'bg-amber-400'}`} aria-label={isTranscribing ? 'Live' : 'Preparing'} />
             </div>
-            <div className="flex-1 overflow-y-auto px-4 py-4">
-              {liveTranscript ? (
-                <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">{liveTranscript}</p>
+            <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
+              {transcriptMessages && transcriptMessages.length > 0 ? (
+                transcriptMessages.map((msg) => (
+                  <div key={msg.id} className={`flex flex-col max-w-[85%] ${msg.speaker === 'You' ? 'self-end items-end' : 'self-start items-start'}`}>
+                    <span className="text-[10px] font-semibold uppercase text-slate-400 mb-1 ml-1 tracking-wider">{msg.speaker}</span>
+                    <div className={`px-3 py-2 rounded-2xl text-sm ${msg.speaker === 'You' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm shadow-sm'}`}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))
               ) : (
-                <p className="text-sm leading-6 text-slate-500">{transcriptStatus || 'Preparing live transcript...'}</p>
+                <p className="text-sm leading-6 text-slate-500 text-center mt-4">{transcriptStatus || 'Preparing live transcript...'}</p>
               )}
             </div>
           </section>

@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { Phone } from 'lucide-react';
 import DialerPopup from './DialerPopup';
 import { OPEN_DIALER_EVENT, type DialerTarget } from '../dialer-events';
+import { useAuth } from '../context/AuthContext';
 
 const EMPTY_TARGET: DialerTarget = { phone: '' };
 
 export default function FloatingDialerWrapper() {
+  const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [target, setTarget] = useState<DialerTarget>(EMPTY_TARGET);
 
@@ -24,6 +26,8 @@ export default function FloatingDialerWrapper() {
     setIsOpen(false);
     setTarget(EMPTY_TARGET);
   };
+
+  if (user?.role === 'agent' && user.can_call === false) return null;
 
   return (
     <>

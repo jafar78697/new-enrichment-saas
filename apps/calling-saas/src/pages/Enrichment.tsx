@@ -7,7 +7,6 @@ export default function Enrichment() {
   const { notify } = useNotifications();
   const [keywordInput, setKeywordInput] = useState('');
   const [location, setLocation] = useState('');
-  const [leadsPerKeyword, setLeadsPerKeyword] = useState(10);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any[]>([]);
 
@@ -20,7 +19,7 @@ export default function Enrichment() {
     return [...unique.values()];
   }, [keywordInput]);
   const batchTooLarge = keywords.length > 10;
-  const estimatedCredits = keywords.length * leadsPerKeyword;
+  const estimatedCredits = keywords.length * 20;
 
   const handleScrape = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,8 +32,7 @@ export default function Enrichment() {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
       const res = await axios.post(`${API_URL}/v1/google-maps/scrape`, {
         keywords,
-        location: location || 'United States',
-        limitPerKeyword: leadsPerKeyword
+        location: location || 'United States'
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -110,16 +108,6 @@ export default function Enrichment() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-textMuted mb-1" htmlFor="leads-per-keyword">Leads per keyword</label>
-              <input
-                id="leads-per-keyword"
-                type="number"
-                min="1"
-                max="10"
-                value={leadsPerKeyword}
-                onChange={(e) => setLeadsPerKeyword(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
-                className="input-field"
-              />
               <p className="mt-2 text-xs text-textMuted">
                 Up to {estimatedCredits} Maps credits reserved. Only saved leads consume credits.
               </p>

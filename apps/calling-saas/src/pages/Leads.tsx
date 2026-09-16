@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, ClipboardPaste, ExternalLink, LoaderCircle, Phone, Save, StickyNote, Trash2, Upload, Users, X } from 'lucide-react';
-import { callsApi, type Contact } from '../services/callsApi';
+import { callsApi, type Agent, type Contact } from '../services/callsApi';
 import { openDialer } from '../dialer-events';
 import { useNotifications } from '../components/Notifications';
 
@@ -9,8 +9,8 @@ interface PastedLead {
   phoneNumber: string;
 }
 
-type LeadOutcome = 'interested' | 'not_interested' | 'again_call';
-type LeadFilter = 'all' | 'interested' | 'again_call';
+type LeadOutcome = 'interested' | 'not_interested' | 'again_call' | 'voicemail';
+type LeadFilter = 'all' | 'interested' | 'not_interested' | 'again_call' | 'voicemail' | 'called' | 'not_called';
 
 function splitCsvLine(line: string): string[] {
   const cells: string[] = [];
@@ -132,7 +132,10 @@ export default function Leads() {
   const [nextCallDrafts, setNextCallDrafts] = useState<Record<number, string>>({});
   const [savingLeadId, setSavingLeadId] = useState<number | null>(null);
   const [deletingLeadId, setDeletingLeadId] = useState<number | null>(null);
+  const [clearingAll, setClearingAll] = useState(false);
   const [leadFilter, setLeadFilter] = useState<LeadFilter>('all');
+  const [employeeFilter, setEmployeeFilter] = useState('all');
+  const [employees, setEmployees] = useState<Agent[]>([]);
 
   const parsed = useMemo(() => parsePastedLeads(pastedText), [pastedText]);
   const prioritizedContacts = useMemo(
@@ -143,17 +146,27 @@ export default function Leads() {
     }),
     [contacts],
   );
-  const noWebsiteCount = contacts.filter((contact) => !contact.website?.trim()).length;
-  const filteredContacts = useMemo(() => prioritizedContacts.filter((contact) => {
-    if (leadFilter === 'all') return true;
-    return contact.stage === leadFilter;
-  }), [leadFilter, prioritizedContacts]);
+  const filteredContacts = useMemo(() => prioritizedContacts.filter((c) => {
+    if (employeeFilter === 'admin' && c.assigned_agent_id) return false;
+    if (employeeFilter !== 'all' && employeeFilter !== 'admin' && String(c.assigned_agent_id) !== employeeFilter) return false;
+    if (leadFilter === 'interested') return c.stage === 'interested';
+    if (leadFilter === 'not_interested') return c.stage === 'not_interested';
+    if (leadFilter === 'again_call') return c.stage === 'again_call';
+    if (leadFilter === 'voicemail') return c.stage === 'voicemail' || c.last_call_outcome === 'voicemail';
+    if (leadFilter === 'called') return !!c.last_called_at;
+    if (leadFilter === 'not_called') return !c.last_called_at;
+    return true;
+  }), [employeeFilter, leadFilter, prioritizedContacts]);
 
   async function loadContacts() {
     setLoadingContacts(true);
     try {
-      const response = await callsApi.listContacts();
+      const [response, agentsResponse] = await Promise.all([
+        callsApi.listContacts(),
+        callsApi.listAgents().catch(() => ({ agents: [] as Agent[] })),
+      ]);
       setContacts(response.contacts || []);
+      setEmployees((agentsResponse.agents || []).filter((agent) => agent.signalwire_identity));
     } catch (error) {
       console.error('Could not load contacts', error);
       notify('Unable to load the Lead List. Refresh the page and try again.', 'error');
@@ -232,6 +245,29 @@ export default function Leads() {
     }
   }
 
+  async function deleteAllLeads() {
+    const shouldDelete = await confirm({
+      title: 'Delete ALL leads?',
+      message: 'Are you sure you want to permanently delete ALL leads in your account? This action cannot be undone.',
+      confirmLabel: 'Delete All',
+      destructive: true,
+    });
+    if (!shouldDelete) return;
+
+    setClearingAll(true);
+    try {
+      await callsApi.clearAllContacts();
+      setContacts([]);
+      setOpenNotesId(null);
+      notify('All leads have been deleted.', 'success');
+    } catch (error) {
+      console.error('Could not delete all leads', error);
+      notify('Unable to delete leads. Please try again.', 'error');
+    } finally {
+      setClearingAll(false);
+    }
+  }
+
   async function deleteLead(contact: Contact) {
     const businessName = contact.company || contact.name;
     const shouldDelete = await confirm({
@@ -291,10 +327,20 @@ export default function Leads() {
           <button
             onClick={importPastedLeads}
             disabled={!parsed.leads.length || importing}
-            className="btn-primary inline-flex items-center justify-center gap-2"
+            className="btn-primary inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-5"
           >
             {importing ? <LoaderCircle size={17} className="animate-spin" /> : <Upload size={17} />}
             Import {parsed.leads.length || ''} Lead{parsed.leads.length === 1 ? '' : 's'}
+          </button>
+        </div>
+        <div className="flex justify-end mt-4">
+          <button
+            onClick={deleteAllLeads}
+            disabled={clearingAll || contacts.length === 0}
+            className="btn-secondary inline-flex items-center justify-center gap-2 text-rose-400 hover:text-rose-300 hover:border-rose-400/50"
+          >
+            {clearingAll ? <LoaderCircle size={15} className="animate-spin" /> : <Trash2 size={15} />}
+            Delete All Leads
           </button>
         </div>
 
@@ -316,30 +362,40 @@ export default function Leads() {
       </section>
 
       <section className="glass-card p-6">
-        <div className="flex items-center justify-between gap-4 mb-5">
+        <div className="flex flex-col gap-4 border-b border-border/60 pb-5 mb-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Users size={19} className="text-emerald-400" />
             <h2 className="text-lg font-semibold text-white">Saved Leads</h2>
           </div>
-          <span className="text-sm text-textMuted">{contacts.length} total{noWebsiteCount ? ` - ${noWebsiteCount} no website` : ''}</span>
-        </div>
-
-        <div className="mb-5 flex flex-wrap items-center gap-2">
-          {([
-            ['all', 'All leads'],
-            ['interested', 'Interested'],
-            ['again_call', 'Again Call'],
-          ] as const).map(([value, label]) => (
-            <button
-              key={value}
-              onClick={() => setLeadFilter(value)}
-              className={`rounded-md border px-3 py-1.5 text-sm transition ${leadFilter === value
-                ? 'border-primary bg-primary/15 text-white'
-                : 'border-border bg-surface/40 text-textMuted hover:text-white'}`}
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={employeeFilter}
+              onChange={(e) => setEmployeeFilter(e.target.value)}
+              className="input-field min-w-[180px] bg-surface/50 border-border/60 py-2 text-sm"
             >
-              {label}
-            </button>
-          ))}
+              <option value="all">All Leads</option>
+              <option value="admin">Admin Leads</option>
+              {employees.filter((employee) => employee.role !== 'manager').map((employee) => (
+                <option key={employee.id} value={String(employee.id)}>{employee.name} Leads</option>
+              ))}
+            </select>
+            <select
+              value={leadFilter}
+              onChange={(e) => setLeadFilter(e.target.value as LeadFilter)}
+              className="input-field py-2 text-sm bg-surface/50 border-border/60 min-w-[160px]"
+            >
+              <option value="all">All Status</option>
+              <option value="interested">Interested</option>
+              <option value="again_call">Again Call</option>
+              <option value="not_interested">Not Interested</option>
+              <option value="voicemail">Voicemail</option>
+              <option value="called">Called</option>
+              <option value="not_called">Not Called</option>
+            </select>
+            <div className="text-sm font-medium text-textMuted">
+              {filteredContacts.length} total
+            </div>
+          </div>
         </div>
 
         {loadingContacts ? (
@@ -376,6 +432,7 @@ export default function Leads() {
                           </button>
                         )}
                         {contact.stage === 'interested' && <div className="mt-1 text-xs text-emerald-400">Interested</div>}
+                        {contact.stage === 'voicemail' && <div className="mt-1 text-xs text-amber-300">Voicemail</div>}
                         {contact.stage === 'again_call' && <div className="mt-1 truncate text-xs text-amber-300">Call: {followUpLabel(contact.next_call_at) || 'Schedule needed'}</div>}
                         {contact.stage === 'not_interested' && <div className="mt-1 text-xs text-textMuted">Not interested</div>}
                       </div>
@@ -446,6 +503,7 @@ export default function Leads() {
                             ['interested', 'Interested'],
                             ['not_interested', 'Not interested'],
                             ['again_call', 'Again Call'],
+                            ['voicemail', 'Voicemail'],
                           ] as const).map(([value, label]) => (
                             <button
                               key={value}

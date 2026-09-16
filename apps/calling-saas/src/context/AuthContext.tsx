@@ -11,6 +11,9 @@ interface User {
   role: string;
   plan: string;
   must_change_password: boolean;
+  call_recording_enabled?: boolean;
+  can_call?: boolean;
+  can_scrape?: boolean;
 }
 
 interface Tenant {
@@ -80,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { Authorization: `Bearer ${state.token || localStorage.getItem('token')}` }
       });
       const { user, tenant } = res.data;
-      const normalizedUser = { ...user, plan: user.plan || tenant?.plan };
+      const normalizedUser = { ...user, plan: user.plan || tenant?.plan, call_recording_enabled: Boolean(res.data.limits?.call_recording_enabled), can_call: user.can_call !== false, can_scrape: user.can_scrape !== false };
       setState(s => ({
         ...s,
         user: normalizedUser,

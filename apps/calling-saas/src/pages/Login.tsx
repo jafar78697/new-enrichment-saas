@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate, type Location } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Activity, LogIn, AlertCircle } from 'lucide-react';
+import { LogIn, AlertCircle, PhoneCall } from 'lucide-react';
 import { GoogleLogin } from '@react-oauth/google';
 
 type RouteState = {
@@ -55,11 +55,11 @@ export default function Login() {
       <div className="relative z-10 w-full max-w-md px-6">
         {/* Logo */}
         <div className="flex items-center justify-center gap-3 mb-10">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/30">
-            <Activity size={28} className="text-white" />
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/30 border border-white/10">
+            <PhoneCall size={26} className="text-white drop-shadow-sm" />
           </div>
-          <span className="font-bold text-3xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-            JentoAI
+          <span className="font-bold text-3xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-50 to-gray-400">
+            Jento Calling
           </span>
         </div>
 

@@ -12,8 +12,9 @@ export default function Billing() {
   const [history, setHistory] = useState<any[]>([]);
   
   // Custom Plan State
-  const [teamSize, setTeamSize] = useState<number>(1);
+  const [teamSize, setTeamSize] = useState<number>(0);
   const [leadsAmount, setLeadsAmount] = useState<number>(3000); // Default to 3,000 leads
+  const [voiceRecording, setVoiceRecording] = useState<boolean>(false);
 
   // Pricing constants (USD)
   const PRICE_PER_USER_USD = 20;
@@ -35,7 +36,16 @@ export default function Billing() {
   // Pricing Calculations
   const teamCostUsd = teamSize * PRICE_PER_USER_USD;
   const leadsCostUsd = Math.round((leadsAmount / 3000) * 4); // $4 per 3000 leads
-  const totalUsd = teamCostUsd + leadsCostUsd;
+  
+  let recordingCostUsd = 0;
+  if (voiceRecording) {
+    if (teamSize === 1) recordingCostUsd = 5;
+    else if (teamSize === 2) recordingCostUsd = 8;
+    else if (teamSize === 3) recordingCostUsd = 11.5;
+    else if (teamSize > 3) recordingCostUsd = 11.5 + (teamSize - 3) * 3;
+  }
+  
+  const totalUsd = teamCostUsd + leadsCostUsd + recordingCostUsd;
 
   const handleWhatsAppCheckout = () => {
     if (totalUsd === 0) {
@@ -44,7 +54,7 @@ export default function Billing() {
     }
     
     // Construct WhatsApp message with line breaks
-    const text = `Hello JentoAI Team! I want to purchase a custom package for my account:\n\n* Calling Seats:* ${teamSize} User(s)\n* Google Maps Leads:* ${leadsAmount.toLocaleString()} Leads\n* Total Price:* $${totalUsd.toLocaleString()}\n\nPlease guide me on how to pay via JazzCash/Bank so you can activate my account.`;
+    const text = `Hello JentoAI Team! I want to purchase a custom package for my account:\n\n* Calling Seats:* ${teamSize} User(s)\n* Call Recording:* ${voiceRecording ? 'Yes' : 'No'}\n* Google Maps Leads:* ${leadsAmount.toLocaleString()} Leads\n* Total Price:* $${totalUsd.toLocaleString(undefined, {minimumFractionDigits: 2})}\n\nPlease guide me on how to pay via JazzCash/Bank so you can activate my account.`;
     
     // Encode for URL
     const encodedText = encodeURIComponent(text);
@@ -112,7 +122,7 @@ export default function Billing() {
                     <span className="text-sm text-textMuted font-medium">How many users do you need?</span>
                     <div className="flex items-center gap-3">
                       <button 
-                        onClick={() => setTeamSize(Math.max(1, teamSize - 1))}
+                        onClick={() => setTeamSize(Math.max(0, teamSize - 1))}
                         className="w-8 h-8 rounded-lg bg-surface border border-border/50 text-white flex items-center justify-center hover:bg-primary/20 hover:text-primary transition-all"
                       >
                         -
@@ -130,16 +140,29 @@ export default function Billing() {
                   </div>
                   
                   <input 
-                    type="range" 
-                    min="1" max="50" step="1" 
+                    type="number" 
+                    min="0"
                     value={teamSize}
-                    onChange={(e) => setTeamSize(Number(e.target.value))}
-                    className="w-full h-2.5 bg-surface/80 rounded-lg appearance-none cursor-pointer accent-primary"
+                    onChange={(e) => setTeamSize(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full bg-surface border border-border/50 rounded-lg px-4 py-2 text-white font-medium focus:border-primary/50 focus:ring-1 focus:ring-primary/50 outline-none transition-all mb-4"
+                    placeholder="Enter number of users"
                   />
-                  <div className="flex justify-between text-xs text-textMuted mt-2 px-1">
-                    <span>0</span>
-                    <span>25</span>
-                    <span>50+</span>
+
+                  <div className="pt-2">
+                    <label className="flex items-start gap-3 cursor-pointer group p-3 rounded-lg border border-border/50 hover:border-primary/50 transition-colors bg-surface">
+                      <div className="mt-0.5">
+                        <input
+                          type="checkbox"
+                          checked={voiceRecording}
+                          onChange={(e) => setVoiceRecording(e.target.checked)}
+                          className="w-4 h-4 rounded border-gray-600 text-primary focus:ring-primary focus:ring-offset-background bg-background"
+                        />
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-white group-hover:text-primary transition-colors">Enable Call Recording</div>
+                        <div className="text-xs text-textMuted mt-0.5">Records all inbound and outbound calls. (+$5.00 base, with volume discounts)</div>
+                      </div>
+                    </label>
                   </div>
                 </div>
 
@@ -199,17 +222,13 @@ export default function Billing() {
                   </div>
                   
                   <input 
-                    type="range" 
-                    min="0" max="150000" step="3000" 
+                    type="number" 
+                    min="0" step="1"
                     value={leadsAmount}
-                    onChange={(e) => setLeadsAmount(Number(e.target.value))}
-                    className="w-full h-2.5 bg-surface/80 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                    onChange={(e) => setLeadsAmount(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full bg-surface border border-border/50 rounded-lg px-4 py-2 text-white font-medium focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
+                    placeholder="Enter number of leads"
                   />
-                  <div className="flex justify-between text-xs text-textMuted mt-2 px-1">
-                    <span>0</span>
-                    <span>30,000</span>
-                    <span>60,000+</span>
-                  </div>
                 </div>
 
                 <div className="bg-background/40 rounded-xl p-4 border border-border/30">
@@ -245,12 +264,21 @@ export default function Billing() {
                   </div>
                   <span className="text-white font-medium">${leadsCostUsd.toLocaleString()}</span>
                 </div>
+                
+                {voiceRecording && (
+                  <div className="flex justify-between items-center text-sm">
+                    <div className="flex items-center gap-2 text-textMuted">
+                      <PhoneCall size={16} /> Call Recording Add-on
+                    </div>
+                    <span className="text-white font-medium">${recordingCostUsd.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                  </div>
+                )}
               </div>
               
               <div className="border-t border-border/60 pt-6 mb-8">
                 <div className="flex justify-between items-end mb-2">
                   <span className="text-sm font-medium text-textMuted">Total Cost (USD)</span>
-                  <span className="text-4xl font-black text-white">${totalUsd.toLocaleString()}</span>
+                  <span className="text-4xl font-black text-white">${totalUsd.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
                 </div>
                 <div className="text-xs text-textMuted text-right">No hidden fees or taxes</div>
               </div>
@@ -290,7 +318,9 @@ export default function Billing() {
                 <tr key={i} className="border-b border-border/30 hover:bg-surface/30 transition-colors">
                   <td className="py-4 text-sm text-textMuted">{new Date(tx.created_at).toLocaleString()}</td>
                   <td className="py-4 text-sm">{tx.description}</td>
-                  <td className="py-4 text-sm text-textMuted">{tx.unit}</td>
+                  <td className="py-4 text-sm text-textMuted">
+                    {tx.unit === 'calling_cents' ? 'Calling Balance' : tx.unit === 'maps_credits' ? 'Leads' : tx.unit}
+                  </td>
                   <td className={`py-4 text-sm font-bold ${['credit', 'release'].includes(tx.operation_type) ? 'text-emerald-400' : 'text-amber-400'}`}>
                     {['credit', 'release'].includes(tx.operation_type) ? '+' : '-'}{tx.unit === 'calling_cents' ? (tx.amount/100).toFixed(2) : tx.amount}
                   </td>
