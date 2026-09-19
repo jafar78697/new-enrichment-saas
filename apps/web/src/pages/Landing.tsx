@@ -204,6 +204,29 @@ export default function LandingPage() {
           </div>
         </section>
 
+        <section className="landing-section" style={{ padding: '64px 24px', display: 'flex', justifyContent: 'center' }}>
+          <div style={{
+            width: '100%',
+            maxWidth: '900px',
+            aspectRatio: '16/9',
+            borderRadius: '16px',
+            overflow: 'hidden',
+            boxShadow: '0 20px 40px -10px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05)',
+            background: '#1e293b'
+          }}>
+            <iframe
+              width="100%"
+              height="100%"
+              src="https://www.youtube.com/embed/lPfq0qUkbSY?start=3&autoplay=0&rel=0"
+              title="Calling Google Leads - Team Management"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allowFullScreen
+            ></iframe>
+          </div>
+        </section>
+
         <section id="problem" className="landing-section landing-two-column">
           <SectionTitle
             eyebrow="Problem"
