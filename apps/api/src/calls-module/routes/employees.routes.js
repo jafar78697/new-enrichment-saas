@@ -368,7 +368,7 @@ router.post(
               signalwire_phone_area_code = $3, signalwire_phone_purchased_at = CURRENT_TIMESTAMP,
               is_available = true, updated_at = CURRENT_TIMESTAMP
         WHERE id = $4 AND tenant_id = $5`,
-      [chosen.phoneNumber, chosen.sid, chosen.areaCode, id, tenantId]
+      [chosen.phoneNumber, chosen.sid, chosen.areaCode, agentId, tenantId]
     );
 
     const { rows: fresh } = await query(

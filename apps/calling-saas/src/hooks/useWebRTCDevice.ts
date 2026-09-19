@@ -653,9 +653,7 @@ export function useWebRTCDevice(agentId: number | null | undefined): UseWebRTCDe
         : null;
       activeTrackedCallIdRef.current = authorization?.trackedCallId || null;
 
-      const destination = authorization?.sipDomain
-        ? `sip:${phoneNumber.replace('+', '')}@${authorization.sipDomain}`
-        : authorization?.to || phoneNumber;
+      const destination = authorization?.to || phoneNumber;
 
       const call = await client.newCall({
         destinationNumber: destination,
