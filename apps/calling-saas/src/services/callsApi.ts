@@ -301,15 +301,16 @@ export const callsApi = {
       callerId: string;
       maxCallSeconds: number;
       agent: Agent;
-    }>(`/signalwire/token?agentId=${agentId}`),
+      sipDomain?: string;
+    }>(`/telephony/token?agentId=${agentId}`),
 
   logOutboundCall: (payload: { to: string; agentId: number; contactId?: number | string | null; callSid: string; trackedCallId?: string; record?: boolean }) =>
-    request<{ success: boolean; callId: string }>(`/signalwire/log-outbound`, {
+    request<{ success: boolean; callId: string }>(`/telephony/log-outbound`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  authorizeOutboundCall: (payload: { to: string; agentId: number; contactId?: number | string | null; expectedMaxDurationSeconds?: number }) =>
+  authorizeOutboundCall: (payload: { to: string; agentId: number; contactId?: number | string | null; expectedMaxDurationSeconds?: number; record?: boolean }) =>
     request<{
       success: boolean;
       trackedCallId: string;
@@ -318,13 +319,14 @@ export const callsApi = {
       to: string;
       maxCallSeconds: number;
       reservationCents: number;
-    }>(`/signalwire/authorize-outbound`, {
+      sipDomain?: string;
+    }>(`/telephony/authorize-outbound`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
   settleOutboundCall: (payload: { trackedCallId: string; providerCallId?: string; durationSeconds: number; billableSeconds?: number; status?: string }) =>
-    request<{ success: boolean; costCents?: number; alreadySettled?: boolean }>(`/signalwire/settle-outbound`, {
+    request<{ success: boolean; costCents?: number; alreadySettled?: boolean }>(`/telephony/settle-outbound`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
@@ -361,16 +363,16 @@ export const callsApi = {
     }),
 
   initiateOutboundCall: (payload: { to: string; agentId: number; contactId?: number; record?: boolean }) =>
-    request<{ callSid: string; status: string }>(`/signalwire/call-outbound`, {
+    request<{ callSid: string; status: string }>(`/telephony/call-outbound`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
   getCallStatus: (callSid: string) =>
-    request<{ callSid: string; status: string }>(`/signalwire/call-status/${encodeURIComponent(callSid)}`),
+    request<{ callSid: string; status: string }>(`/telephony/call-status/${encodeURIComponent(callSid)}`),
 
   endCall: (callSid: string) =>
-    request<{ success: boolean }>(`/signalwire/call-end/${encodeURIComponent(callSid)}`, {
+    request<{ success: boolean }>(`/telephony/call-end/${encodeURIComponent(callSid)}`, {
       method: 'POST',
     }),
 };

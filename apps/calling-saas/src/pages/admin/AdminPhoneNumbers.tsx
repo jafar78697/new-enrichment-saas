@@ -217,8 +217,8 @@ export default function AdminPhoneNumbers() {
               <ShoppingCart size={20} className="text-emerald-400" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-white">Purchase USA Number</h1>
-              <p className="text-textMuted mt-1">SignalWire number khareed kar selected customer ke calling account ko assign karein.</p>
+              <h1 className="text-3xl font-bold text-slate-900">Purchase USA Number</h1>
+              <p className="text-textMuted mt-1">Telephony number khareed kar selected customer ke calling account ko assign karein.</p>
             </div>
           </div>
         </div>
@@ -238,7 +238,7 @@ export default function AdminPhoneNumbers() {
         <div className="glass-card p-6">
           <div className="flex items-center gap-2 mb-6">
             <Search size={19} className="text-primary" />
-            <h2 className="text-lg font-semibold text-white">Find a SignalWire USA Number</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Find a USA Calling Number</h2>
           </div>
 
           <form onSubmit={searchNumbers} className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_150px_auto]">
@@ -283,7 +283,7 @@ export default function AdminPhoneNumbers() {
               availableNumbers.map((number) => (
                 <div key={number.phoneNumber} className="flex flex-col gap-4 border-b border-border/60 pb-4 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <div className="font-mono text-base font-semibold text-white">{number.phoneNumber}</div>
+                    <div className="font-mono text-base font-semibold text-slate-900">{number.phoneNumber}</div>
                     <div className="mt-1 text-xs text-textMuted">
                       {number.locality || 'US local number'}{number.region ? `, ${number.region}` : ''}
                       {number.capabilities?.voice ? ' / Voice enabled' : ''}
@@ -308,11 +308,11 @@ export default function AdminPhoneNumbers() {
 
           {unassignedNumbers.length > 0 && selectedCustomer?.tenant_id !== unassignedNumbers[0]?.tenant_id && (
             <div className="mt-8 border-t border-border/60 pt-5 space-y-3">
-              <h3 className="text-sm font-semibold text-white mb-3">Not Assigned Numbers</h3>
+              <h3 className="text-sm font-semibold text-slate-900 mb-3">Not Assigned Numbers</h3>
               {unassignedNumbers.map((number) => (
                 <div key={number.id} className="flex flex-col gap-4 border-b border-border/60 pb-4 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <div className="font-mono text-base font-semibold text-white">{number.phone_number}</div>
+                    <div className="font-mono text-base font-semibold text-slate-900">{number.phone_number}</div>
                     <div className="mt-1 text-xs text-emerald-400">Ready to assign · {number.source === 'demo' ? 'Demo pool' : 'Purchased'}</div>
                   </div>
                   <button
@@ -336,12 +336,12 @@ export default function AdminPhoneNumbers() {
         <aside className="glass-card p-6">
           <div className="flex items-center gap-2 mb-5">
             <UserRound size={19} className="text-secondary" />
-            <h2 className="text-lg font-semibold text-white">Assigned Numbers</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Assigned Numbers</h2>
           </div>
 
           {selectedCustomer ? (
             <div className="mb-5 border-b border-border/60 pb-4">
-              <div className="text-sm font-medium text-white">{selectedCustomer.customer_name || selectedCustomer.username}</div>
+              <div className="text-sm font-medium text-slate-900">{selectedCustomer.customer_name || selectedCustomer.username}</div>
               <div className="mt-1 text-xs text-textMuted">Limit: {selectedCustomer.max_phone_numbers || 1} active number(s)</div>
             </div>
           ) : null}
@@ -353,7 +353,7 @@ export default function AdminPhoneNumbers() {
               assignedNumbers.map((number) => (
                 <div key={number.id} className="border-b border-border/60 pb-3 last:border-0 last:pb-0">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 font-mono font-semibold text-white">
+                    <div className="flex items-center gap-2 font-mono font-semibold text-slate-900">
                       <Phone size={16} className="text-emerald-400" />
                       {number.phone_number}
                     </div>

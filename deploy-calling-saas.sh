@@ -11,7 +11,7 @@ npm run build
 echo "-> Deploying to Cloudflare Pages project: jentocalling"
 npx wrangler pages deploy dist \
   --project-name jentocalling \
-  --branch master
+  --branch main
 
 echo ""
 echo "Calling SaaS deployed."

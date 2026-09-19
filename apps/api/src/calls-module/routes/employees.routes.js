@@ -297,21 +297,31 @@ router.post(
   '/employees/:id/assign-number',
   requireManager,
   asyncHandler(async (req, res) => {
-    const id = Number(req.params.id);
-    const { rows: employees } = await query('SELECT id, name, signalwire_phone_sid FROM agents WHERE id = $1 AND role = $2', [id, 'employee']);
+    const idParam = req.params.id;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idParam);
+    const tenantId = req.tenantId || req.user.tenant_id;
+    
+    let queryStr = 'SELECT id, name, signalwire_phone_sid FROM agents WHERE id = $1 AND tenant_id = $2';
+    let queryArgs = [Number(idParam), tenantId];
+    if (isUuid) {
+      queryStr = `
+        SELECT a.id, a.name, a.signalwire_phone_sid 
+        FROM agents a 
+        JOIN users u ON a.email = u.email AND a.tenant_id = u.tenant_id 
+        WHERE u.id = $1 AND a.tenant_id = $2
+      `;
+      queryArgs = [idParam, tenantId];
+    }
+
+    const { rows: employees } = await query(queryStr, queryArgs);
     const emp = employees[0];
-    if (!emp) throw new AppError('Employee not found', 404);
+    if (!emp) throw new AppError('Agent not found or access denied', 404);
+    
+    const agentId = emp.id;
     const { phoneNumber, signalwireSid, areaCode } = assignSchema.parse(req.body);
 
     if (!CALLS_ENABLED || !signalwireClient) {
       throw new AppError('SignalWire calling is not configured on this server', 503);
-    }
-
-    if (emp.signalwire_phone_sid) {
-      throw new AppError(
-        'Employee already has a number. Release the current one before reassigning.',
-        409,
-      );
     }
 
     let chosen = null;
@@ -322,7 +332,7 @@ router.post(
         signalwireSid ? n.sid === signalwireSid : n.phoneNumber === phoneNumber,
       );
       if (!match) throw new AppError('That number is not in your SignalWire account', 404);
-      const { rows: conflicts } = await query('SELECT id, name FROM agents WHERE signalwire_phone_sid = $1 AND id != $2', [match.sid, id]);
+      const { rows: conflicts } = await query('SELECT id, name FROM agents WHERE signalwire_phone_sid = $1 AND id != $2', [match.sid, agentId]);
       if (conflicts.length > 0) {
         throw new AppError(`That number is already assigned to ${conflicts[0].name}`, 409);
       }
@@ -357,8 +367,8 @@ router.post(
           SET signalwire_phone_number = $1, signalwire_phone_sid = $2,
               signalwire_phone_area_code = $3, signalwire_phone_purchased_at = CURRENT_TIMESTAMP,
               is_available = true, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $4`,
-      [chosen.phoneNumber, chosen.sid, chosen.areaCode, id]
+        WHERE id = $4 AND tenant_id = $5`,
+      [chosen.phoneNumber, chosen.sid, chosen.areaCode, id, tenantId]
     );
 
     const { rows: fresh } = await query(

@@ -1,193 +1,346 @@
-import { Link } from 'react-router-dom';
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
-  CheckCircle,
-  CreditCard,
-  Globe2,
-  Info,
-  LogIn,
+  ArrowRight,
+  ArrowUpRight,
+  BarChart3,
+  Check,
+  Menu,
+  Phone,
   PhoneCall,
-  ShieldCheck,
-  Sparkles
-} from 'lucide-react';
-import heroImage from '../assets/hero.png';
+  Search,
+  Users,
+  X,
+} from "lucide-react";
+import "./frontend-landing-preview.css";
+
+const cards = [
+  {
+    icon: Search,
+    number: "01",
+    title: "Find the right people.",
+    text: "Turn a simple search into a clean, ready-to-call lead list.",
+    color: "blue",
+  },
+  {
+    icon: PhoneCall,
+    number: "02",
+    title: "Make every call count.",
+    text: "Call, take notes and plan your next follow-up in one place.",
+    color: "green",
+  },
+  {
+    icon: BarChart3,
+    number: "03",
+    title: "See what is working.",
+    text: "Track activity, talk time and outcomes without spreadsheet work.",
+    color: "orange",
+  },
+];
 
 export default function LandingPage() {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeCard, setActiveCard] = useState(0);
+  const navigate = useNavigate();
+  const go = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+    setMenuOpen(false);
+  };
+
   return (
-    <div className="min-h-screen bg-background text-text selection:bg-primary/30">
-      <nav className="sticky top-0 z-30 border-b border-border/40 bg-background/85 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-white/10">
-              <PhoneCall size={22} className="text-white drop-shadow-sm" />
-            </div>
-            <span className="font-bold text-2xl tracking-tight text-white">Jento Calling</span>
-          </div>
-
-          <div className="hidden md:flex items-center gap-7 text-sm text-textMuted">
-            <a href="#calling" className="hover:text-white transition-colors">Calling</a>
-            <Link to="/pricing" className="hover:text-white transition-colors">Billing</Link>
-            <a href="#more-info" className="hover:text-white transition-colors">More Information</a>
-          </div>
-
-          <Link
-            to="/login"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-surface border border-border/60 text-sm font-medium text-white hover:border-primary/60 transition-colors"
+    <div className="landing-preview">
+      <nav className="landing-nav">
+        <button className="landing-brand" onClick={() => go("home-preview")}>
+          <span className="landing-mark">
+            <PhoneCall size={18} />
+          </span>
+          <span>
+            Jento
+            <small>Voice Calling</small>
+          </span>
+        </button>
+        <div className={`landing-links ${menuOpen ? "open" : ""}`}>
+          <button onClick={() => go("workflow")}>How it works</button>
+          <button onClick={() => go("features")}>Features</button>
+          <button onClick={() => go("results")}>Results</button>
+          <Link to="/pricing">Pricing</Link>
+          <button
+            className="nav-mobile-close"
+            onClick={() => setMenuOpen(false)}
           >
-            <LogIn size={17} />
-            Login
+            <X size={19} />
+          </button>
+        </div>
+        <div className="landing-nav-actions">
+          <Link to="/login" className="text-button">
+            Sign in
+          </Link>
+          <Link to="/signup" className="nav-cta">
+            Get started <ArrowUpRight size={15} />
           </Link>
         </div>
+        <button
+          className="landing-menu"
+          aria-label="Open menu"
+          onClick={() => setMenuOpen(true)}
+        >
+          <Menu size={22} />
+        </button>
       </nav>
-
-      <main>
-        <section id="calling" className="relative overflow-hidden border-b border-border/40">
-          <div className="max-w-7xl mx-auto px-6 py-16 lg:py-20 grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-12 items-center">
-            <div>
-              <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-primary/30 bg-primary/10 text-primary text-sm font-semibold mb-7">
-                <Globe2 size={16} />
-                USA & Canada cold calling system
+      <main id="home-preview">
+        <section className="landing-hero">
+          <div className="hero-copy">
+            <div className="landing-eyebrow">
+              <span /> USA & CANADA COLD CALLING SYSTEM
+            </div>
+            <h1>
+              Enterprise Voice calling platform
+              <br />
+              <em>for outbound sales teams.</em>
+            </h1>
+            <p>
+              Call prospects across the USA and Canada, build targeted Google
+              Maps lead lists, and track every conversation from one focused
+              workspace.
+            </p>
+            <div className="hero-actions">
+              <button className="landing-primary" onClick={() => go("start")}>
+                Start Free Demo <ArrowRight size={17} />
+              </button>
+              <button
+                className="landing-secondary"
+                onClick={() => go("workflow")}
+              >
+                See how it works <ArrowRight size={16} />
+              </button>
+            </div>
+            <div className="hero-proof">
+              <div className="proof-faces">
+                <span>3</span>
+                <span>2</span>
+                <span>✓</span>
               </div>
-
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.05] text-white mb-6">
-                AI calling agents for outbound sales teams.
-              </h1>
-
-              <p className="text-lg text-textMuted leading-8 max-w-2xl mb-8">
-                Call prospects across the USA and Canada, build targeted Google Maps lead lists, and track every conversation from one focused workspace.
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-3 mb-8">
-                <Link
-                  to="/signup"
-                  className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-primary text-white font-semibold hover:bg-primary/90 transition-all shadow-[0_0_24px_rgba(99,102,241,0.35)]"
-                >
-                  Start Free Demo
-                  <PhoneCall size={19} />
-                </Link>
-                <a
-                  href="#more-info"
-                  className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-surface border border-border/60 text-white font-semibold hover:border-secondary/60 transition-colors"
-                >
-                  <Info size={19} />
-                  More Information
-                </a>
+              <div>
+                <strong>3 free demo calls & 2 Maps searches</strong>
+                <small>Instant dashboard access</small>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
-                {[
-                  '3 free demo calls',
-                  '2 Maps keyword searches',
-                  'Instant dashboard access',
-                ].map((item) => (
-                  <div key={item} className="flex items-center gap-2 rounded-lg border border-border/50 bg-surface/35 px-3 py-2.5 text-sm text-textMuted">
-                    <CheckCircle size={16} className="text-emerald-400 shrink-0" />
-                    {item}
+            </div>
+          </div>
+          <div className="hero-visual">
+            <div className="visual-top">
+              <span className="tiny-dot" /> Live Call Console{" "}
+              <span className="visual-time">North America Campaign</span>
+            </div>
+            <div className="visual-head">
+              <div>
+                <small>CALLER NUMBER</small>
+                <strong>+1 dedicated line</strong>
+              </div>
+              <span className="visual-score">US/CA Live Voice</span>
+            </div>
+            <div className="visual-chart">
+              <div className="chart-labels">
+                <span>100</span>
+                <span>75</span>
+                <span>50</span>
+                <span>25</span>
+                <span>0</span>
+              </div>
+              <div className="hero-bars">
+                {[38, 58, 47, 76, 66, 91, 80].map((height, i) => (
+                  <div className="hero-bar-group" key={i}>
+                    <i style={{ height: `${height}%` }} />
+                    <b style={{ height: `${height * 0.62}%` }} />
+                    <small>{["M", "T", "W", "T", "F", "S", "S"][i]}</small>
                   </div>
                 ))}
               </div>
             </div>
-
-            <div className="relative">
-              <div className="rounded-xl border border-border/60 bg-surface/40 p-5 shadow-2xl">
-                <div className="flex items-center justify-between border-b border-border/50 pb-4 mb-5">
-                  <div>
-                    <div className="text-sm text-textMuted">Live Call Console</div>
-                    <div className="text-xl font-bold text-white mt-1">North America Campaign</div>
-                  </div>
-                  <div className="w-11 h-11 rounded-lg bg-primary/15 flex items-center justify-center">
-                    <PhoneCall size={22} className="text-primary" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-5 items-center">
-                  <img src={heroImage} alt="AI calling assistant preview" className="w-full h-auto rounded-lg bg-background/60 border border-border/40" />
-                  <div className="space-y-4">
-                    <div>
-                      <div className="text-xs text-textMuted mb-1">Caller Number</div>
-                      <div className="font-mono text-white text-lg">+1 dedicated line</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-textMuted mb-1">Demo Allowance</div>
-                      <div className="h-2 rounded-full bg-background overflow-hidden">
-                        <div className="h-full w-1/2 bg-emerald-400" />
-                      </div>
-                      <div className="text-xs text-textMuted mt-2">Free trial call preparation</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
-                  <div className="rounded-lg bg-background/50 border border-border/40 p-3">
-                    <div className="text-xs text-textMuted">Region</div>
-                    <div className="text-white font-semibold mt-1">US/CA</div>
-                  </div>
-                  <div className="rounded-lg bg-background/50 border border-border/40 p-3">
-                    <div className="text-xs text-textMuted">Mode</div>
-                    <div className="text-white font-semibold mt-1">AI Voice</div>
-                  </div>
-                  <div className="rounded-lg bg-background/50 border border-border/40 p-3">
-                    <div className="text-xs text-textMuted">CRM</div>
-                    <div className="text-white font-semibold mt-1">Included</div>
-                  </div>
-                </div>
+            <div className="visual-bottom">
+              <div>
+                <span className="mini-icon blue">
+                  <Users size={14} />
+                </span>
+                <span>
+                  <small>Demo Allowance</small>
+                  <strong>50% Available</strong>
+                </span>
               </div>
+              <div>
+                <span className="mini-icon orange">
+                  <Phone size={14} />
+                </span>
+                <span>
+                  <small>CRM</small>
+                  <strong>Included</strong>
+                </span>
+              </div>
+            </div>
+            <div className="visual-float">
+              <Check size={14} /> Ready to test
             </div>
           </div>
         </section>
-
-
-        <section id="more-info" className="max-w-7xl mx-auto px-6 py-16">
-          <div className="mb-10">
-            <div className="inline-flex items-center gap-2 text-secondary font-semibold mb-4">
-              <Sparkles size={18} />
-              More Information
-            </div>
-            <h2 className="text-3xl lg:text-4xl font-bold text-white">What happens after you start?</h2>
+        <section className="logo-strip">
+          <span>
+            One workspace for the work behind every good conversation.
+          </span>
+          <div>
+            <b>LEAD DATA</b>
+            <b>OUTREACH</b>
+            <b>CALLING</b>
+            <b>INSIGHTS</b>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {[
-              {
-                title: 'Create Your Account',
-                text: 'Enter your name, email address, and password to open your private demo dashboard instantly.',
-                icon: <ShieldCheck size={22} className="text-primary" />,
-              },
-              {
-                title: 'Try Calling',
-                text: 'Use the shared demo calling pool for up to three test calls to supported US destinations.',
-                icon: <PhoneCall size={22} className="text-emerald-400" />,
-              },
-              {
-                title: 'Upgrade',
-                text: 'Choose your package, submit payment proof, and receive monthly calling access after admin approval.',
-                icon: <CreditCard size={22} className="text-secondary" />,
-              },
-            ].map((item) => (
-              <div key={item.title} className="glass-card p-6">
-                <div className="w-11 h-11 rounded-lg bg-background/70 border border-border/50 flex items-center justify-center mb-5">
-                  {item.icon}
-                </div>
-                <h3 className="text-xl font-bold text-white mb-3">{item.title}</h3>
-                <p className="text-sm text-textMuted leading-6">{item.text}</p>
+        </section>
+        <section className="landing-section" id="workflow">
+          <div className="section-intro">
+            <div>
+              <div className="landing-eyebrow">
+                <span /> Getting Started
               </div>
+              <h2>
+                What happens after
+                <br />
+                <em>you start?</em>
+              </h2>
+            </div>
+            <p>
+              Start demo access instantly, then upgrade from the billing
+              dashboard when you are ready to scale.
+            </p>
+          </div>
+          <div className="steps">
+            <div className="step active">
+              <span>01</span>
+              <strong>Create Your Account</strong>
+              <p>
+                Enter your name, email address, and password to open your
+                private demo dashboard instantly.
+              </p>
+              <ArrowRight size={18} />
+            </div>
+            <div className="step">
+              <span>02</span>
+              <strong>Try Calling</strong>
+              <p>
+                Use the shared demo calling pool for up to three test calls to
+                supported US destinations.
+              </p>
+              <ArrowRight size={18} />
+            </div>
+            <div className="step">
+              <span>03</span>
+              <strong>Upgrade</strong>
+              <p>
+                Choose your package, submit payment proof, and receive monthly
+                calling access after admin approval.
+              </p>
+              <ArrowRight size={18} />
+            </div>
+          </div>
+        </section>
+        <section className="landing-section feature-section" id="features">
+          <div className="section-intro compact">
+            <div>
+              <div className="landing-eyebrow">
+                <span /> Everything in rhythm
+              </div>
+              <h2>
+                Tools that feel
+                <br />
+                <em>easy to use.</em>
+              </h2>
+            </div>
+            <p>
+              Small details add up: clean data, thoughtful calling tools and a
+              dashboard that tells the truth quickly.
+            </p>
+          </div>
+          <div className="feature-grid">
+            {cards.map(({ icon: Icon, number, title, text, color }, i) => (
+              <button
+                key={title}
+                className={`feature-card ${color} ${activeCard === i ? "selected" : ""}`}
+                onClick={() => setActiveCard(i)}
+              >
+                <div className="feature-icon">
+                  <Icon size={27} />
+                </div>
+                <span className="feature-number">{number} / FEATURE</span>
+                <h3>{title}</h3>
+                <p>{text}</p>
+                <span className="feature-link">
+                  Explore feature <ArrowUpRight size={16} />
+                </span>
+              </button>
             ))}
           </div>
-
-          <div className="mt-10 rounded-xl border border-primary/30 bg-primary/10 p-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-            <div>
-              <div className="font-semibold text-white">Ready to test JentoAI calling?</div>
-              <div className="text-sm text-textMuted mt-1">Start demo access, then upgrade from the billing dashboard.</div>
+        </section>
+        <section className="result-section" id="results">
+          <div className="result-copy">
+            <div className="landing-eyebrow">
+              <span /> The calm behind the numbers
             </div>
-            <Link
-              to="/signup"
-              className="btn-primary inline-flex items-center justify-center gap-2"
+            <h2>
+              When the workflow
+              <br />
+              <em>gets out of the way.</em>
+            </h2>
+            <p>
+              Your team gets a sharper view of the day: who to call, what to say
+              and what to do next.
+            </p>
+            <button
+              className="landing-secondary light"
+              onClick={() => navigate("/signup")}
             >
-              Create Free Demo
-              <PhoneCall size={18} />
-            </Link>
+              Explore the workspace <ArrowRight size={17} />
+            </button>
+          </div>
+          <div className="result-stats">
+            <div>
+              <strong>70%</strong>
+              <span>less manual prep</span>
+            </div>
+            <div>
+              <strong>100+</strong>
+              <span>hours back each month</span>
+            </div>
+            <div>
+              <strong>1</strong>
+              <span>workspace for your team</span>
+            </div>
           </div>
         </section>
+        <section className="start-section" id="start">
+          <div>
+            <div className="landing-eyebrow">
+              <span /> Ready to test Jento Calling?
+            </div>
+            <h2>
+              Make your next
+              <br />
+              <em>call count.</em>
+            </h2>
+            <p>Start with a clean workspace and 3 free demo calls.</p>
+          </div>
+          <Link
+            to="/signup"
+            className="landing-primary white"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            Create Free Demo <ArrowRight size={17} />
+          </Link>
+        </section>
       </main>
+      <footer className="landing-footer">
+        <span>Jento / Voice Calling</span>
+        <span>Lead enrichment · Outreach · Growth</span>
+      </footer>
     </div>
   );
 }

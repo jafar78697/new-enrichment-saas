@@ -2,11 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import {
+  AlertTriangle,
   CalendarDays,
+  CheckCircle2,
+  Filter,
   Phone,
   RefreshCw,
   Shield,
   UserPlus,
+  Users,
   Wallet,
   Trash2,
   Settings
@@ -75,6 +79,7 @@ export default function AdminDashboard() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [payments, setPayments] = useState<PaymentRequest[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState(searchParams.get('customer') || '');
+  const [customerQuery, setCustomerQuery] = useState('');
   const [assignedNumbers, setAssignedNumbers] = useState<AssignedNumber[]>([]);
   const [unassignedNumbers, setUnassignedNumbers] = useState<AssignedNumber[]>([]);
   const [selectedPoolNumber, setSelectedPoolNumber] = useState('');
@@ -105,6 +110,12 @@ export default function AdminDashboard() {
     () => customers.filter((customer) => customer.plan === 'demo').length,
     [customers]
   );
+
+  const filteredCustomers = useMemo(() => {
+    const query = customerQuery.trim().toLowerCase();
+    if (!query) return customers;
+    return customers.filter((customer) => `${customer.customer_name} ${customer.username} ${customer.plan}`.toLowerCase().includes(query));
+  }, [customers, customerQuery]);
 
   async function fetchDashboard() {
     setLoading(true);
@@ -367,10 +378,11 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="admin-dashboard-page space-y-8 animate-in fade-in duration-500">
+      <header className="page-heading admin-page-heading">
         <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+          <div className="eyebrow">Operations overview</div>
+          <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
             <Shield size={30} className="text-amber-400" />
             Admin Dashboard
           </h1>
@@ -394,36 +406,40 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-        <div className="glass-card p-5">
-          <div className="text-sm text-textMuted">Customers</div>
-          <div className="text-3xl font-bold text-white mt-2">{customers.length}</div>
+      <div className="metric-grid">
+        <div className="metric-card stone">
+          <div className="metric-heading"><span>Customers</span><Users size={18} /></div>
+          <div className="metric-value">{customers.length}</div>
+          <div className="metric-caption">Total signed up</div>
         </div>
-        <div className="glass-card p-5 border-primary/30">
-          <div className="text-sm text-textMuted">Free Demo Signups</div>
-          <div className="text-3xl font-bold text-primary mt-2">{demoSignupCount}</div>
+        <div className="metric-card sage">
+          <div className="metric-heading"><span>Free Demo Signups</span><Users size={18} /></div>
+          <div className="metric-value">{demoSignupCount}</div>
+          <div className="metric-caption">Demo plan</div>
         </div>
-        <div className="glass-card p-5">
-          <div className="text-sm text-textMuted">Pending Payments</div>
-          <div className="text-3xl font-bold text-white mt-2">{payments.length}</div>
+        <div className="metric-card sand">
+          <div className="metric-heading"><span>Pending Payments</span><Wallet size={18} /></div>
+          <div className="metric-value">{payments.length}</div>
+          <div className="metric-caption">Awaiting approval</div>
         </div>
-        <div className="glass-card p-5">
-          <div className="text-sm text-textMuted">Selected Customer Numbers</div>
-          <div className="text-3xl font-bold text-white mt-2">{assignedNumbers.length}</div>
+        <div className="metric-card charcoal">
+          <div className="metric-heading"><span>Assigned Numbers</span><Phone size={18} /></div>
+          <div className="metric-value">{assignedNumbers.length}</div>
+          <div className="metric-caption">Across customers</div>
         </div>
-        <div className="glass-card p-5">
-          <div className="text-sm text-textMuted">Selected Customer Calls</div>
-          <div className="text-3xl font-bold text-white mt-2">{customerDetail?.call_usage?.total_calls || 0}</div>
-        </div>
-      </section>
+      </div>
 
-      <section className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        <div className="glass-card p-6 xl:col-span-1">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-lg font-semibold text-white">Customers</h2>
-            <Link to="/admin/customers" className="text-sm text-primary hover:text-primary/80">
-              View all
-            </Link>
+      <div className="dashboard-grid">
+        <section className="panel admin-customers-panel xl:col-span-2">
+          <div className="panel-header">
+            <div>
+              <span className="panel-kicker">Customers</span>
+              <h3>Recent Customers</h3>
+            </div>
+            <div className="admin-customer-tools">
+              <label className="admin-customer-filter"><Filter size={14} /><span className="sr-only">Filter customers</span><input value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Filter customers" /></label>
+              <Link to="/admin/customers" className="period-label hover:bg-slate-100 transition-colors">View all</Link>
+            </div>
           </div>
 
           <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
@@ -435,20 +451,24 @@ export default function AdminDashboard() {
               <div className="text-sm text-textMuted border border-dashed border-border rounded-lg p-5 text-center">
                 No customers yet.
               </div>
+            ) : filteredCustomers.length === 0 ? (
+              <div className="text-sm text-textMuted border border-dashed border-border rounded-lg p-5 text-center">
+                No customers match this filter.
+              </div>
             ) : (
-              customers.map((customer) => (
+              filteredCustomers.map((customer) => (
                 <button
                   key={customer.tenant_id}
                   onClick={() => selectCustomer(customer.tenant_id)}
-                  className={`w-full text-left p-3 rounded-lg border transition-all ${
+                  className={`admin-customer-card w-full text-left p-3 rounded-lg border transition-all ${
                     selectedCustomerId === customer.tenant_id
-                      ? 'border-primary/50 bg-primary/10'
+                      ? 'is-selected border-primary/50 bg-primary/10'
                       : 'border-border/50 bg-background/30 hover:bg-surface/60'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="font-medium text-white">{customer.customer_name || customer.username}</div>
+                      <div className="font-medium text-slate-900">{customer.customer_name || customer.username}</div>
                       <div className="text-xs text-textMuted font-mono mt-1">{customer.username}</div>
                     </div>
                     <span className="text-xs text-textMuted capitalize">{customer.status}</span>
@@ -473,18 +493,18 @@ export default function AdminDashboard() {
               ))
             )}
           </div>
-        </div>
+        </section>
 
         <div className="xl:col-span-2 space-y-8">
 
           {customerDetail && (
-            <div className="glass-card p-6">
+            <div className="panel">
               
               {/* Usage Statistics */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                 <div className="bg-background/40 p-4 rounded-xl border border-border/50">
                   <div className="text-sm font-semibold text-textMuted mb-1">Total Calling Usage</div>
-                  <div className="text-2xl font-bold text-white">
+                  <div className="text-2xl font-bold text-slate-900">
                     {customerDetail.call_usage?.total_calls || 0} <span className="text-sm text-textMuted font-normal">calls</span>
                   </div>
                   <div className="text-xs text-textMuted mt-1">
@@ -515,9 +535,9 @@ export default function AdminDashboard() {
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 border-b border-border/50 pb-6">
                 <div className="flex items-center gap-3">
-                  <Settings size={24} className="text-white" />
+                  <Settings size={24} className="text-slate-900" />
                   <div>
-                    <h2 className="text-xl font-bold text-white">Customer Account Settings</h2>
+                    <h2 className="text-xl font-bold text-slate-900">Customer Account Settings</h2>
                     <p className="text-sm text-textMuted">Configure limits, balances, and phone numbers.</p>
                   </div>
                 </div>
@@ -527,7 +547,7 @@ export default function AdminDashboard() {
                   className={`px-8 py-2.5 rounded-xl font-bold transition-all duration-300 ${
                     formDirty
                       ? 'bg-blue-600 text-white shadow-[0_0_20px_rgba(37,99,235,0.4)] hover:bg-blue-500'
-                      : 'bg-black text-gray-600 border border-gray-800 cursor-not-allowed'
+                      : 'bg-slate-900 text-white opacity-50 cursor-not-allowed'
                   }`}
                 >
                   {upgradeBusy ? 'Updating...' : 'Upgrade Account'}
@@ -546,7 +566,7 @@ export default function AdminDashboard() {
                         className="mt-1 h-4 w-4 rounded border-gray-600 text-primary focus:ring-primary bg-background"
                       />
                       <span>
-                        <span className="block text-sm font-semibold text-white">Enable Voice Recording</span>
+                        <span className="block text-sm font-semibold text-slate-900">Enable Voice Recording</span>
                         <span className="mt-1 block text-xs leading-5 text-textMuted">Customer Admin and Platform Admin can listen to employee call recordings.</span>
                       </span>
                     </label>
@@ -560,13 +580,13 @@ export default function AdminDashboard() {
                         className="mt-1 h-4 w-4 rounded border-gray-600 text-primary focus:ring-primary bg-background"
                       />
                       <span>
-                        <span className="block text-sm font-semibold text-white">Enable Employee Access</span>
+                        <span className="block text-sm font-semibold text-slate-900">Enable Employee Access</span>
                         <span className="mt-1 block text-xs leading-5 text-textMuted">Allow the Customer Admin to create, manage, and give login access to employees.</span>
                       </span>
                     </label>
                   </div>
                   <div className="bg-background/40 p-5 rounded-xl border border-border/50">
-                    <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
                       <CalendarDays size={16} className="text-amber-400" />
                       Calling Subscription
                     </h3>
@@ -585,7 +605,7 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="bg-background/40 p-5 rounded-xl border border-border/50">
-                    <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
                       <UserPlus size={16} className="text-emerald-400" />
                       Team Seats
                     </h3>
@@ -621,7 +641,7 @@ export default function AdminDashboard() {
                 <div className="space-y-6">
                   <div className="bg-background/40 p-5 rounded-xl border border-border/50">
                     <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                         <Wallet size={16} className="text-primary" />
                         Leads Extraction Balance
                       </h3>
@@ -652,21 +672,21 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="bg-background/40 p-5 rounded-xl border border-border/50">
-                    <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
                       <Phone size={16} className="text-blue-400" />
                       Assign Phone Number
                     </h3>
                     
                     {Number(settingsForm.members || 1) > assignedNumbers.length ? (
                       <div className="mb-4 text-xs font-medium text-red-400 bg-red-400/10 p-2.5 rounded-lg border border-red-400/20 flex gap-2 items-start">
-                        <span className="text-sm">⚠️</span>
+                        <AlertTriangle size={15} className="mt-0.5 shrink-0" />
                         <span>
                           <strong>Action Required:</strong> You have allocated {Number(settingsForm.members || 1)} members but only assigned {assignedNumbers.length} number{assignedNumbers.length !== 1 ? 's' : ''}. Please assign more numbers.
                         </span>
                       </div>
                     ) : (
                       <div className="mb-4 text-xs font-medium text-emerald-400 bg-emerald-400/10 p-2.5 rounded-lg border border-emerald-400/20 flex items-center gap-2">
-                        <span className="text-sm">✓</span>
+                        <CheckCircle2 size={15} className="shrink-0" />
                         <span>All members have assigned numbers.</span>
                       </div>
                     )}
@@ -695,7 +715,7 @@ export default function AdminDashboard() {
                           <select
                             value={settingsForm.selectedNumber}
                             onChange={(e) => { setSettingsForm({ ...settingsForm, selectedNumber: e.target.value }); setFormDirty(true); }}
-                            className="input-field w-full text-sm"
+                            className="input-field admin-number-select w-full text-sm"
                           >
                             <option value="">-- Choose a number --</option>
                             {availableNumbers.map((num) => (
@@ -710,7 +730,7 @@ export default function AdminDashboard() {
                       {assignedNumbers.length > 0 && (
                         <div className="mt-4 pt-4 border-t border-border/30">
                           <p className="text-xs text-textMuted mb-2">Currently Assigned Numbers:</p>
-                          <ol className="list-decimal list-inside space-y-1 text-sm text-white">
+                          <ol className="list-decimal list-inside space-y-1 text-sm text-slate-900">
                             {assignedNumbers.map((n: AssignedNumber) => (
                               <li key={n.phone_number}>
                                 <span className="ml-1">{n.phone_number}</span>
@@ -721,14 +741,20 @@ export default function AdminDashboard() {
                         </div>
                       )}
 
-                      <div className="mt-5 border-t border-border/30 pt-4">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <p className="text-xs text-textMuted">Not Assigned Numbers (including unused demo numbers)</p>
-                          <button type="button" onClick={fetchUnassignedNumbers} className="text-xs text-primary hover:text-white">Refresh list</button>
+                      <div className="admin-number-pool mt-5 border-t border-border/30 pt-4">
+                        <div className="admin-number-pool-heading mb-3">
+                          <div>
+                            <p className="text-xs font-semibold text-slate-900">Available number pool</p>
+                            <p className="mt-1 text-xs text-textMuted">Purchased and unused demo numbers ready to assign.</p>
+                          </div>
+                          <span className="admin-number-count">{unassignedNumbers.length} available</span>
+                        </div>
+                        <div className="mb-2 flex items-center justify-end gap-2">
+                          <button type="button" onClick={fetchUnassignedNumbers} className="text-xs text-primary hover:text-slate-900">Refresh list</button>
                         </div>
                         {unassignedNumbers.length > 0 ? (
                           <div className="flex gap-2">
-                            <select value={selectedPoolNumber} onChange={(e) => setSelectedPoolNumber(e.target.value)} className="input-field flex-1 text-sm">
+                            <select aria-label="Select available number" value={selectedPoolNumber} onChange={(e) => setSelectedPoolNumber(e.target.value)} className="input-field admin-number-select flex-1 text-sm">
                               <option value="">-- Select available number --</option>
                               {unassignedNumbers.map((number) => <option key={`${number.source}:${number.id}`} value={`${number.source}:${number.id}`}>{number.phone_number} ({number.source === 'demo' ? 'Demo pool' : 'Purchased'})</option>)}
                             </select>
@@ -757,13 +783,13 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
-      </section>
+      </div>
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-surface border border-border/50 rounded-xl p-6 max-w-md w-full shadow-2xl relative">
-            <h3 className="text-xl font-semibold mb-2 text-white">Delete Customer</h3>
+            <h3 className="text-xl font-semibold mb-2 text-slate-900">Delete Customer</h3>
             <p className="text-textMuted mb-6">
               Are you sure you want to delete this customer? This will suspend their access and mark them as deleted.
               <br/><br/>

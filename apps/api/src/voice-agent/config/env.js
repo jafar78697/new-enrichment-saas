@@ -61,6 +61,9 @@ const envSchema = z.object({
   AI_OUTBOUND_ENABLED: z
     .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean().default(false)),
 
+  // Google
+  GOOGLE_APPLICATION_CREDENTIALS: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+
   // N8N
   N8N_WEBHOOK_URL: z.preprocess(emptyIfPlaceholder, z.string().optional()),
 

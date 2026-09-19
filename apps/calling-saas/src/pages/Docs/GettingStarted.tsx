@@ -2,14 +2,14 @@
 export default function GettingStarted() {
   return (
     <div className="prose prose-invert prose-indigo max-w-none">
-      <h1 className="text-4xl font-extrabold tracking-tight text-white mb-4">Getting Started</h1>
+      <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 mb-4">Getting Started</h1>
       <p className="text-xl text-textMuted mb-10 leading-relaxed">
         Follow these steps to set up your Jento Calling workspace, assign phone numbers, and make your very first outbound sales call.
       </p>
 
       <div className="space-y-12">
         <section>
-          <h2 className="text-2xl font-bold text-white mb-4">1. Create Your Account</h2>
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">1. Create Your Account</h2>
           <p className="text-textMuted mb-4">
             Sign up for a new account at <a href="/signup" className="text-primary hover:underline">voicecalling.space/signup</a>. 
             Once you log in, you will be directed to the main Dashboard where you can view your call limits and wallet balance.
@@ -20,7 +20,7 @@ export default function GettingStarted() {
         </section>
 
         <section>
-          <h2 className="text-2xl font-bold text-white mb-4">2. Assign a Phone Number</h2>
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">2. Assign a Phone Number</h2>
           <p className="text-textMuted mb-4">
             Before making a call, you need a dedicated USA/Canada phone number.
           </p>
@@ -34,7 +34,7 @@ export default function GettingStarted() {
         </section>
 
         <section>
-          <h2 className="text-2xl font-bold text-white mb-4">3. Build Your Lead List</h2>
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">3. Build Your Lead List</h2>
           <p className="text-textMuted mb-4">
             You can manually add leads or use our integrated Google Maps Lead Enrichment tool.
           </p>
@@ -47,7 +47,7 @@ export default function GettingStarted() {
         </section>
 
         <section>
-          <h2 className="text-2xl font-bold text-white mb-4">4. Make Your First Call</h2>
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">4. Make Your First Call</h2>
           <p className="text-textMuted mb-4">
             With a phone number and leads ready, it's time to start dialing.
           </p>

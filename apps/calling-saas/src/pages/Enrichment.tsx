@@ -65,14 +65,14 @@ export default function Enrichment() {
   return (
     <div className="animate-in fade-in duration-500 max-w-5xl mx-auto">
       <header className="mb-10">
-        <h1 className="text-3xl font-bold text-white mb-2">Lead Enrichment</h1>
+        <h1 className="text-3xl font-bold text-slate-900 mb-2">Lead Enrichment</h1>
         <p className="text-textMuted">Extract high-quality leads from Google Maps in real-time.</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-1">
           <form onSubmit={handleScrape} className="glass-card p-6 flex flex-col gap-4">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-2">
+            <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2 mb-2">
               <Database size={18} className="text-primary" /> New Scrape Task
             </h2>
             
@@ -125,7 +125,7 @@ export default function Enrichment() {
 
         <div className="lg:col-span-2">
           <div className="glass-card p-6 h-full min-h-[400px]">
-            <h2 className="text-lg font-semibold text-white mb-6">Recent Results</h2>
+            <h2 className="text-lg font-semibold text-slate-900 mb-6">Recent Results</h2>
             
             {results.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 text-textMuted">
@@ -136,10 +136,10 @@ export default function Enrichment() {
             ) : (
               <div className="space-y-4">
                 {results.map((r, i) => (
-                  <div key={i} className="bg-surface/50 border border-border rounded-lg p-4 flex items-center justify-between">
+                  <div key={i} className="bg-surface/50 border-2 border-slate-900 rounded-lg p-4 flex items-center justify-between">
                     <div>
                       <div className="text-primary font-mono text-sm mb-1">{r.id}</div>
-                      <div className="text-white font-medium">{r.keywordCount || 1} keyword{r.keywordCount === 1 ? '' : 's'} - Extracted {r.count} results</div>
+                      <div className="text-slate-900 font-medium">{r.keywordCount || 1} keyword{r.keywordCount === 1 ? '' : 's'} - Extracted {r.count} results</div>
                       <div className="mt-1 text-sm text-textMuted">{r.newCount} new unique lead{r.newCount === 1 ? '' : 's'} added{r.existingCount ? `, ${r.existingCount} already saved` : ''}.</div>
                     </div>
                     <div className="flex items-center gap-4">

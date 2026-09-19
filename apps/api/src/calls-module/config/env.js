@@ -69,11 +69,13 @@ const envSchema = z.object({
   SIGNALWIRE_API_TOKEN: z.preprocess(emptyIfPlaceholder, z.string().optional()),
   SIGNALWIRE_SPACE_URL: z.preprocess(emptyIfPlaceholder, z.string().optional()),
   SIGNALWIRE_PHONE_NUMBER: z.preprocess(emptyIfPlaceholder, z.string().optional()),
+  SIGNALWIRE_SIP_DOMAIN: z.preprocess(emptyIfPlaceholder, z.string().optional()),
   // Relay browser JWTs are not Subscriber Access Tokens. Keep their resource
-  // fixed so the app never creates a random Relay endpoint per token request.
   SIGNALWIRE_RELAY_RESOURCE: z.string().regex(/^[A-Za-z0-9_-]+$/).default('jento-manual-browser'),
-  SIGNALWIRE_RELAY_TOKEN_MINUTES: z.coerce.number().int().min(5).max(15).default(15),
-  MANUAL_CALL_MAX_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
+  SIGNALWIRE_RELAY_TOKEN_MINUTES: z.coerce.number().int().min(5).max(1440).default(720),
+  // Keep browser-call reservation aligned with the one-minute call policy.
+  // A longer default reserves more wallet balance before the call connects.
+  MANUAL_CALL_MAX_SECONDS: z.coerce.number().int().min(60).max(3600).default(60),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -61,22 +61,21 @@ export default function ChangePassword() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-text flex items-center justify-center relative overflow-hidden">
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-primary/20 blur-[150px] rounded-full pointer-events-none"></div>
-      <div className="absolute bottom-[-20%] right-[-10%] w-[40%] h-[40%] bg-secondary/20 blur-[150px] rounded-full pointer-events-none"></div>
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex items-center justify-center relative overflow-hidden">
 
       <div className="relative z-10 w-full max-w-md px-6">
         <div className="flex items-center justify-center gap-3 mb-10">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/30">
+          <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/20">
             <Activity size={28} className="text-white" />
           </div>
-          <span className="font-bold text-3xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-            JentoAI
+          <span className="font-bold text-3xl tracking-tight text-slate-900">
+            Jento
+            <small>Voice Calling</small>
           </span>
         </div>
 
-        <div className="bg-surface/40 backdrop-blur-xl border border-border/50 rounded-2xl p-8 shadow-2xl">
-          <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-400 mx-auto mb-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-xl">
+          <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-orange-50 text-orange-600 mx-auto mb-4">
             <Key size={28} />
           </div>
           <h2 className="text-2xl font-bold mb-2 text-center">Change Your Password</h2>
@@ -87,7 +86,7 @@ export default function ChangePassword() {
           </p>
 
           {error && (
-            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl mb-6 text-sm">
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6 text-sm">
               <AlertCircle size={16} />
               <span>{error}</span>
             </div>
@@ -102,7 +101,7 @@ export default function ChangePassword() {
                 onChange={e => setCurrentPassword(e.target.value)}
                 placeholder="Enter your current/temporary password"
                 required
-                className="w-full px-4 py-3 rounded-xl bg-background/60 border border-border/50 text-text placeholder-textMuted/50 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
+                className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
               />
             </div>
 
@@ -115,7 +114,7 @@ export default function ChangePassword() {
                 placeholder="At least 8 characters"
                 required
                 minLength={8}
-                className="w-full px-4 py-3 rounded-xl bg-background/60 border border-border/50 text-text placeholder-textMuted/50 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
+                className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
               />
             </div>
 
@@ -127,14 +126,14 @@ export default function ChangePassword() {
                 onChange={e => setConfirmPassword(e.target.value)}
                 placeholder="Repeat your new password"
                 required
-                className="w-full px-4 py-3 rounded-xl bg-background/60 border border-border/50 text-text placeholder-textMuted/50 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
+                className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 rounded-xl bg-primary text-white font-semibold text-base hover:bg-primary/90 transition-all duration-300 shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3.5 rounded-xl bg-blue-600 text-white font-semibold text-base hover:bg-blue-700 transition-all duration-300 shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

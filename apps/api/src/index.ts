@@ -101,6 +101,7 @@ fastify.decorate('authenticate', async (request: any, reply: any) => {
     const { rows } = await fastify.db.query(
       `SELECT u.id as user_id, u.username, u.email, u.display_name, u.role,
               u.must_change_password, u.auth_version, u.account_status,
+              u.can_call, u.can_scrape,
               t.id as tenant_id, t.plan, t.status as tenant_status, t.name as tenant_name,
               w.id as workspace_id,
               s.id as session_id
@@ -161,6 +162,8 @@ fastify.decorate('authenticate', async (request: any, reply: any) => {
       display_name: row.display_name,
       role: row.role,
       tenant_id: row.tenant_id,
+      can_call: row.can_call !== false,
+      can_scrape: row.can_scrape !== false,
     };
   } catch (err: any) {
     // Fallback to the legacy calls-module token. Modern SaaS tokens must have
@@ -476,6 +479,10 @@ const start = async () => {
 
     // Start Email Warmup Scheduler
     startWarmupScheduler();
+
+    // Start background check for expired demo numbers
+    const { startDemoReleaser } = await import('./cron/demo-releaser.js');
+    startDemoReleaser(fastify);
 
     const port = parseInt(process.env.PORT || '3000');
     await fastify.listen({ port, host: '0.0.0.0' });

@@ -178,7 +178,7 @@ export default function TeamAccess() {
   async function copyCredentials() {
     if (!credentials) return;
     await navigator.clipboard.writeText(
-      `JentoAI Employee Access\nUsername: ${credentials.username}\nTemporary Password: ${credentials.temporary_password}\nLogin: ${credentials.login_url}\n\nYou will be asked to change your password after signing in.`
+      `Jento Voice Calling Employee Access\nUsername: ${credentials.username}\nTemporary Password: ${credentials.temporary_password}\nLogin: ${credentials.login_url}\n\nYou will be asked to change your password after signing in.`
     );
     setCopied(true);
     notify('Employee credentials copied.', 'success');
@@ -198,7 +198,7 @@ export default function TeamAccess() {
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary">
             <Users size={17} /> Customer Admin
           </div>
-          <h1 className="text-3xl font-bold text-white">Team Access</h1>
+          <h1 className="text-3xl font-bold text-slate-900">Team Access</h1>
           <p className="mt-2 text-textMuted">Create secure employee logins and assign one calling number to each person.</p>
         </div>
         <button onClick={loadTeam} className="btn-secondary inline-flex items-center justify-center gap-2" title="Refresh team access">
@@ -209,11 +209,11 @@ export default function TeamAccess() {
       <section className="grid gap-3 sm:grid-cols-3" aria-label="Team capacity">
         <div className="rounded-lg border border-border bg-surface/50 p-4">
           <div className="text-sm text-textMuted">Active numbers</div>
-          <div className="mt-1 text-2xl font-bold text-white">{capacity.active_numbers}</div>
+          <div className="mt-1 text-2xl font-bold text-slate-900">{capacity.active_numbers}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface/50 p-4">
           <div className="text-sm text-textMuted">Employee access</div>
-          <div className="mt-1 text-2xl font-bold text-white">{capacity.employees_used} / {capacity.employee_limit}</div>
+          <div className="mt-1 text-2xl font-bold text-slate-900">{capacity.employees_used} / {capacity.employee_limit}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface/50 p-4">
           <div className="text-sm text-textMuted">Available slots</div>
@@ -234,7 +234,7 @@ export default function TeamAccess() {
       ) : (
         <section className="border-y border-border py-6">
           <div className="mb-5">
-            <h2 className="flex items-center gap-2 text-xl font-semibold text-white"><UserPlus size={20} className="text-secondary" /> Add Employee</h2>
+            <h2 className="flex items-center gap-2 text-xl font-semibold text-slate-900"><UserPlus size={20} className="text-secondary" /> Add Employee</h2>
             <p className="mt-1 text-sm text-textMuted">Username and temporary password are generated automatically.</p>
           </div>
           <form onSubmit={createEmployee} className="grid gap-4 md:grid-cols-[1fr_1fr_1.3fr_auto] md:items-end">
@@ -248,7 +248,7 @@ export default function TeamAccess() {
               <input className="input-field mt-2" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="employee@company.com" />
             </label>
             <div className="md:col-span-3">
-              <div className="mb-2 text-sm font-semibold text-white">Employee permissions</div>
+              <div className="mb-2 text-sm font-semibold text-slate-900">Employee permissions</div>
               <div className="flex flex-wrap gap-3">
                 <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface/40 px-3 py-2 text-sm text-textMuted">
                   <input type="checkbox" checked={form.can_call} onChange={(event) => setForm({ ...form, can_call: event.target.checked })} /> Cold Calling
@@ -267,7 +267,7 @@ export default function TeamAccess() {
 
       <section>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-white">Employees</h2>
+          <h2 className="text-xl font-semibold text-slate-900">Employees</h2>
           <span className="text-sm text-textMuted">{data?.employees.length || 0} total</span>
         </div>
         {!data?.employees.length ? (
@@ -277,7 +277,7 @@ export default function TeamAccess() {
             {data.employees.map((employee) => (
               <div key={employee.id} className="grid gap-4 p-4 lg:grid-cols-[1.2fr_1fr_1fr_auto] lg:items-center">
                 <div className="min-w-0">
-                  <div className="truncate font-semibold text-white">{employee.display_name}</div>
+                  <div className="truncate font-semibold text-slate-900">{employee.display_name}</div>
                   <div className="mt-1 truncate text-sm text-textMuted">@{employee.username}{employee.email ? ` · ${employee.email}` : ''}</div>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-textMuted"><Phone size={15} /> {employee.phone_number || 'No number assigned'}</div>
@@ -319,13 +319,13 @@ export default function TeamAccess() {
           <div className="w-full max-w-lg rounded-lg border border-emerald-500/30 bg-surface p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="credentials-title">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <h2 id="credentials-title" className="text-xl font-bold text-white">Employee Access Ready</h2>
+                <h2 id="credentials-title" className="text-xl font-bold text-slate-900">Employee Access Ready</h2>
                 <p className="mt-1 text-sm text-textMuted">Copy these details now. The temporary password is shown only once.</p>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400"><Check size={21} /></div>
             </div>
             <div className="space-y-3 rounded-lg border border-border bg-background/60 p-4 font-mono text-sm">
-              <div><div className="mb-1 text-xs text-textMuted">USERNAME</div><div className="break-all text-white">{credentials.username}</div></div>
+              <div><div className="mb-1 text-xs text-textMuted">USERNAME</div><div className="break-all text-slate-900">{credentials.username}</div></div>
               <div><div className="mb-1 text-xs text-textMuted">TEMPORARY PASSWORD</div><div className="break-all text-amber-300">{credentials.temporary_password}</div></div>
               <div><div className="mb-1 text-xs text-textMuted">LOGIN LINK</div><div className="break-all text-primary">{credentials.login_url}</div></div>
             </div>
@@ -340,14 +340,14 @@ export default function TeamAccess() {
       {editingPermissions && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onMouseDown={() => setEditingPermissions(null)}>
           <div className="w-full max-w-md rounded-lg border border-primary/30 bg-surface p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="permissions-title">
-            <h2 id="permissions-title" className="text-xl font-bold text-white">Edit Employee Permissions</h2>
+            <h2 id="permissions-title" className="text-xl font-bold text-slate-900">Edit Employee Permissions</h2>
             <p className="mt-1 text-sm text-textMuted">{editingPermissions.display_name} ki access yahan se change karein.</p>
             <div className="mt-5 space-y-3">
-              <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background/40 p-4 text-sm text-white">
+              <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background/40 p-4 text-sm text-slate-900">
                 <span><span className="block font-semibold">Cold Calling</span><span className="mt-1 block text-xs text-textMuted">Employee leads ko call kar sakta hai.</span></span>
                 <input type="checkbox" checked={permissionForm.can_call} onChange={(event) => setPermissionForm({ ...permissionForm, can_call: event.target.checked })} />
               </label>
-              <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background/40 p-4 text-sm text-white">
+              <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-background/40 p-4 text-sm text-slate-900">
                 <span><span className="block font-semibold">Lead Scraping</span><span className="mt-1 block text-xs text-textMuted">Employee Google Maps leads extract kar sakta hai.</span></span>
                 <input type="checkbox" checked={permissionForm.can_scrape} onChange={(event) => setPermissionForm({ ...permissionForm, can_scrape: event.target.checked })} />
               </label>

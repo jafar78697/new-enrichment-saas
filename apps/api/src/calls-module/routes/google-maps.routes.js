@@ -40,6 +40,31 @@ router.post(
         return res.status(400).json({ error: 'Please select a valid Google Cloud account for scraping.' });
       }
 
+      // Enforce can_scrape permission if the user is logged in via the platform
+      if (req.user && req.user.platform_user_id && req.tenantId) {
+        const permResult = await query(
+          `SELECT can_scrape FROM users WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+          [req.user.platform_user_id, req.tenantId]
+        );
+        if (permResult.rows[0] && permResult.rows[0].can_scrape === false) {
+          return res.status(403).json({ error: 'Your scraping access has been disabled by the administrator.' });
+        }
+      }
+
+      // Guard: check maps_credits wallet if tenant context is available.
+      // This route is a legacy path — the metered Fastify route is preferred.
+      // We do a minimum viability check (must have > 0 credits) but don't reserve.
+      if (req.tenantId) {
+        const walletResult = await query(
+          `SELECT available FROM wallets WHERE tenant_id = $1 AND unit = 'maps_credits' LIMIT 1`,
+          [req.tenantId]
+        );
+        const available = Number(walletResult.rows[0]?.available || 0);
+        if (available <= 0) {
+          return res.status(402).json({ error: 'Insufficient maps credits. Please top up your balance to continue scraping.' });
+        }
+      }
+
       let apiKey = null;
       if (google_cloud_account === 'account_1') apiKey = process.env.GOOGLE_MAPS_API_KEY_1;
       if (google_cloud_account === 'account_2') apiKey = process.env.GOOGLE_MAPS_API_KEY_2;

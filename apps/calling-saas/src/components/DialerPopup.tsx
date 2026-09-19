@@ -1,8 +1,8 @@
-// DialerPopup - floating mobile-dialer-style softphone overlay powered by SignalWire.
+// DialerPopup - floating mobile-dialer-style softphone overlay.
 // Built for inline use on Funnel Intelligence page (pass a lead/phone to kick off a call).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LoaderCircle, PhoneCall, PhoneOff, Volume2 } from 'lucide-react';
-import useSignalWireDevice, { type CallStatus, type DeviceStatus } from '../hooks/useSignalWireDevice';
+import { CalendarDays, ClipboardPenLine, LoaderCircle, Mic, PhoneCall, PhoneOff, Volume2, VolumeX } from 'lucide-react';
+import useWebRTCDevice, { type CallStatus, type DeviceStatus } from '../hooks/useWebRTCDevice';
 import { callsApi, type Agent } from '../services/callsApi';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
@@ -132,15 +132,27 @@ function useResolvedAgentId(): number | null {
   });
 
   useEffect(() => {
-    if (agentId != null) return;
     let cancelled = false;
     callsApi
       .listAgents()
       .then(({ agents }: { agents: Agent[] }) => {
         if (cancelled || !agents || agents.length === 0) return;
-        const first = agents[0];
-        localStorage.setItem('call_agent_id', String(first.id));
-        setAgentId(first.id);
+        
+        // Ensure the cached agent ID actually belongs to this user.
+        // If not (e.g. previous user logged out but localStorage wasn't cleared),
+        // fallback to the user's first available agent.
+        const cachedRaw = localStorage.getItem('call_agent_id');
+        const cachedParsed = cachedRaw ? parseInt(cachedRaw, 10) : NaN;
+        
+        let validAgentId = Number.isFinite(cachedParsed) ? cachedParsed : null;
+        if (!validAgentId || !agents.some(a => a.id === validAgentId)) {
+          validAgentId = agents[0].id;
+          localStorage.setItem('call_agent_id', String(validAgentId));
+        }
+        
+        if (agentId !== validAgentId) {
+          setAgentId(validAgentId);
+        }
       })
       .catch(() => {
         /* silent — caller will see device error */
@@ -180,6 +192,9 @@ export default function DialerPopup({
   const startInProgressRef = useRef(false);
   const startUnlockTimerRef = useRef<number | null>(null);
   const callReachedActiveLifecycleRef = useRef(false);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+
 
   const {
     deviceStatus,
@@ -198,7 +213,11 @@ export default function DialerPopup({
     sendDtmf,
     acceptIncoming,
     rejectIncoming,
-  } = useSignalWireDevice(agentId);
+  } = useWebRTCDevice(agentId);
+
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [transcriptMessages]);
 
   const isIncoming = callStatus === 'incoming';
   const isInCall = callStatus === 'dialing' || callStatus === 'ringing' || callStatus === 'connected' || callStatus === 'incoming';
@@ -262,18 +281,25 @@ export default function DialerPopup({
       seconds: timerSeconds,
     });
     
-    if (contactId) {
+    if (contactId && !error) {
       setShowWrapUp(true);
     }
-  }, [callStatus, endedReported, isOpen, lastCallSid, onEnded, timerSeconds, contactId]);
+  }, [callStatus, endedReported, isOpen, lastCallSid, onEnded, timerSeconds, contactId, error]);
 
   const handleSaveWrapUp = async (finalNote?: string | React.MouseEvent) => {
     const noteToSave = typeof finalNote === 'string' ? finalNote : wrapUpNotes;
+    
+    let stage: string | undefined;
+    if (noteToSave === 'VM') stage = 'voicemail';
+    else if (noteToSave === 'Not Interested') stage = 'not_interested';
+    else if (noteToSave === 'meeting') stage = 'interested';
+
     if (contactId) {
       try {
         await callsApi.updateContact(Number(contactId), {
           notes: noteToSave || null,
           meeting_time: meetingTime || null,
+          stage,
         });
       } catch (err) {
         console.error('Failed to save wrap up details', err);
@@ -366,7 +392,7 @@ export default function DialerPopup({
 
   useIncomingRingtone(isIncoming);
 
-  // If not open and idle, return null to hide UI but keep the SignalWire hook active.
+  // If not open and idle, return null to hide UI but keep the hook active.
   if (!isOpen && isIdle) {
     return null;
   }
@@ -438,7 +464,7 @@ export default function DialerPopup({
                   handleSaveWrapUp('VM');
                 }}
               >
-                🎤 Left Voicemail
+                <><Mic size={17} /> Left Voicemail</>
               </button>
               
               <button 
@@ -448,21 +474,21 @@ export default function DialerPopup({
                   handleSaveWrapUp('Not Interested');
                 }}
               >
-                🛑 Not Interested
+                <><PhoneOff size={17} /> Not Interested</>
               </button>
 
               <button 
                 className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2"
                 onClick={() => setWrapUpNotes('meeting')}
               >
-                🗓 Book Meeting
+                <><CalendarDays size={17} /> Book Meeting</>
               </button>
 
               <button 
                 className="w-full bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2"
                 onClick={() => setWrapUpNotes('note')}
               >
-                📝 Add Custom Note
+                <><ClipboardPenLine size={17} /> Add Custom Note</>
               </button>
             </div>
 
@@ -588,14 +614,17 @@ export default function DialerPopup({
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
               {transcriptMessages && transcriptMessages.length > 0 ? (
-                transcriptMessages.map((msg) => (
-                  <div key={msg.id} className={`flex flex-col max-w-[85%] ${msg.speaker === 'You' ? 'self-end items-end' : 'self-start items-start'}`}>
-                    <span className="text-[10px] font-semibold uppercase text-slate-400 mb-1 ml-1 tracking-wider">{msg.speaker}</span>
-                    <div className={`px-3 py-2 rounded-2xl text-sm ${msg.speaker === 'You' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm shadow-sm'}`}>
-                      {msg.text}
+                <>
+                  {transcriptMessages.map((msg: any) => (
+                    <div key={msg.id} className={`flex flex-col max-w-[85%] ${msg.speaker === 'You' ? 'self-end items-end' : 'self-start items-start'}`}>
+                      <span className="text-[10px] font-semibold uppercase text-slate-400 mb-1 ml-1 tracking-wider">{msg.speaker}</span>
+                      <div className={`px-3 py-2 rounded-2xl text-sm ${msg.speaker === 'You' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm shadow-sm'}`}>
+                        {msg.text}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                  <div ref={transcriptEndRef} />
+                </>
               ) : (
                 <p className="text-sm leading-6 text-slate-500 text-center mt-4">{transcriptStatus || 'Preparing live transcript...'}</p>
               )}
@@ -626,7 +655,7 @@ export default function DialerPopup({
             } disabled:opacity-40 disabled:cursor-not-allowed`}
             title={isMuted ? 'Unmute' : 'Mute'}
           >
-            {isMuted ? '🔇' : '🎤'}
+            {isMuted ? <VolumeX size={22} /> : <Mic size={22} />}
           </button>
 
           {callStatus === 'incoming' ? (
@@ -653,12 +682,12 @@ export default function DialerPopup({
               className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white text-2xl flex items-center justify-center shadow-lg shadow-emerald-200 disabled:opacity-40 disabled:cursor-not-allowed transition"
               title={callIsStarting ? 'Preparing call' : 'Call'}
             >
-              {callIsStarting ? <LoaderCircle size={25} className="animate-spin" /> : '📞'}
+              {callIsStarting ? <LoaderCircle size={25} className="animate-spin" /> : <PhoneCall size={27} />}
             </button>
           ) : callIsStarting ? (
             <button
               disabled
-              className="w-16 h-16 rounded-full bg-amber-500 text-white text-2xl flex items-center justify-center shadow-lg shadow-amber-200 cursor-not-allowed"
+              className="w-16 h-16 rounded-full bg-amber-500 text-slate-900 text-2xl flex items-center justify-center shadow-lg shadow-amber-200 cursor-not-allowed"
               title="Starting call"
             >
               <LoaderCircle size={25} className="animate-spin" />
@@ -669,7 +698,7 @@ export default function DialerPopup({
               className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-2xl flex items-center justify-center shadow-lg shadow-rose-200 transition"
               title="Hang up"
             >
-              🛑
+              <PhoneOff size={27} />
             </button>
           )}
 

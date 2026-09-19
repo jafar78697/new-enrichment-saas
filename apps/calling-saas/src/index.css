@@ -24,6 +24,6 @@
   }
   
   .input-field {
-    @apply w-full bg-background/50 border border-border rounded-lg px-4 py-2 text-text placeholder-textMuted focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-200;
+    @apply w-full bg-background/50 border-2 border-slate-900 rounded-lg px-4 py-2 text-text placeholder-textMuted focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-200;
   }
 }

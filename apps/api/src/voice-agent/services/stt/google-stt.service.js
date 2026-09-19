@@ -106,7 +106,7 @@ export function createSTTSession({ streamSid, callSid, sampleRate = 8000, isPCM 
         ],
       },
       interimResults: true,
-      singleUtterance: true,
+      singleUtterance: false,
     };
 
     return client.streamingRecognize(request);
@@ -123,13 +123,8 @@ export function createSTTSession({ streamSid, callSid, sampleRate = 8000, isPCM 
     recognizeStream.on('error', (err) => {
       console.error(`[voice-agent:stt] Stream error for ${callSid}:`, err.message);
       
-      // Google sometimes throws 400 or 11 out of range on singleUtterance close.
-      // We just ignore and recreate.
-      if (isActive) {
-        setTimeout(() => {
-          if (isActive) setupRecognizeStream();
-        }, 100);
-      }
+      // Google sometimes throws 400 or 11 out of range on singleUtterance close or 5-min timeout.
+      // The 'end' event will also fire, so we rely on 'end' to recreate the stream to avoid double recreation.
     });
 
     recognizeStream.on('data', (data) => {

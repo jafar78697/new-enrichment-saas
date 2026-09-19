@@ -68,9 +68,9 @@ export const DRAFT_PACKAGES: Record<string, PackageDefinition> = {
     duration_days: 30,
     max_seats: 1,
     max_phone_numbers: 1,
-    max_concurrent_calls: 1,
-    max_daily_unique_destinations: 50,
-    max_daily_call_attempts: 200,
+    max_concurrent_calls: 0, // 0 means unlimited; provider/account balance remain the guardrails
+    max_daily_unique_destinations: 0,
+    max_daily_call_attempts: 0,
     max_call_seconds: 1800,
     maps_credits: 0,
     calling_balance_cents: 500, // $5.00
@@ -82,9 +82,9 @@ export const DRAFT_PACKAGES: Record<string, PackageDefinition> = {
     duration_days: 30,
     max_seats: 3,
     max_phone_numbers: 3,
-    max_concurrent_calls: 2,
-    max_daily_unique_destinations: 200,
-    max_daily_call_attempts: 500,
+    max_concurrent_calls: 0,
+    max_daily_unique_destinations: 0,
+    max_daily_call_attempts: 0,
     max_call_seconds: 3600,
     maps_credits: 0,
     calling_balance_cents: 1500, // $15.00
@@ -96,9 +96,9 @@ export const DRAFT_PACKAGES: Record<string, PackageDefinition> = {
     duration_days: 30,
     max_seats: 10,
     max_phone_numbers: 10,
-    max_concurrent_calls: 5,
-    max_daily_unique_destinations: 1000,
-    max_daily_call_attempts: 2000,
+    max_concurrent_calls: 0,
+    max_daily_unique_destinations: 0,
+    max_daily_call_attempts: 0,
     max_call_seconds: 7200,
     maps_credits: 0,
     calling_balance_cents: 5000, // $50.00

@@ -42,7 +42,7 @@ export default function CallHistory() {
         const url = URL.createObjectURL(await response.blob());
         setRecordings((current) => ({ ...current, [call.id]: url }));
       } catch {
-        // The recording can still be processing at SignalWire.
+        // The recording can still be processing at telephony provider.
       }
     });
   }, [calls, recordings]);
@@ -52,14 +52,14 @@ export default function CallHistory() {
       <header className="flex items-center justify-between">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary"><Phone size={17} /> Calling</div>
-          <h1 className="text-3xl font-bold text-white">Call History</h1>
+          <h1 className="text-3xl font-bold text-slate-900">Call History</h1>
           <p className="mt-2 text-textMuted">Review employee call activity, duration and available recordings.</p>
         </div>
         <button onClick={() => void loadCalls()} className="btn-secondary inline-flex items-center gap-2"><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> Refresh</button>
       </header>
 
       {!user?.call_recording_enabled && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 font-medium">
           Voice recording is not enabled. Ask the Platform Admin to enable it in Customer Account Settings.
         </div>
       )}
@@ -69,10 +69,10 @@ export default function CallHistory() {
           <div className="divide-y divide-border">
             {calls.map((call) => (
               <div key={call.id} className="grid gap-4 p-4 lg:grid-cols-[1.4fr_1fr_1fr_1fr_auto] lg:items-center">
-                <div><div className="font-semibold text-white">{call.contact_name || call.contact_phone_number || call.to_number || 'Unknown contact'}</div><div className="mt-1 text-xs text-textMuted">{call.started_at ? new Date(call.started_at).toLocaleString() : 'Pending'} · {call.direction || 'call'}</div></div>
-                <div className="text-sm text-textMuted">Employee<br /><span className="text-white">{call.agent_name || 'Unassigned'}</span></div>
-                <div className="text-sm text-textMuted">Duration<br /><span className="font-mono text-white">{formatDuration(call.duration_seconds)}</span></div>
-                <div className="text-sm capitalize text-textMuted">Status<br /><span className="text-white">{call.outcome || call.status || 'pending'}</span></div>
+                <div><div className="font-semibold text-slate-900">{call.contact_name || call.contact_phone_number || call.to_number || 'Unknown contact'}</div><div className="mt-1 text-xs text-textMuted">{call.started_at ? new Date(call.started_at).toLocaleString() : 'Pending'} · {call.direction || 'call'}</div></div>
+                <div className="text-sm text-textMuted">Employee<br /><span className="text-slate-900">{call.agent_name || 'Unassigned'}</span></div>
+                <div className="text-sm text-textMuted">Duration<br /><span className="font-mono text-slate-900">{formatDuration(call.duration_seconds)}</span></div>
+                <div className="text-sm capitalize text-textMuted">Status<br /><span className="text-slate-900">{call.outcome || call.status || 'pending'}</span></div>
                 {user?.call_recording_enabled && recordings[call.id] ? <audio controls preload="none" src={recordings[call.id]} className="h-9 w-56" aria-label={`Recording for ${call.contact_name || 'call'}`} /> : user?.call_recording_enabled ? <span className="inline-flex items-center gap-2 text-xs text-textMuted"><Headphones size={15} /> Recording processing/unavailable</span> : null}
               </div>
             ))}

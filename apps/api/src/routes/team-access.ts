@@ -54,7 +54,7 @@ export default async function teamAccessRoutes(fastify: FastifyInstance) {
 
   fastify.get('/v1/team-access', { preHandler: customerAdmin }, async (request: any) => {
     const { tenantId } = request.tenant;
-    const [{ rows: numberRows }, { rows: memberRows }] = await Promise.all([
+    const [{ rows: numberRows }, { rows: memberRows }, { rows: limitRows }] = await Promise.all([
       fastify.db.query(
         `SELECT pn.id, pn.phone_number, pn.provider_sid,
                 a.id AS assigned_agent_id, a.username AS assigned_username
@@ -67,18 +67,26 @@ export default async function teamAccessRoutes(fastify: FastifyInstance) {
       ),
       fastify.db.query(
         `SELECT u.id, u.display_name, u.username, u.email, u.account_status,
-                u.created_at, a.id AS agent_id, a.signalwire_phone_number AS phone_number
+                u.can_call, u.can_scrape, u.created_at, a.id AS agent_id,
+                a.signalwire_phone_number AS phone_number
          FROM users u
          LEFT JOIN agents a ON a.platform_user_id = u.id AND a.tenant_id = u.tenant_id
          WHERE u.tenant_id = $1 AND u.role = $2
          ORDER BY u.created_at DESC`,
         [tenantId, ROLES.AGENT]
       ),
+      fastify.db.query(
+        `SELECT COALESCE(employee_access_enabled, TRUE) AS employee_access_enabled
+         FROM tenant_limits WHERE tenant_id = $1`,
+        [tenantId]
+      ),
     ]);
 
     const employeeLimit = numberRows.length;
+    const employeeAccessEnabled = limitRows[0]?.employee_access_enabled !== false;
     return {
-      enabled: employeeLimit >= 2,
+      enabled: employeeAccessEnabled && employeeLimit >= 2,
+      permission_enabled: employeeAccessEnabled,
       capacity: {
         active_numbers: employeeLimit,
         employee_limit: employeeLimit,
@@ -94,6 +102,8 @@ export default async function teamAccessRoutes(fastify: FastifyInstance) {
     const firstName = String(request.body?.first_name || '').trim();
     const lastName = String(request.body?.last_name || '').trim();
     const email = String(request.body?.email || '').trim().toLowerCase() || null;
+    const canCall = request.body?.can_call !== false;
+    const canScrape = request.body?.can_scrape === true;
     if (!firstName || !lastName) {
       return reply.code(400).send({ error: 'First name and last name are required.' });
     }
@@ -112,6 +122,16 @@ export default async function teamAccessRoutes(fastify: FastifyInstance) {
     let assignedNumber = '';
     try {
       await client.query('BEGIN');
+
+      const { rows: permissionRows } = await client.query(
+        `SELECT COALESCE(employee_access_enabled, TRUE) AS employee_access_enabled
+         FROM tenant_limits WHERE tenant_id = $1 FOR UPDATE`,
+        [tenantId]
+      );
+      if (permissionRows[0]?.employee_access_enabled === false) {
+        await client.query('ROLLBACK');
+        return reply.code(403).send({ error: 'Employee access has been disabled by the Platform Admin.', code: 'EMPLOYEE_ACCESS_DISABLED' });
+      }
 
       const { rows: numberRows } = await client.query(
         `SELECT id, phone_number, provider_sid
@@ -160,11 +180,11 @@ export default async function teamAccessRoutes(fastify: FastifyInstance) {
       const { rows: userRows } = await client.query(
         `INSERT INTO users (
            tenant_id, username, email, password_hash, role, must_change_password,
-           display_name, password_changed_at, account_status
+           display_name, password_changed_at, account_status, can_call, can_scrape
          )
-         VALUES ($1, $2, $3, $4, $5, true, $6, NOW(), 'active')
+         VALUES ($1, $2, $3, $4, $5, true, $6, NOW(), 'active', $7, $8)
          RETURNING id`,
-        [tenantId, username, email, passwordHash, ROLES.AGENT, displayName]
+        [tenantId, username, email, passwordHash, ROLES.AGENT, displayName, canCall, canScrape]
       );
       createdUserId = userRows[0].id;
 
@@ -226,11 +246,11 @@ export default async function teamAccessRoutes(fastify: FastifyInstance) {
       action: 'team_employee_created',
       resource: 'user',
       targetId: createdUserId,
-      details: { username, phone_number: assignedNumber },
+      details: { username, phone_number: assignedNumber, can_call: canCall, can_scrape: canScrape },
     }).catch((error) => fastify.log.warn({ error, tenantId }, 'Team employee audit log was not written'));
 
     return reply.code(201).send({
-      employee: { id: createdUserId, username, display_name: `${firstName} ${lastName}`, email, phone_number: assignedNumber, account_status: 'active' },
+      employee: { id: createdUserId, username, display_name: `${firstName} ${lastName}`, email, phone_number: assignedNumber, account_status: 'active', can_call: canCall, can_scrape: canScrape },
       credentials: credentials(username, temporaryPassword),
     });
   });
@@ -269,6 +289,26 @@ export default async function teamAccessRoutes(fastify: FastifyInstance) {
       action: 'team_employee_password_reset', resource: 'user', targetId: id,
     }).catch(() => {});
     return { success: true, credentials: credentials(employee.username, temporaryPassword) };
+  });
+
+  fastify.patch('/v1/team-access/employees/:id/permissions', { preHandler: customerAdmin }, async (request: any, reply) => {
+    const { tenantId, userId, role } = request.tenant;
+    const { id } = request.params as { id: string };
+    const canCall = request.body?.can_call === true;
+    const canScrape = request.body?.can_scrape === true;
+    const result = await fastify.db.query(
+      `UPDATE users SET can_call = $1, can_scrape = $2
+       WHERE id = $3 AND tenant_id = $4 AND role = $5
+       RETURNING id, can_call, can_scrape`,
+      [canCall, canScrape, id, tenantId, ROLES.AGENT]
+    );
+    if (!result.rowCount) return reply.code(404).send({ error: 'Employee not found.' });
+    await recordAuditLog(fastify.db, {
+      tenantId, actorUserId: userId, actorRole: role,
+      action: 'team_employee_permissions_updated', resource: 'user', targetId: id,
+      details: { can_call: canCall, can_scrape: canScrape },
+    }).catch(() => {});
+    return { success: true, permissions: result.rows[0] };
   });
 
   fastify.patch('/v1/team-access/employees/:id/status', { preHandler: customerAdmin }, async (request: any, reply) => {

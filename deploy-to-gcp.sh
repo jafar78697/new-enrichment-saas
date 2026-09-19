@@ -25,6 +25,10 @@ cd apps/voice-web
 pnpm run build
 cd ../..
 
+cd apps/calling-saas
+pnpm run build
+cd ../..
+
 echo "→ Syncing local files directly to server (skipping node_modules, .git, etc.)..."
 rsync -avz --delete \
   --exclude 'node_modules' \
@@ -73,6 +77,19 @@ const migrations = [
   '013_saas_tenant_schema.sql',
   '014_wallets_payments_metering.sql',
   '015_calls_module_tenant_isolation.sql',
+  '016_calling_subscription_enforcement.sql',
+  '017_contacts_follow_up.sql',
+  '018_customer_team_access.sql',
+  '019_global_lead_cache.sql',
+  '020_demo_number_pool.sql',
+  '021_agents_table.sql',
+  '022_durable_demo_trials.sql',
+  '023_call_recording_entitlement.sql',
+  '024_customer_employee_access.sql',
+  '025_employee_permissions.sql',
+  '026_admin_bulk_provisioning.sql',
+  '027_call_destination_cooldown.sql',
+  '028_launch_readiness.sql'
 ];
 
 async function main() {

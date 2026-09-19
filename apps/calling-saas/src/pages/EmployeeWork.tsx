@@ -75,7 +75,7 @@ export default function EmployeeWork() {
         const url = URL.createObjectURL(await response.blob());
         setRecordings((current) => ({ ...current, [call.id]: url }));
       } catch {
-        // Recording may still be processing at SignalWire.
+        // Recording may still be processing at telephony provider.
       }
     });
   }, [calls, recordings]);
@@ -88,7 +88,7 @@ export default function EmployeeWork() {
         <div>
           <Link to="/settings" className="mb-3 inline-flex items-center gap-2 text-sm text-primary hover:underline"><ArrowLeft size={16} /> Team Access</Link>
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary"><Phone size={17} /> Employee Work</div>
-          <h1 className="text-3xl font-bold text-white">Employee Call Work</h1>
+          <h1 className="text-3xl font-bold text-slate-900">Employee Call Work</h1>
           <p className="mt-2 text-textMuted">Review calls, minutes, dates and available voice recordings.</p>
         </div>
         <button onClick={() => void loadCalls()} className="btn-secondary inline-flex items-center gap-2"><RefreshCw size={17} className={loading ? 'animate-spin' : ''} /> Refresh</button>
@@ -114,8 +114,8 @@ export default function EmployeeWork() {
       </div>
 
       <section className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border border-border bg-surface/50 p-4"><div className="text-sm text-textMuted">Calls</div><div className="mt-1 text-2xl font-bold text-white">{calls.length}</div></div>
-        <div className="rounded-lg border border-border bg-surface/50 p-4"><div className="text-sm text-textMuted">Total minutes</div><div className="mt-1 text-2xl font-bold text-white">{Math.floor(totalSeconds / 60)}:{String(totalSeconds % 60).padStart(2, '0')}</div></div>
+        <div className="rounded-lg border border-border bg-surface/50 p-4"><div className="text-sm text-textMuted">Calls</div><div className="mt-1 text-2xl font-bold text-slate-900">{calls.length}</div></div>
+        <div className="rounded-lg border border-border bg-surface/50 p-4"><div className="text-sm text-textMuted">Total minutes</div><div className="mt-1 text-2xl font-bold text-slate-900">{Math.floor(totalSeconds / 60)}:{String(totalSeconds % 60).padStart(2, '0')}</div></div>
         <div className="rounded-lg border border-border bg-surface/50 p-4"><div className="text-sm text-textMuted">Recordings</div><div className="mt-1 text-2xl font-bold text-emerald-400">{calls.filter((call) => call.recording_url).length}</div></div>
       </section>
 
@@ -124,9 +124,9 @@ export default function EmployeeWork() {
           <div className="divide-y divide-border">
             {calls.map((call) => (
               <div key={call.id} className="grid gap-4 p-4 lg:grid-cols-[1.5fr_1fr_1fr_auto] lg:items-center">
-                <div><div className="font-semibold text-white">{call.contact_name || call.contact_phone_number || call.to_number || 'Unknown contact'}</div><div className="mt-1 text-xs text-textMuted">{call.started_at ? new Date(call.started_at).toLocaleString() : 'Pending'} · {call.direction || 'call'}</div></div>
-                <div className="text-sm text-textMuted">Duration<br /><span className="font-mono text-white">{formatDuration(call.duration_seconds)}</span></div>
-                <div className="text-sm capitalize text-textMuted">Status<br /><span className="text-white">{call.outcome || call.status || 'pending'}</span></div>
+                <div><div className="font-semibold text-slate-900">{call.contact_name || call.contact_phone_number || call.to_number || 'Unknown contact'}</div><div className="mt-1 text-xs text-textMuted">{call.started_at ? new Date(call.started_at).toLocaleString() : 'Pending'} · {call.direction || 'call'}</div></div>
+                <div className="text-sm text-textMuted">Duration<br /><span className="font-mono text-slate-900">{formatDuration(call.duration_seconds)}</span></div>
+                <div className="text-sm capitalize text-textMuted">Status<br /><span className="text-slate-900">{call.outcome || call.status || 'pending'}</span></div>
                 {recordings[call.id] ? <audio controls preload="none" src={recordings[call.id]} className="h-9 w-56" aria-label="Call recording" /> : call.recording_url ? <span className="inline-flex items-center gap-2 text-xs text-textMuted"><Headphones size={15} /> Recording processing</span> : <span className="text-xs text-textMuted">No recording</span>}
               </div>
             ))}

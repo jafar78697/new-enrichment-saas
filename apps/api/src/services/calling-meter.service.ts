@@ -61,7 +61,7 @@ export class CallingMeterService {
       [params.tenantId],
       client
     );
-    if (parseInt(concurrentRows[0].active_calls) >= limits.max_concurrent_calls) {
+    if (limits.max_concurrent_calls > 0 && parseInt(concurrentRows[0].active_calls) >= limits.max_concurrent_calls) {
       throw new Error(`Max concurrent calls limit reached (${limits.max_concurrent_calls})`);
     }
 
@@ -73,13 +73,13 @@ export class CallingMeterService {
       client
     );
     const todayAttempts = dailyRows[0] ? parseInt(dailyRows[0].total_attempts) : 0;
-    if (todayAttempts >= limits.max_daily_call_attempts) {
+    if (limits.max_daily_call_attempts > 0 && todayAttempts >= limits.max_daily_call_attempts) {
       throw new Error(`Daily call attempt limit reached (${limits.max_daily_call_attempts})`);
     }
     const destinationNumbers = dailyRows[0]?.destination_numbers || [];
     const isNewDestination = !destinationNumbers.includes(params.destinationNumber);
     const todayUnique = dailyRows[0] ? parseInt(dailyRows[0].unique_destinations) : 0;
-    if (isNewDestination && todayUnique >= limits.max_daily_unique_destinations) {
+    if (limits.max_daily_unique_destinations > 0 && isNewDestination && todayUnique >= limits.max_daily_unique_destinations) {
       throw new Error(`Daily unique destination limit reached (${limits.max_daily_unique_destinations})`);
     }
 

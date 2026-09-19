@@ -77,9 +77,9 @@ export default async function manualPaymentRoutes(fastify: FastifyInstance) {
         duration_days: 30,
         max_phone_numbers: teamSize > 0 ? teamSize : 1,
         max_seats: teamSize > 0 ? teamSize : 1,
-        max_concurrent_calls: teamSize > 0 ? teamSize * 2 : 1,
-        max_daily_unique_destinations: teamSize > 0 ? teamSize * 100 : 50,
-        max_daily_call_attempts: teamSize > 0 ? teamSize * 300 : 150,
+        max_concurrent_calls: 0,
+        max_daily_unique_destinations: 0,
+        max_daily_call_attempts: 0,
         max_call_seconds: 7200,
       };
     } else {

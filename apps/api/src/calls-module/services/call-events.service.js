@@ -91,7 +91,12 @@ export async function upsertOutboundParentCall({
         tenant_id = COALESCE(EXCLUDED.tenant_id, calls.tenant_id),
         contact_id = COALESCE(EXCLUDED.contact_id, calls.contact_id),
         agent_id = COALESCE(EXCLUDED.agent_id, calls.agent_id),
-        status = EXCLUDED.status,
+        status = CASE
+          WHEN calls.status IN ('completed', 'failed', 'no_answer', 'busy', 'canceled')
+            AND EXCLUDED.status IN ('initiated', 'ringing', 'connected')
+          THEN calls.status
+          ELSE EXCLUDED.status
+        END,
         from_number = COALESCE(EXCLUDED.from_number, calls.from_number),
         to_number = COALESCE(EXCLUDED.to_number, calls.to_number),
         recording_enabled = EXCLUDED.recording_enabled,

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/index.js';
 import { asyncHandler, AppError } from '../utils/errors.js';
 import { requireAuth, canAccessAgent } from '../middleware/auth.js';
+import { cleanPhoneNumber } from '../../utils/phone.js';
 
 const router = Router();
 
@@ -33,7 +34,11 @@ router.get(
       params
     );
 
-    res.json({ agents: result.rows });
+    const agents = result.rows.map(agent => ({
+      ...agent,
+      signalwire_phone_number: cleanPhoneNumber(agent.signalwire_phone_number)
+    }));
+    res.json({ agents });
   })
 );
 

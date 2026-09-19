@@ -75,7 +75,13 @@ export async function softAuth(req, _res, next) {
       // Some agents might not have a tenant_id, or the login route might not have included it in the payload.
       if (payload.sub) {
         const { rows: agents } = await query(
-          'SELECT id, tenant_id, name, email, role, status, signalwire_identity, signalwire_phone_number FROM agents WHERE id = $1',
+          `SELECT a.id, a.tenant_id, a.name, a.email, a.role, a.status,
+                  a.platform_user_id, a.signalwire_identity, a.signalwire_phone_number,
+                  COALESCE(u.can_call, TRUE) AS can_call,
+                  COALESCE(u.can_scrape, TRUE) AS can_scrape
+           FROM agents a
+           LEFT JOIN users u ON (u.id = a.platform_user_id OR (u.email = a.email AND u.email != '')) AND u.tenant_id = a.tenant_id
+           WHERE a.id = $1`,
           [payload.sub]
         );
         const user = agents[0];
@@ -105,10 +111,13 @@ export async function softAuth(req, _res, next) {
           let callsUser = null;
           if (mappedRole !== 'manager') {
             const { rows: linkedAgents } = await query(
-              `SELECT id, tenant_id, name, email, username, role, status,
-                      signalwire_identity, signalwire_phone_number
-               FROM agents
-               WHERE platform_user_id = $1 AND tenant_id = $2
+              `SELECT a.id, a.tenant_id, a.name, a.email, a.username, a.role, a.status,
+                      a.platform_user_id, a.signalwire_identity, a.signalwire_phone_number,
+                      COALESCE(u.can_call, TRUE) AS can_call,
+                      COALESCE(u.can_scrape, TRUE) AS can_scrape
+               FROM agents a
+               LEFT JOIN users u ON (u.id = a.platform_user_id OR (u.email = a.email AND u.email != '')) AND u.tenant_id = a.tenant_id
+               WHERE u.id = $1 AND a.tenant_id = $2
                LIMIT 1`,
               [enrichmentPayload.user_id, enrichmentPayload.tenant_id]
             );

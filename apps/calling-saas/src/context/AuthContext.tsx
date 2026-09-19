@@ -14,6 +14,7 @@ interface User {
   call_recording_enabled?: boolean;
   can_call?: boolean;
   can_scrape?: boolean;
+  current_caller_id?: string;
 }
 
 interface Tenant {
@@ -70,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('token');
         localStorage.removeItem('enr_token');
         localStorage.removeItem('call_token');
+        localStorage.removeItem('call_agent_id');
         setState(s => ({ ...s, token: null, user: null, tenant: null, loading: false, isAuthenticated: false, isAdmin: false }));
       });
     } else {
@@ -194,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('token');
     localStorage.removeItem('enr_token');
     localStorage.removeItem('call_token');
+    localStorage.removeItem('call_agent_id');
     delete axios.defaults.headers.common['Authorization'];
     setState({
       user: null,

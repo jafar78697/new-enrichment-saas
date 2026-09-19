@@ -6,9 +6,10 @@ import { AUTH_CONFIG, ROLES } from '../config/saas';
 import { recordAuditLog } from '../services/audit-log.service';
 import { WalletService } from '../services/wallet.service';
 import { OAuth2Client } from 'google-auth-library';
+import { cleanPhoneNumber } from '../utils/phone.js';
 
 const DEMO_CALL_LIMIT = 3;
-const DEMO_KEYWORD_LIMIT = 2;
+const DEMO_KEYWORD_LIMIT = 3;
 const DEMO_DURATION_DAYS = 7;
 const DEMO_CALLING_CENTS = 50;
 const DEMO_MAPS_CREDITS = 20;
@@ -21,7 +22,7 @@ function demoCallerNumbers(): string[] {
       || ''
   )
     .split(',')
-    .map((number) => number.trim())
+    .map((number) => cleanPhoneNumber(number.trim()))
     .filter(Boolean);
 }
 
@@ -131,7 +132,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       username = await generatePublicUsername(client, name, email);
       const signalwireIdentity = await generatePublicIdentity(client, username);
       const passwordHash = bcrypt.hashSync(password, 12);
-      const callerNumber = callerNumberFor(email);
+      const callerNumber = null;
 
       const { rows: tenantRows } = await client.query(
         `INSERT INTO tenants (name, slug, plan, status, customer_name, onboarded_at)
@@ -391,6 +392,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
         display_name: user.display_name || user.email || user.username,
         role: user.role,
         plan: user.plan,
+        can_call: user.can_call !== false,
+        can_scrape: user.can_scrape !== false,
         must_change_password: user.must_change_password || false,
       },
       tenant: {
@@ -434,16 +437,19 @@ export default async function authRoutes(fastify: FastifyInstance) {
       await client.query('BEGIN');
       
       const { rows } = await client.query(
-        `SELECT u.*, t.plan, t.status as tenant_status, t.name as tenant_name, w.id as workspace_id
+        `SELECT u.*, t.plan, t.status as tenant_status, t.name as tenant_name, w.id as workspace_id, t.deleted_at as tenant_deleted_at
          FROM users u
          JOIN tenants t ON u.tenant_id = t.id
          LEFT JOIN workspaces w ON w.tenant_id = t.id
-         WHERE lower(u.email) = $1 AND t.deleted_at IS NULL
+         WHERE lower(u.email) = $1
          LIMIT 1`,
         [email]
       );
 
       if (rows.length > 0) {
+        if (rows[0].tenant_deleted_at !== null) {
+          throw new Error('ACCOUNT_DELETED');
+        }
         user = rows[0];
       } else {
         // User does not exist, create them
@@ -544,10 +550,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
       }
       
       await client.query('COMMIT');
-    } catch (error) {
+    } catch (error: any) {
       await client.query('ROLLBACK');
       fastify.log.error(error);
-      return reply.code(500).send({ error: 'Internal server error during Google login' });
+      if (error.message === 'ACCOUNT_DELETED') {
+        return reply.code(403).send({ error: 'Your account has been deleted.' });
+      }
+      return reply.code(500).send({ error: error.message || 'Internal server error during Google login' });
     } finally {
       client.release();
     }
@@ -698,10 +707,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
     const { rows: userRows } = await fastify.db.query(
       `SELECT u.id, u.username, u.email, u.display_name, u.role, u.must_change_password,
-              u.account_status,
+              u.can_call, u.can_scrape,
               u.contact_phone, u.created_at,
               t.name as tenant_name, t.plan, t.status as tenant_status,
-              t.customer_name, t.contact_phone as tenant_phone
+              t.customer_name, t.contact_phone as tenant_phone, t.created_at as tenant_created_at
        FROM users u
        JOIN tenants t ON u.tenant_id = t.id
        WHERE u.id = $1 AND t.id = $2`,
@@ -762,6 +771,43 @@ export default async function authRoutes(fastify: FastifyInstance) {
       };
     }
 
+    let demoAssignment = null;
+    try {
+      const { rows: demoRows } = await fastify.db.query(
+        `SELECT phone_number, expires_at 
+         FROM demo_number_pool 
+         WHERE assigned_tenant_id = $1 AND status = 'assigned' AND expires_at > NOW()
+         ORDER BY assigned_at DESC LIMIT 1`,
+        [tenantId]
+      );
+      if (demoRows.length > 0) {
+        demoAssignment = demoRows[0];
+      }
+    } catch { /* table may not exist yet */ }
+
+    let dashboardStats = { total_leads: 0, calls_today: 0 };
+    try {
+      const [{ rows: leadRows }, { rows: callRows }] = await Promise.all([
+        fastify.db.query(`SELECT COUNT(*)::int AS total FROM enrichment_results WHERE tenant_id = $1`, [tenantId]),
+        fastify.db.query(`SELECT COUNT(*)::int AS total FROM tracked_calls WHERE tenant_id = $1 AND created_at >= CURRENT_DATE`, [tenantId]),
+      ]);
+      dashboardStats = {
+        total_leads: Number(leadRows[0]?.total || 0),
+        calls_today: Number(callRows[0]?.total || 0),
+      };
+    } catch { /* dashboard counters are optional */ }
+
+    let currentCallerId = null;
+    try {
+      const { rows: agentRows } = await fastify.db.query(
+        `SELECT signalwire_phone_number FROM agents WHERE email = $1 AND tenant_id = $2`,
+        [userRows[0].email, tenantId]
+      );
+      if (agentRows.length > 0) {
+        currentCallerId = agentRows[0].signalwire_phone_number;
+      }
+    } catch { /* agent may not exist */ }
+
     const user = userRows[0];
     return {
       user: {
@@ -772,8 +818,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
         role: user.role,
         must_change_password: user.must_change_password,
         account_status: user.account_status,
+        can_call: user.can_call !== false,
+        can_scrape: user.can_scrape !== false,
         contact_phone: user.contact_phone,
         created_at: user.created_at,
+        current_caller_id: currentCallerId,
       },
       tenant: {
         id: tenantId,
@@ -785,6 +834,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
       limits,
       subscription,
       demo_usage: demoUsage,
+      demo_assignment: demoAssignment,
+      dashboard_stats: dashboardStats,
     };
   });
 

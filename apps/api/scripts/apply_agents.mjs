@@ -1,0 +1,52 @@
+import pg from 'pg';
+import * as dotenv from 'dotenv';
+dotenv.config();
+
+const { Client } = pg;
+const client = new Client({ connectionString: process.env.DATABASE_URL });
+
+async function createAgents() {
+  await client.connect();
+  const sql = `
+CREATE TABLE IF NOT EXISTS agents (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  signalwire_identity TEXT NOT NULL UNIQUE,
+  is_available BOOLEAN NOT NULL DEFAULT FALSE,
+  role TEXT NOT NULL DEFAULT 'employee',
+  password_hash TEXT,
+  invite_token TEXT,
+  invite_expires_at TIMESTAMP,
+  invite_accepted_at TIMESTAMP,
+  status TEXT NOT NULL DEFAULT 'pending',
+  last_login_at TIMESTAMP,
+  signalwire_phone_number TEXT,
+  signalwire_phone_sid TEXT,
+  signalwire_phone_area_code TEXT,
+  signalwire_phone_purchased_at TIMESTAMP,
+  stats_total_calls INTEGER NOT NULL DEFAULT 0,
+  stats_connected_calls INTEGER NOT NULL DEFAULT 0,
+  stats_total_seconds INTEGER NOT NULL DEFAULT 0,
+  team_id INTEGER,
+  username TEXT UNIQUE,
+  linkedin_cookie TEXT,
+  linkedin_daily_limit INTEGER DEFAULT 25,
+  linkedin_connection_template TEXT,
+  linkedin_connections_sent_today INTEGER DEFAULT 0,
+  linkedin_last_reset_date DATE,
+  reddit_session TEXT,
+  reddit_daily_limit INTEGER DEFAULT 25,
+  reddit_connection_template TEXT,
+  reddit_connections_sent_today INTEGER DEFAULT 0,
+  reddit_last_reset_date DATE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+  `;
+  await client.query(sql);
+  console.log('Agents table created successfully');
+  await client.end();
+}
+createAgents().catch(console.error);

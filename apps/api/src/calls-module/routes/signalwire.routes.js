@@ -25,7 +25,8 @@ const router = Router();
 function cleanPhoneNumber(raw) {
   if (!raw) return '';
 
-  const digits = String(raw).replace(/\D/g, '');
+  const sipUserPart = String(raw).split('@')[0];
+  const digits = sipUserPart.replace(/\D/g, '');
 
   if (digits.startsWith('00')) return `+${digits.substring(2)}`;
 
@@ -306,6 +307,9 @@ async function authorizeTrackedOutboundCall(req, payload) {
     const { rows: numberRows } = await client.query(
       `SELECT 1 FROM phone_numbers
        WHERE tenant_id = $1 AND phone_number = $2 AND status = 'active'
+       UNION ALL
+       SELECT 1 FROM demo_number_pool
+       WHERE assigned_tenant_id = $1 AND phone_number = $2 AND status = 'assigned' AND expires_at > NOW()
        LIMIT 1`,
       [req.tenantId, callerId]
     );
@@ -422,7 +426,11 @@ async function authorizeTrackedOutboundCall(req, payload) {
         toStr,
         reservationId,
         CALL_RATE_PER_MINUTE_CENTS,
-        JSON.stringify({ contact_id: payload.contactId || null, operation_id: operationId }),
+        JSON.stringify({ 
+          contact_id: payload.contactId || null, 
+          operation_id: operationId,
+          record: payload.record || false
+        }),
       ]
     );
 
@@ -434,6 +442,7 @@ async function authorizeTrackedOutboundCall(req, payload) {
       to: toStr,
       maxCallSeconds,
       reservationCents,
+      sipDomain: env.SIGNALWIRE_SIP_DOMAIN || undefined,
     };
   } catch (err) {
     await client.query('ROLLBACK');
@@ -481,14 +490,30 @@ router.get(
     } catch (error) {
       throw error;
     }
-    const finalCallerId = cleanPhoneNumber(agent.signalwire_phone_number) || voiceCredentials.callerId;
+    const finalCallerId = cleanPhoneNumber(agent.signalwire_phone_number) || null;
+    if (!finalCallerId) {
+      if (req.tenantId) {
+        const { rows: stats } = await query(`
+          SELECT 
+            (SELECT COUNT(*) FROM phone_numbers WHERE tenant_id = $1) as total_numbers,
+            (SELECT COUNT(*) FROM agents WHERE tenant_id = $1 AND signalwire_phone_number IS NOT NULL AND status = 'active') as assigned_numbers
+        `, [req.tenantId]);
+        const total = parseInt(stats[0].total_numbers || '0');
+        const assigned = parseInt(stats[0].assigned_numbers || '0');
+        
+        if (total > 0 && assigned >= total) {
+          throw new AppError('You have allocated your numbers to your employees. Please purchase another number or release one.', 403);
+        }
+      }
+      throw new AppError('Go to phone number section and select "Use as My Caller ID" before making a call.', 403);
+    }
     console.log('[SignalWire Token API] Agent:', agent.id, 'Returning callerId:', finalCallerId);
 
     res.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.json({
       token: voiceCredentials.token,
       projectId: voiceCredentials.projectId,
-      callerId: cleanPhoneNumber(agent.signalwire_phone_number) || voiceCredentials.callerId,
+      callerId: finalCallerId,
       maxCallSeconds: voiceCredentials.maxCallSeconds,
       agent
     });
@@ -504,6 +529,7 @@ router.post(
       agentId: z.coerce.number().int().positive(),
       contactId: z.coerce.number().int().positive().optional().nullable(),
       expectedMaxDurationSeconds: z.coerce.number().int().positive().optional(),
+      record: z.boolean().optional(),
     }).parse(req.body);
 
     const authorization = await authorizeTrackedOutboundCall(req, payload);
@@ -613,7 +639,21 @@ router.post(
       return res.type('text/xml').send(errResponse.toString());
     }
     const toStr = cleanPhoneNumber(payload.To);
-    const agentId = payload.agentId ? Number(payload.agentId) : null;
+    
+    // Extract parameters from SIP URI if present
+    let sipAgentId = payload.agentId;
+    let sipContactId = payload.contactId;
+    let sipRecord = payload.record;
+    if (payload.To.includes('?')) {
+      const urlParams = new URLSearchParams(payload.To.split('?')[1]);
+      if (urlParams.has('agentId')) sipAgentId = urlParams.get('agentId');
+      if (urlParams.has('contactId')) sipContactId = urlParams.get('contactId');
+      if (urlParams.has('record')) sipRecord = urlParams.get('record');
+    }
+
+    const agentId = sipAgentId ? Number(sipAgentId) : null;
+    const contactId = sipContactId ? Number(sipContactId) : null;
+    let shouldRecord = sipRecord === 'true';
 
     console.log('[OUTBOUND] Formatted To:', toStr);
 
@@ -662,6 +702,22 @@ router.post(
       return res.type('text/xml').send(errResponse.toString());
     }
 
+    if (!shouldRecord && agent) {
+      try {
+        const { rows: trackedRows } = await query(
+          `SELECT metadata FROM tracked_calls 
+           WHERE tenant_id = $1 AND caller_number = $2 AND destination_number = $3 AND status = 'initiated'
+           ORDER BY created_at DESC LIMIT 1`,
+          [agent.tenant_id, callerId, toStr]
+        );
+        if (trackedRows.length > 0 && trackedRows[0].metadata?.record === true) {
+          shouldRecord = true;
+        }
+      } catch (err) {
+        console.error('[OUTBOUND] Error looking up tracked call for recording flag:', err);
+      }
+    }
+
     if (payload.CallSid) {
       await upsertOutboundParentCall({
         tenantId: agent?.tenant_id || null,
@@ -671,7 +727,7 @@ router.post(
         from: callerId,
         to: toStr,
         status: 'initiated',
-        shouldRecord: payload.record === 'true'
+        shouldRecord: shouldRecord
       });
     }
 
@@ -681,7 +737,7 @@ router.post(
       answerOnBridge: true
     };
     
-    if (payload.record === 'true') {
+    if (shouldRecord) {
       dialOptions.record = 'record-from-answer';
       dialOptions.recordingStatusCallback = absoluteUrl(req, '/api/signalwire/webhooks/call-status');
       dialOptions.recordingStatusCallbackMethod = 'POST';
@@ -907,6 +963,18 @@ router.post(
       status: parentStatus,
       shouldRecord: payload.record === true
     });
+
+    if (payload.record === true && signalwireClient) {
+      try {
+        await signalwireClient.calls(payload.callSid).recordings.create({
+          recordingStatusCallback: absoluteUrl(req, '/api/signalwire/webhooks/call-status'),
+          recordingStatusCallbackEvent: ['in-progress', 'completed', 'absent']
+        });
+        console.log(`[OUTBOUND] Started recording for WebRTC call ${payload.callSid}`);
+      } catch (recordingError) {
+        console.error(`[OUTBOUND] Failed to start recording for WebRTC call ${payload.callSid}:`, recordingError.message);
+      }
+    }
 
     res.json({ success: true, callId: payload.callSid });
   })

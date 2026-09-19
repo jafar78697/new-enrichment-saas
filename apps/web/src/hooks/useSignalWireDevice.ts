@@ -95,6 +95,8 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
 
   const updateCallStatus = useCallback((call: RelayCall | undefined) => {
     if (!call || (activeCallRef.current && call.id !== activeCallRef.current.id)) return;
+    
+    console.log('[SignalWire Debug] Call State Change:', call.state, 'Call Object:', call);
 
     if (call.state === 'active') {
       connectedRef.current = true;
@@ -162,6 +164,7 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
           setDeviceStatus('error');
         };
         notificationHandler = (notification) => {
+          console.log('[SignalWire Debug] Notification:', notification?.type, notification);
           if (notification?.type === 'callUpdate') {
             updateCallStatus(notification.call as RelayCall | undefined);
           }
@@ -243,6 +246,12 @@ export function useSignalWireDevice(agentId: number | null | undefined): UseSign
     setCallStatus('dialing');
 
     try {
+      console.log('[SignalWire Debug] Starting call with params:', {
+        destinationNumber: phoneNumber,
+        callerNumber: callerId || undefined,
+        agentId
+      });
+
       const call = await client.newCall({
         destinationNumber: phoneNumber,
         callerNumber: callerId || undefined,

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { UserPlus, Copy, AlertCircle, Check, FileUp } from 'lucide-react';
+import { normalizeUSPhone } from '../../utils/phone';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -65,9 +66,15 @@ export default function CreateCustomer() {
 
     try {
       const token = localStorage.getItem('token');
+      const normalizedPhone = form.contact_phone ? normalizeUSPhone(form.contact_phone) : undefined;
+      
+      if (form.contact_phone && !normalizedPhone) {
+        throw new Error('Please enter a valid US/Canada contact phone number.');
+      }
+
       const res = await axios.post(`${API_URL}/v1/admin/customers`, {
         customer_name: form.customer_name,
-        contact_phone: form.contact_phone || undefined,
+        contact_phone: normalizedPhone,
         username: form.username || undefined,
         email: form.email || undefined,
         limits: {
@@ -84,7 +91,7 @@ export default function CreateCustomer() {
 
       setCredentials(res.data.credentials);
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to create customer');
+      setError(err?.response?.data?.error || err.message || 'Failed to create customer');
     } finally {
       setLoading(false);
     }
@@ -191,7 +198,7 @@ export default function CreateCustomer() {
               <thead><tr className="border-b border-border/40 text-textMuted"><th className="text-left p-3">Customer</th><th className="text-left p-3">Username</th><th className="text-left p-3">Temporary password</th><th className="text-left p-3">Login URL</th></tr></thead>
               <tbody>{(bulkResult.credentials || []).map((entry: any) => {
                 const customer = bulkResult.customers?.find((item: any) => item.row === entry.row)?.customer;
-                return <tr key={entry.row} className="border-b border-border/20"><td className="p-3 text-white">{customer?.customer_name || `Row ${entry.row}`}</td><td className="p-3 font-mono">{entry.username}</td><td className="p-3 font-mono text-amber-400">{entry.temporary_password}</td><td className="p-3 text-primary whitespace-nowrap">{entry.login_url}</td></tr>;
+                return <tr key={entry.row} className="border-b border-border/20"><td className="p-3 text-slate-900">{customer?.customer_name || `Row ${entry.row}`}</td><td className="p-3 font-mono">{entry.username}</td><td className="p-3 font-mono text-amber-400">{entry.temporary_password}</td><td className="p-3 text-primary whitespace-nowrap">{entry.login_url}</td></tr>;
               })}</tbody>
             </table>
           </div>

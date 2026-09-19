@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, ClipboardPaste, ExternalLink, LoaderCircle, Phone, Save, StickyNote, Trash2, Upload, Users, X } from 'lucide-react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { CalendarClock, ClipboardPaste, ExternalLink, Filter, LoaderCircle, Phone, Save, StickyNote, Trash2, Upload, Users, X, FileSpreadsheet } from 'lucide-react';
 import { callsApi, type Agent, type Contact } from '../services/callsApi';
 import { openDialer } from '../dialer-events';
 import { useNotifications } from '../components/Notifications';
+import { normalizeNorthAmericanPhone } from '../utils/phone';
 
 interface PastedLead {
   company: string;
@@ -49,15 +50,7 @@ function splitPastedRow(line: string): string[] {
   return spacedPhone ? [spacedPhone[1].trim(), spacedPhone[2].trim()] : [line.trim()];
 }
 
-function normalizeNorthAmericanPhone(value: string): string {
-  const trimmed = value.trim();
-  const digits = trimmed.replace(/\D/g, '');
 
-  if (digits.length === 10 && /^[2-9]/.test(digits)) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith('1') && /^[2-9]/.test(digits.slice(1))) return `+${digits}`;
-  if (trimmed.startsWith('+')) return `+${digits}`;
-  return trimmed;
-}
 
 function parsePastedLeads(value: string): { leads: PastedLead[]; ignored: number } {
   const rows = value
@@ -136,6 +129,10 @@ export default function Leads() {
   const [leadFilter, setLeadFilter] = useState<LeadFilter>('all');
   const [employeeFilter, setEmployeeFilter] = useState('all');
   const [employees, setEmployees] = useState<Agent[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [parsingFile, setParsingFile] = useState(false);
 
   const parsed = useMemo(() => parsePastedLeads(pastedText), [pastedText]);
   const prioritizedContacts = useMemo(
@@ -157,6 +154,23 @@ export default function Leads() {
     if (leadFilter === 'not_called') return !c.last_called_at;
     return true;
   }), [employeeFilter, leadFilter, prioritizedContacts]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [employeeFilter, leadFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredContacts.length / itemsPerPage));
+  const paginatedContacts = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredContacts.slice(start, start + itemsPerPage);
+  }, [filteredContacts, currentPage]);
+
+  const selectedEmployeeLabel = employeeFilter === 'admin'
+    ? 'Admin leads'
+    : employees.find((employee) => String(employee.id) === employeeFilter)?.name
+      ? `${employees.find((employee) => String(employee.id) === employeeFilter)?.name} leads`
+      : '';
+  const activeFilterCount = Number(employeeFilter !== 'all') + Number(leadFilter !== 'all');
 
   async function loadContacts() {
     setLoadingContacts(true);
@@ -204,6 +218,75 @@ export default function Leads() {
       notify('Unable to import leads. Check the phone numbers and your account access.', 'error');
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setParsingFile(true);
+    try {
+      const { read, utils } = await import('xlsx');
+      const data = await file.arrayBuffer();
+      const workbook = read(data);
+
+      const allExtracted: PastedLead[] = [];
+      const phoneSet = new Set<string>();
+
+      for (const sheetName of workbook.SheetNames) {
+        const worksheet = workbook.Sheets[sheetName];
+        const rows = utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+
+        for (const row of rows) {
+          if (!row || !Array.isArray(row)) continue;
+
+          let foundPhone = '';
+          let foundCompany = '';
+
+          for (const cell of row) {
+            if (!cell) continue;
+            const cellStr = String(cell).trim();
+
+            // Broad regex to catch North American style numbers anywhere in text
+            const phoneMatch = cellStr.match(/(?:\+?1?[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+            
+            if (phoneMatch && !foundPhone) {
+              const possiblePhone = normalizeNorthAmericanPhone(phoneMatch[0]);
+              if (possiblePhone.replace(/\D/g, '').length >= 10) {
+                 foundPhone = possiblePhone;
+                 continue;
+              }
+            }
+
+            if (!foundCompany && cellStr.length > 2 && /[a-zA-Z]/.test(cellStr)) {
+               foundCompany = cellStr;
+            }
+          }
+
+          if (foundPhone && !phoneSet.has(foundPhone)) {
+            phoneSet.add(foundPhone);
+            allExtracted.push({
+              company: foundCompany || 'Unknown',
+              phoneNumber: foundPhone
+            });
+          }
+        }
+      }
+
+      if (allExtracted.length > 0) {
+        const newText = allExtracted.map(l => `${l.company}\t${l.phoneNumber}`).join('\n');
+        setPastedText(newText);
+        notify(`Extracted ${allExtracted.length} numbers from file.`, 'success');
+      } else {
+        notify('No valid phone numbers found in the file.', 'info');
+      }
+    } catch (error) {
+      console.error('Failed to parse file:', error);
+      notify('Failed to parse file. Ensure it is a valid Excel/CSV.', 'error');
+    } finally {
+      setParsingFile(false);
+      event.target.value = '';
     }
   }
 
@@ -300,16 +383,35 @@ export default function Leads() {
             <ClipboardPaste size={20} className="text-primary" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-white">Lead List</h1>
+            <h1 className="text-3xl font-bold text-slate-900">Lead List</h1>
             <p className="text-textMuted mt-1">Google Maps aur Excel se business leads ko calling ke liye manage karein.</p>
           </div>
         </div>
       </header>
 
       <section className="glass-card p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Upload size={19} className="text-secondary" />
-          <h2 className="text-lg font-semibold text-white">Paste Excel Leads</h2>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Upload size={19} className="text-secondary" />
+            <h2 className="text-lg font-semibold text-slate-900">Import Leads</h2>
+          </div>
+          <div>
+            <input 
+              type="file" 
+              accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleFileUpload} 
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={parsingFile}
+              className="btn-secondary inline-flex items-center gap-2 py-1.5 px-3 text-sm border border-secondary/30 text-secondary hover:bg-secondary hover:text-white"
+            >
+              {parsingFile ? <LoaderCircle size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
+              Upload Excel / CSV
+            </button>
+          </div>
         </div>
         <textarea
           value={pastedText}
@@ -352,7 +454,7 @@ export default function Leads() {
             </div>
             {parsed.leads.slice(0, 8).map((lead) => (
               <div key={`${lead.company}-${lead.phoneNumber}`} className="grid min-w-[460px] grid-cols-[minmax(0,1fr)_200px] gap-4 border-t border-border/50 px-3 py-3 text-sm">
-                <span className="truncate text-white">{lead.company}</span>
+                <span className="truncate text-slate-900">{lead.company}</span>
                 <span className="font-mono text-textMuted">{lead.phoneNumber}</span>
               </div>
             ))}
@@ -362,16 +464,18 @@ export default function Leads() {
       </section>
 
       <section className="glass-card p-6">
-        <div className="flex flex-col gap-4 border-b border-border/60 pb-5 mb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="lead-section-header flex flex-col gap-4 border-b border-border/60 pb-5 mb-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Users size={19} className="text-emerald-400" />
-            <h2 className="text-lg font-semibold text-white">Saved Leads</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Saved Leads</h2>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="lead-filter-shell">
+            <div className="lead-filter-controls">
+              <span className="filter-title"><Filter size={15} /> Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}</span>
             <select
               value={employeeFilter}
               onChange={(e) => setEmployeeFilter(e.target.value)}
-              className="input-field min-w-[180px] bg-surface/50 border-border/60 py-2 text-sm"
+              className="input-field filter-select min-w-[180px] bg-surface/50 border-border/60 py-2 text-sm"
             >
               <option value="all">All Leads</option>
               <option value="admin">Admin Leads</option>
@@ -382,7 +486,7 @@ export default function Leads() {
             <select
               value={leadFilter}
               onChange={(e) => setLeadFilter(e.target.value as LeadFilter)}
-              className="input-field py-2 text-sm bg-surface/50 border-border/60 min-w-[160px]"
+              className="input-field filter-select py-2 text-sm bg-surface/50 border-border/60 min-w-[160px]"
             >
               <option value="all">All Status</option>
               <option value="interested">Interested</option>
@@ -395,6 +499,22 @@ export default function Leads() {
             <div className="text-sm font-medium text-textMuted">
               {filteredContacts.length} total
             </div>
+            </div>
+            {activeFilterCount > 0 && (
+              <div className="active-filter-row" aria-label="Active lead filters">
+                {employeeFilter !== 'all' && (
+                  <button type="button" className="active-filter-chip" onClick={() => setEmployeeFilter('all')}>
+                    {selectedEmployeeLabel || 'Selected owner'} <X size={13} />
+                  </button>
+                )}
+                {leadFilter !== 'all' && (
+                  <button type="button" className="active-filter-chip" onClick={() => setLeadFilter('all')}>
+                    {leadFilter === 'again_call' ? 'Again call' : leadFilter.replace('_', ' ')} <X size={13} />
+                  </button>
+                )}
+                <button type="button" className="clear-filter-button" onClick={() => { setEmployeeFilter('all'); setLeadFilter('all'); }}>Clear all</button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -412,7 +532,7 @@ export default function Leads() {
                 <span>Call</span>
                 <span>Actions</span>
               </div>
-              {filteredContacts.map((contact) => {
+              {paginatedContacts.map((contact) => {
                 const outcome = outcomeFor(contact);
                 const notesOpen = openNotesId === contact.id;
 
@@ -420,7 +540,7 @@ export default function Leads() {
                   <div key={contact.id} className="border-b border-border/50 last:border-0">
                     <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(160px,.85fr)_160px_110px_92px] gap-4 px-3 py-4 text-sm">
                       <div className="min-w-0">
-                        <div className="truncate font-medium text-white">{contact.company || contact.name}</div>
+                        <div className="truncate font-medium text-slate-900">{contact.company || contact.name}</div>
                         {contact.notes?.trim() && (
                           <button
                             onClick={() => setOpenNotesId(contact.id)}
@@ -435,6 +555,7 @@ export default function Leads() {
                         {contact.stage === 'voicemail' && <div className="mt-1 text-xs text-amber-300">Voicemail</div>}
                         {contact.stage === 'again_call' && <div className="mt-1 truncate text-xs text-amber-300">Call: {followUpLabel(contact.next_call_at) || 'Schedule needed'}</div>}
                         {contact.stage === 'not_interested' && <div className="mt-1 text-xs text-textMuted">Not interested</div>}
+                        {contact.meeting_time && <div className="mt-1 text-xs text-emerald-500 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full inline-block">Meeting: {new Date(contact.meeting_time).toLocaleString()}</div>}
                       </div>
                       {contact.website ? (
                         <a
@@ -448,9 +569,9 @@ export default function Leads() {
                           <ExternalLink size={13} className="shrink-0" />
                         </a>
                       ) : (
-                        <span className="inline-flex items-center gap-2 text-amber-300">
+                        <span className="inline-flex items-center gap-2 text-orange-600">
                           <span>No website</span>
-                          <span className="rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase">Call first</span>
+                          <span className="rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-orange-700">Call first</span>
                         </span>
                       )}
                       <span className="flex items-center gap-2 font-mono text-textMuted"><Phone size={14} />{contact.phone_number}</span>
@@ -489,8 +610,8 @@ export default function Leads() {
                     {notesOpen && (
                       <div className="border-t border-border/60 bg-surface/30 p-4">
                         <div className="mb-4 flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-2 text-sm font-semibold text-white"><StickyNote size={16} className="text-primary" /> Notes</div>
-                          <button onClick={() => setOpenNotesId(null)} title="Close notes" className="text-textMuted hover:text-white"><X size={17} /></button>
+                          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><StickyNote size={16} className="text-primary" /> Notes</div>
+                          <button onClick={() => setOpenNotesId(null)} title="Close notes" className="text-textMuted hover:text-slate-900"><X size={17} /></button>
                         </div>
                         <textarea
                           value={noteFor(contact)}
@@ -551,6 +672,31 @@ export default function Leads() {
                 );
               })}
             </div>
+            
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border/60 px-4 py-4">
+                <div className="text-sm text-textMuted">
+                  Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredContacts.length)} of {filteredContacts.length} leads
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="btn-secondary px-3 py-1 text-sm disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-slate-900 px-2">Page {currentPage} of {totalPages}</span>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="btn-secondary px-3 py-1 text-sm disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>

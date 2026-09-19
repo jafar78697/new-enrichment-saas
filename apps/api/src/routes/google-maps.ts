@@ -4,7 +4,7 @@ import { WalletService } from '../services/wallet.service';
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 const DEFAULT_US_LOCATION = 'United States';
 const MAX_KEYWORDS_PER_BATCH = 10;
-const MAX_LEADS_PER_KEYWORD = 10;
+const MAX_LEADS_PER_KEYWORD = 60;
 const DEMO_KEYWORD_LIMIT = 2;
 
 function normalizeUSPhone(raw: unknown): string | null {
@@ -47,10 +47,7 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
         });
       }
       const keywords = [...keywordLookup.values()];
-      const resultsPerKeyword = Math.max(
-        1,
-        Math.min(Number(limitPerKeyword ?? limit) || MAX_LEADS_PER_KEYWORD, MAX_LEADS_PER_KEYWORD)
-      );
+      const resultsPerKeyword = MAX_LEADS_PER_KEYWORD;
       const maxResults = keywords.length * resultsPerKeyword;
       
       fastify.log.info(`google-maps route called with: ${JSON.stringify({ keywords, location: requestedLocation, resultsPerKeyword, maxResults })}`);
@@ -61,10 +58,35 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
         throw new Error(`A Maps batch can contain up to ${MAX_KEYWORDS_PER_BATCH} unique keywords.`);
       }
 
-      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-      if (!apiKey) {
+      // Enforce can_scrape permission before any expensive operations
+      if (userId) {
+        const { rows: permRows } = await db.query(
+          `SELECT can_scrape FROM users WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+          [userId, tenantId]
+        );
+        if (permRows[0] && permRows[0].can_scrape === false) {
+          const err: any = new Error('Your scraping access has been disabled by the administrator.');
+          err.statusCode = 403;
+          err.code = 'SCRAPING_PERMISSION_DENIED';
+          throw err;
+        }
+      }
+
+      const apiKeys = [
+        process.env.GOOGLE_MAPS_API_KEY,
+        process.env.GOOGLE_MAPS_API_KEY_1,
+        process.env.GOOGLE_MAPS_API_KEY_2
+      ].filter(Boolean) as string[];
+
+      if (apiKeys.length === 0) {
         throw new Error('Google Maps API key is not configured.');
       }
+
+      // Randomly pick an API key to distribute the load across multiple Google Cloud accounts
+      let apiKey = apiKeys[Math.floor(Math.random() * apiKeys.length)];
+
+      let isDemo = false;
+      let demoMaxResults = maxResults;
 
       const initClient = await (db as any).connect?.() || db;
       const usesInitTransaction = typeof (db as any).connect === 'function';
@@ -75,38 +97,67 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
           `SELECT plan FROM tenants WHERE id = $1 FOR UPDATE`,
           [tenantId]
         );
+        
+        const { rows: walletRows } = await initClient.query(
+          `SELECT available FROM wallets WHERE tenant_id = $1 AND unit = 'maps_credits'`,
+          [tenantId]
+        );
+        const availableCredits = walletRows.length > 0 ? Number(walletRows[0].available) : 0;
+        
+        let amountToReserve = Math.min(maxResults, availableCredits);
+        
         if (tenantRows[0]?.plan === 'demo') {
-          const { rows: usageRows } = await initClient.query(
+          isDemo = true;
+          // Check 1-hour expiration via durable trial
+          const { rows: trialRows } = await initClient.query(
+            `SELECT * FROM tenant_demo_trials WHERE tenant_id = $1`,
+            [tenantId]
+          );
+          const trial = trialRows[0];
+          if (!trial || new Date(trial.expires_at) < new Date() || trial.status === 'expired') {
+            const error: any = new Error('Your 1-hour free demo has expired or has not been started. Please start a demo session on the dashboard or upgrade your account to continue.');
+            error.statusCode = 403;
+            throw error;
+          }
+
+          // Limit to 3 keywords maximum across all searches
+          const { rows: keywordUsageRows } = await initClient.query(
             `SELECT COALESCE(SUM(cardinality(keywords)), 0)::int AS used
              FROM metered_maps_jobs
              WHERE tenant_id = $1 AND status IN ('queued', 'running', 'completed')`,
             [tenantId]
           );
-          const keywordsUsed = Number(usageRows[0]?.used || 0);
-          if (keywordsUsed + keywords.length > DEMO_KEYWORD_LIMIT) {
-            const error: any = new Error(
-              `Your free demo includes ${DEMO_KEYWORD_LIMIT} keyword searches. Upgrade your account to continue.`
-            );
+          const keywordsUsed = Number(keywordUsageRows[0]?.used || 0);
+          if (keywordsUsed + keywords.length > 3) {
+            const error: any = new Error(`Your free demo includes 3 keywords total. You have used ${keywordsUsed}. Upgrade your account to continue.`);
             error.statusCode = 402;
             error.code = 'DEMO_KEYWORD_LIMIT_REACHED';
             throw error;
           }
         }
 
+        if (amountToReserve <= 0) {
+          const error: any = new Error('Insufficient maps_credits balance. Please upgrade your account to continue.');
+          error.statusCode = 402;
+          throw error;
+        }
+        
+        demoMaxResults = amountToReserve;
+
         reservationId = await walletService.reserve({
           tenantId,
           unit: 'maps_credits',
-          amount: maxResults,
-          referenceType: 'maps_job',
-          referenceId: `job_${Date.now()}`,
-          description: `Maps search for ${keywords.join(', ')}`
+          amount: demoMaxResults, // Reserve available cost
+          referenceType: 'google_maps_scrape',
+          referenceId: `batch_${Date.now()}`,
+          description: `Reserved for up to ${demoMaxResults} maps leads`
         }, initClient);
 
         const { rows: meteredRows } = await initClient.query(
           `INSERT INTO metered_maps_jobs (tenant_id, user_id, keywords, location, max_credits, status, reservation_id, started_at)
            VALUES ($1, $2, $3, $4, $5, 'running', $6, NOW())
            RETURNING id`,
-          [tenantId, userId || null, keywords, requestedLocation, maxResults, reservationId]
+          [tenantId, userId || null, keywords, requestedLocation, demoMaxResults, reservationId]
         );
         meteredJobId = meteredRows[0].id;
 
@@ -130,28 +181,86 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
       let uniqueLeadCount = 0;
       let newLeadCount = 0;
       let existingLeadCount = 0;
+      let dbLeadsCount = 0;
+      let googleLeadsCount = 0;
 
       for (const keyword of keywords) {
-        let pageToken: string | undefined = undefined;
+        const normalizedQuery = `${keyword.toLowerCase().trim()} in ${requestedLocation.toLowerCase().trim()}`;
         let leadsForKeyword = 0;
 
-        while (leadsForKeyword < resultsPerKeyword && allLeads.length < maxResults) {
+        // 1. Check Global Lead Cache first
+        const cacheClient = await (db as any).connect?.() || db;
+        let cachedLeads: any[] = [];
+        try {
+          const { rows } = await cacheClient.query(
+            `SELECT name, phone, website, address, place_id
+             FROM global_lead_cache
+             WHERE search_query = $1
+             LIMIT $2`,
+            [normalizedQuery, resultsPerKeyword]
+          );
+          cachedLeads = rows;
+        } catch (err) {
+          fastify.log.error('Failed to read from global_lead_cache: ' + err);
+        } finally {
+          if (cacheClient.release) cacheClient.release();
+        }
+
+        for (const lead of cachedLeads) {
+          if (seenPhones.has(lead.phone)) continue;
+          seenPhones.add(lead.phone);
+          allLeads.push(lead);
+          leadsForKeyword++;
+          dbLeadsCount++;
+          if (leadsForKeyword >= resultsPerKeyword || allLeads.length >= maxResults) break;
+        }
+
+        // 2. Fetch from Google if we need more leads
+        let pageToken: string | undefined = undefined;
+        let newLeadsToCache: any[] = [];
+        const actualMaxResults = isDemo ? demoMaxResults : maxResults;
+
+        while (leadsForKeyword < resultsPerKeyword && allLeads.length < actualMaxResults) {
           const textQuery = `${keyword} in ${requestedLocation}`;
           const body: any = { textQuery, pageSize: 20 };
           if (pageToken) body.pageToken = pageToken;
 
-          const response = await fetch(searchUrl, {
-            method: 'POST',
-            headers: {
-            'Content-Type': 'application/json',
-            'X-Goog-Api-Key': apiKey,
-            'X-Goog-FieldMask': 'places.id,places.displayName,places.nationalPhoneNumber,places.websiteUri,places.formattedAddress,places.rating,places.userRatingCount,places.primaryType,nextPageToken'
-          },
-            body: JSON.stringify(body)
-          });
+          const makeRequest = async (key: string) => {
+            return await fetch(searchUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Goog-Api-Key': key,
+                'X-Goog-FieldMask': 'places.id,places.displayName,places.nationalPhoneNumber,places.websiteUri,places.formattedAddress,places.rating,places.userRatingCount,places.primaryType,nextPageToken'
+              },
+              body: JSON.stringify(body)
+            });
+          };
 
-          const data: any = await response.json();
-          if (!response.ok || !data.places || data.places.length === 0) break;
+          let response = await makeRequest(apiKey);
+          let data: any = await response.json();
+
+          if (!response.ok) {
+            fastify.log.error(`Google Maps API Error with key ${apiKey.substring(0, 5)}: ${JSON.stringify(data)}`);
+            let fallbackSuccess = false;
+            for (const fallbackKey of apiKeys) {
+              if (fallbackKey === apiKey) continue;
+              response = await makeRequest(fallbackKey);
+              data = await response.json();
+              if (response.ok) {
+                apiKey = fallbackKey; // stick with the working key
+                fallbackSuccess = true;
+                break;
+              } else {
+                fastify.log.error(`Google Maps API Fallback Error: ${JSON.stringify(data)}`);
+              }
+            }
+            if (!fallbackSuccess) {
+              throw new Error(data?.error?.message || 'Google Maps API failed to return results.');
+            }
+          }
+          
+          if (!data.places || data.places.length === 0) break;
 
           const leads = data.places.flatMap((place: any) => {
             const phone = normalizeUSPhone(place.nationalPhoneNumber);
@@ -161,25 +270,68 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
               name: place.displayName?.text || 'Unknown',
               phone,
               website: place.websiteUri || null,
-              address: place.formattedAddress || ''
+              address: place.formattedAddress || '',
+              place_id: place.id || null,
+              category: place.primaryType || null,
+              raw_data: place
             }];
           });
 
           const allowedLeads: any[] = [];
           const remainingForKeyword = resultsPerKeyword - leadsForKeyword;
-          const remainingForBatch = maxResults - allLeads.length;
+          const remainingForBatch = actualMaxResults - allLeads.length;
+          
           for (const lead of leads) {
             if (seenPhones.has(lead.phone)) continue;
             seenPhones.add(lead.phone);
             allowedLeads.push(lead);
+            newLeadsToCache.push(lead);
             if (allowedLeads.length >= Math.min(remainingForKeyword, remainingForBatch)) break;
           }
+          
           allLeads.push(...allowedLeads);
           leadsForKeyword += allowedLeads.length;
+          googleLeadsCount += allowedLeads.length;
 
           pageToken = data.nextPageToken;
           if (!pageToken) break;
           await delay(2000);
+        }
+
+        // 3. Save new leads to Global Cache
+        if (newLeadsToCache.length > 0) {
+          const insertCacheClient = await (db as any).connect?.() || db;
+          try {
+            const cacheValues: any[] = [];
+            const cachePlaceholders: string[] = [];
+            let cIdx = 0;
+            for (const lead of newLeadsToCache) {
+              const offset = cIdx * 8;
+              cacheValues.push(
+                normalizedQuery,
+                lead.name,
+                lead.phone,
+                lead.website || null,
+                lead.address || null,
+                lead.category || null,
+                lead.place_id || null,
+                JSON.stringify(lead.raw_data || {})
+              );
+              cachePlaceholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}::jsonb)`);
+              cIdx++;
+            }
+
+            await insertCacheClient.query(
+              `INSERT INTO global_lead_cache (search_query, name, phone, website, address, category, place_id, raw_data)
+               VALUES ${cachePlaceholders.join(', ')}
+               ON CONFLICT (search_query, phone) DO NOTHING`,
+              cacheValues
+            );
+          } catch (err) {
+            fastify.log.error('Failed to write to global_lead_cache: ' + err);
+          } finally {
+            if (insertCacheClient.release) insertCacheClient.release();
+          }
         }
       }
 
@@ -331,15 +483,17 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
           [allLeads.length, enrichmentJobId]
         );
 
+        const finalCost = uniqueLeadCount;
+
         await finishClient.query(
           `UPDATE metered_maps_jobs
-           SET status = 'completed', credits_used = $1, results_count = $1, completed_at = NOW()
-           WHERE id = $2`,
-          [allLeads.length, meteredJobId]
+           SET status = 'completed', credits_used = $1, results_count = $2, completed_at = NOW()
+           WHERE id = $3`,
+          [finalCost, allLeads.length, meteredJobId]
         );
 
         if (reservationId) {
-          await walletService.settle(reservationId, allLeads.length, finishClient);
+          await walletService.settle(reservationId, finalCost, finishClient);
         }
 
         if (usesFinishTransaction) await finishClient.query('COMMIT');
@@ -358,7 +512,8 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
         uniqueLeadCount,
         newLeadCount,
         existingLeadCount,
-        costCredits: allLeads.length,
+        costCredits: newLeadCount,
+        sourceBreakdown: { db: dbLeadsCount, google: googleLeadsCount },
       });
     } catch (err: any) {
       if (reservationId) {

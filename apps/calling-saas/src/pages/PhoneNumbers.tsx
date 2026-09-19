@@ -5,7 +5,7 @@ import { useNotifications } from '../components/Notifications';
 import { useAuth } from '../context/AuthContext';
 
 export default function PhoneNumbers() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const { notify } = useNotifications();
   const [areaCode, setAreaCode] = useState('');
   const [searching, setSearching] = useState(false);
@@ -73,14 +73,14 @@ export default function PhoneNumbers() {
   return (
     <div className="animate-in fade-in duration-500 max-w-5xl mx-auto pb-12">
       <header className="mb-10">
-        <h1 className="text-3xl font-bold text-white mb-2">Phone Numbers</h1>
+        <h1 className="text-3xl font-bold text-slate-900 mb-2">Phone Numbers</h1>
         <p className="text-textMuted">Buy and manage phone numbers for your calling agents.</p>
       </header>
 
-      <div className={`grid grid-cols-1 ${user?.role === 'agent' ? '' : 'lg:grid-cols-2'} gap-8 mb-8`}>
-        {user?.role !== 'agent' && (
+      <div className={`grid grid-cols-1 ${user?.role === 'platform_admin' ? 'lg:grid-cols-2' : ''} gap-8 mb-8`}>
+        {user?.role === 'platform_admin' && (
         <div className="glass-card p-6">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-6">
+          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2 mb-6">
             <Search size={18} className="text-primary" /> Find New Numbers
           </h2>
           
@@ -107,7 +107,7 @@ export default function PhoneNumbers() {
                 return (
               <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-surface/50 border border-border">
                 <div>
-                  <div className="text-white font-medium tracking-wider">{phoneValue}</div>
+                  <div className="text-slate-900 font-medium tracking-wider">{phoneValue}</div>
                   <div className="text-xs text-textMuted">{n.locality}, {n.region}</div>
                 </div>
                 <button 
@@ -118,7 +118,7 @@ export default function PhoneNumbers() {
                   {purchasing === phoneValue ? (
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                   ) : (
-                    <><ShoppingCart size={14} className="text-textMuted group-hover:text-white" /> Buy $1.50</>
+                    <><ShoppingCart size={14} className="text-textMuted group-hover:text-slate-900" /> Buy $1.50</>
                   )}
                 </button>
               </div>
@@ -134,29 +134,57 @@ export default function PhoneNumbers() {
         )}
 
         <div className="glass-card p-6">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-6">
+          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2 mb-6">
             <Phone size={18} className="text-secondary" /> My Active Numbers
           </h2>
           
           <div className="space-y-3">
-            {myNumbers.map((n, i) => (
+            {myNumbers.length > 0 ? myNumbers.map((n, i) => (
               <div key={i} className="flex items-center justify-between p-4 rounded-lg bg-surface border border-border">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center">
                     <Phone size={18} className="text-secondary" />
                   </div>
                   <div>
-                    <div className="text-white font-medium tracking-wider">{n.phone}</div>
+                    <div className="text-slate-900 font-medium tracking-wider">{n.phone}</div>
                     <div className="text-xs text-textMuted flex items-center gap-1 mt-0.5">
                       <CheckCircle2 size={12} className="text-green-500" /> Active • {n.cost}
                     </div>
                   </div>
                 </div>
-                <button className="text-xs text-textMuted hover:text-white transition-colors">
-                  Configure
-                </button>
+                {user?.role !== 'agent' && (
+                  user?.current_caller_id === n.phone ? (
+                    <div className="text-xs text-green-700 bg-green-50 border border-green-200 px-3 py-1.5 rounded-full font-medium">
+                      Current Caller ID
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={async () => {
+                        if (!user?.id) return;
+                        try {
+                          const token = localStorage.getItem('token');
+                          const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+                          await axios.post(`${API_URL}/api/employees/${user.id}/assign-number`, { phoneNumber: n.phone }, {
+                            headers: { Authorization: `Bearer ${token}` }
+                          });
+                          notify('Number set as your Caller ID successfully!', 'success');
+                          if (refreshProfile) refreshProfile();
+                        } catch (err: any) {
+                          notify(err.response?.data?.error || 'Failed to set Caller ID.', 'error');
+                        }
+                      }}
+                      className="text-xs text-primary hover:text-primary/80 transition-colors font-medium border border-primary/20 bg-primary/5 px-3 py-1.5 rounded-full"
+                    >
+                      Use as My Caller ID
+                    </button>
+                  )
+                )}
               </div>
-            ))}
+            )) : (
+              <div className="text-center py-8 text-textMuted text-sm border border-dashed border-border rounded-lg">
+                No active numbers assigned to you yet.
+              </div>
+            )}
           </div>
         </div>
       </div>

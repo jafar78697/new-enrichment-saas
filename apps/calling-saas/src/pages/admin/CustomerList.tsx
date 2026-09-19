@@ -59,7 +59,7 @@ export default function CustomerList() {
   }
 
   const statusColors: Record<string, string> = {
-    active: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+    active: 'text-emerald-700 bg-emerald-50 border-emerald-200',
     suspended: 'text-red-400 bg-red-500/10 border-red-500/30',
     pending: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
     expired: 'text-gray-400 bg-gray-500/10 border-gray-500/30',
@@ -100,7 +100,7 @@ export default function CustomerList() {
       </form>
 
       {/* Table */}
-      <div className="bg-surface/30 backdrop-blur-md border border-border/50 rounded-2xl overflow-x-auto">
+      <div className="bg-surface/30 backdrop-blur-md border-2 border-slate-900 rounded-2xl overflow-x-auto">
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />

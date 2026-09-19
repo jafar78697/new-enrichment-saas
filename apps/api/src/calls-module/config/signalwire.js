@@ -55,8 +55,9 @@ export async function createVoiceToken() {
     return {
       token: data.jwt_token,
       projectId: env.SIGNALWIRE_PROJECT_ID,
-      callerId: env.SIGNALWIRE_PHONE_NUMBER,
+      callerId: (env.SIGNALWIRE_PHONE_NUMBER || '').replace(/\D/g, '').replace(/^(\d)/, '+$1'),
       maxCallSeconds: env.MANUAL_CALL_MAX_SECONDS,
+      sipDomain: env.SIGNALWIRE_SIP_DOMAIN || undefined,
     };
   } catch (error) {
     const detail = error?.response?.data?.message || error?.response?.data?.error || error?.message;

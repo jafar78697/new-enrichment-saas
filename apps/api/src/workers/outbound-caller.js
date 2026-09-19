@@ -323,17 +323,20 @@ async function runWorkerTick() {
 export async function runOutboundCallerLoop() {
   if (workerStarted) return;
   if (process.env.ENABLE_AI_OUTBOUND_CALLER !== 'true' || process.env.AI_OUTBOUND_ENABLED !== 'true') {
-    console.log('[outbound-caller] Disabled. ENABLE_AI_OUTBOUND_CALLER=true and AI_OUTBOUND_ENABLED=true are both required.');
+    console.log('[outbound-caller] Disabled. ENABLE_AI_OUTBOUND_CALLER=true and AI_OUTBOUND_ENABLED=true are both required. Sleeping to prevent restart loop.');
+    setInterval(() => {}, 1000 * 60 * 60); // Sleep forever
     return;
   }
   if (!signalwireClient) {
-    console.log('[outbound-caller] SignalWire credentials missing. Skipping worker.');
+    console.log('[outbound-caller] SignalWire credentials missing. Sleeping to prevent restart loop.');
+    setInterval(() => {}, 1000 * 60 * 60);
     return;
   }
 
   const configError = getWorkerConfigError();
   if (configError) {
-    console.log(`[outbound-caller] ${configError} Skipping worker.`);
+    console.log(`[outbound-caller] ${configError} Sleeping to prevent restart loop.`);
+    setInterval(() => {}, 1000 * 60 * 60);
     return;
   }
 

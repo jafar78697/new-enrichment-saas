@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { query, getClient } from '../db/index.js';
 import { AppError, asyncHandler } from '../utils/errors.js';
 import { requireAuth } from '../middleware/auth.js';
+import { normalizeUSPhone } from '../../utils/us-phone.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -115,6 +116,11 @@ router.post(
     }
 
     try {
+      const normalizedPhone = normalizeUSPhone(payload.phone_number);
+      if (!normalizedPhone) {
+        throw new AppError('Invalid phone number. Must be a valid US/CA number.', 400);
+      }
+
       const result = await query(
         `
           INSERT INTO contacts (tenant_id, name, phone_number, company, email, notes, assigned_agent_id, source, niche_id, omnichannel_stage)
@@ -124,7 +130,7 @@ router.post(
         [
           req.tenantId || null,
           payload.name.trim(),
-          payload.phone_number.trim(),
+          normalizedPhone,
           payload.company || null,
           payload.email || null,
           payload.notes || null,

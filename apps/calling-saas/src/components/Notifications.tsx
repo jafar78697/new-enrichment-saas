@@ -80,8 +80,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           return (
             <div key={toast.id} className={`pointer-events-auto flex items-start gap-3 rounded-lg border ${style.accent} bg-surface/95 px-4 py-3 shadow-2xl backdrop-blur-xl`}>
               <Icon size={20} className={`mt-0.5 shrink-0 ${style.iconColor}`} />
-              <p className="flex-1 text-sm leading-5 text-white">{toast.message}</p>
-              <button onClick={() => dismissToast(toast.id)} className="-mr-1 -mt-1 rounded p-1 text-textMuted transition hover:bg-white/5 hover:text-white" aria-label="Dismiss notification">
+              <p className="flex-1 text-sm leading-5 text-slate-900">{toast.message}</p>
+              <button onClick={() => dismissToast(toast.id)} className="-mr-1 -mt-1 rounded p-1 text-textMuted transition hover:bg-white/5 hover:text-slate-900" aria-label="Dismiss notification">
                 <X size={16} />
               </button>
             </div>
@@ -97,7 +97,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 <AlertTriangle size={21} />
               </div>
               <div>
-                <h2 id="confirmation-title" className="text-lg font-semibold text-white">{confirmation.title}</h2>
+                <h2 id="confirmation-title" className="text-lg font-semibold text-slate-900">{confirmation.title}</h2>
                 <p className="mt-2 text-sm leading-6 text-textMuted">{confirmation.message}</p>
               </div>
             </div>

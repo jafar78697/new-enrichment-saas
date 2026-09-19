@@ -5,6 +5,7 @@ import { getCallUser, clearCallSession, callAuthApi } from '../services/employee
 import { Bell, AlertTriangle, PhoneOutgoing } from 'lucide-react';
 import { callsApi } from '../services/callsApi';
 import DialerPopup from './DialerPopup';
+import DemoTimer from './DemoTimer';
 
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></svg> },
@@ -228,6 +229,7 @@ export default function Layout() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Top bar */}
         <header style={{ background: '#fff', borderBottom: '1px solid #D8E1D7', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '20px' }}>
+          {(callUser as any)?.plan === 'demo' && <DemoTimer callUser={callUser} />}
           <div style={{ position: 'relative' }}>
             <button 
               onClick={() => setShowDropdown(!showDropdown)}

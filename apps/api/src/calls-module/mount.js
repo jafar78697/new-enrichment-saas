@@ -58,7 +58,7 @@ export function createCallsApp() {
   app.use('/api/agents', agentsRoutes);
   app.use('/api/contacts', contactsRoutes);
   app.use('/api/calls', callsRoutes);
-  app.use('/api/signalwire', signalwireRoutes);
+  app.use(['/api/signalwire', '/api/telephony'], signalwireRoutes);
   app.use('/api/meta', metaRoutes);
   app.use('/api/facebook', facebookExtRoutes);
   app.use('/api/linkedin', linkedinExtRoutes);

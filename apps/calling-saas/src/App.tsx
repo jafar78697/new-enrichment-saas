@@ -1,10 +1,10 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { Phone, Users, Settings, Activity, Shield, LogOut, ShoppingCart, ClipboardPaste, CreditCard, Sparkles, PhoneCall } from 'lucide-react';
+import { Phone, Users, Settings, Activity, Shield, LogOut, ShoppingCart, ClipboardPaste, CreditCard, PhoneCall, ChevronDown, X, Menu, ArrowRight } from 'lucide-react';
+import './pages/frontend-preview.css';
 import PhoneNumbers from './pages/PhoneNumbers';
 import Enrichment from './pages/Enrichment';
-import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ChangePassword from './pages/ChangePassword';
@@ -20,14 +20,19 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import CustomerList from './pages/admin/CustomerList';
 import CreateCustomer from './pages/admin/CreateCustomer';
 import AdminPhoneNumbers from './pages/admin/AdminPhoneNumbers';
+import Terms from './pages/Terms';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import RefundPolicy from './pages/RefundPolicy';
 import FloatingDialerWrapper from './components/FloatingDialerWrapper';
 import TeamAccess from './pages/TeamAccess';
 import CallHistory from './pages/CallHistory';
 import EmployeeWork from './pages/EmployeeWork';
+import FrontendPreview from './pages/FrontendPreview';
+import FrontendLandingPreview from './pages/FrontendLandingPreview';
 import { NotificationProvider } from './components/Notifications';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-function Sidebar() {
+function Sidebar({ mobileOpen, setMobileOpen }: { mobileOpen: boolean, setMobileOpen: (v: boolean) => void }) {
   const location = useLocation();
   const { user, isAdmin, logout } = useAuth();
   const [profile, setProfile] = React.useState<any>(null);
@@ -56,19 +61,19 @@ function Sidebar() {
 
   
   const navItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: <Activity size={20} /> },
-    ...(user?.role !== 'agent' || user.can_scrape ? [{ path: '/enrichment', label: 'Lead Enrichment', icon: <Users size={20} /> }] : []),
-    ...(user?.role !== 'agent' || user.can_call ? [{ path: '/leads', label: 'Lead List', icon: <ClipboardPaste size={20} /> }] : []),
-    ...(user?.role !== 'agent' || user.can_call ? [{ path: '/numbers', label: 'Phone Numbers', icon: <Phone size={20} /> }] : []),
-    ...(user?.role === 'tenant_owner' || user?.role === 'platform_admin' || (user?.role === 'agent' && user.can_call) ? [{ path: '/calls', label: 'Call History', icon: <Activity size={20} /> }] : []),
-    ...(user?.role !== 'agent' ? [{ path: '/billing', label: user?.plan === 'demo' ? 'Upgrade Account' : 'Billing', icon: <CreditCard size={20} /> }] : []),
-    ...(user?.role === 'tenant_owner' ? [{ path: '/settings', label: 'Settings', icon: <Settings size={20} /> }] : []),
+    { path: '/dashboard', label: 'Dashboard', icon: <Activity size={18} /> },
+    ...(user?.role !== 'agent' || user.can_scrape ? [{ path: '/enrichment', label: 'Lead Enrichment', icon: <Users size={18} /> }] : []),
+    ...(user?.role !== 'agent' || user.can_call ? [{ path: '/leads', label: 'Lead List', icon: <ClipboardPaste size={18} /> }] : []),
+    ...(user?.role !== 'agent' || user.can_call ? [{ path: '/numbers', label: 'Phone Numbers', icon: <Phone size={18} /> }] : []),
+    ...(user?.role === 'tenant_owner' || user?.role === 'platform_admin' || (user?.role === 'agent' && user.can_call) ? [{ path: '/calls', label: 'Call History', icon: <Activity size={18} /> }] : []),
+    ...(user?.role !== 'agent' ? [{ path: '/billing', label: user?.plan === 'demo' ? 'Upgrade Account' : 'Billing', icon: <CreditCard size={18} /> }] : []),
+    ...(user?.role === 'tenant_owner' ? [{ path: '/settings', label: 'Settings', icon: <Settings size={18} /> }] : []),
   ];
 
   const adminItems = [
-    { path: '/admin', label: 'Admin', icon: <Shield size={20} /> },
-    { path: '/admin/numbers', label: 'Purchase Numbers', icon: <ShoppingCart size={20} /> },
-    { path: '/admin/customers', label: 'Customers', icon: <Users size={20} /> },
+    { path: '/admin', label: 'Admin', icon: <Shield size={18} /> },
+    { path: '/admin/numbers', label: 'Purchase Numbers', icon: <ShoppingCart size={18} /> },
+    { path: '/admin/customers', label: 'Customers', icon: <Users size={18} /> },
   ];
 
   const isActive = (path: string) => {
@@ -81,108 +86,109 @@ function Sidebar() {
     return location.pathname.startsWith(path);
   };
 
+  const initials = (user?.display_name || user?.username || 'U').substring(0, 2).toUpperCase();
+  const orgName = profile?.tenant?.name || 'My Workspace';
+
   return (
-    <div className="w-64 h-screen border-r border-border/50 bg-surface/30 backdrop-blur-xl flex flex-col p-4 fixed left-0 top-0">
-      <div className="flex items-center gap-3 px-2 mb-8 mt-2">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-white/10">
-          <PhoneCall size={18} className="text-white drop-shadow-sm" />
-        </div>
-        <span className="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-50 to-gray-400">
-          Jento Calling
-        </span>
+    <aside className={`preview-sidebar ${mobileOpen ? 'is-open' : ''}`}>
+      <div className="preview-brand">
+        <div className="preview-logo"><PhoneCall size={18} /></div>
+        <span>Jento<small>Voice Calling</small></span>
+        <button className="preview-close" aria-label="Close menu" onClick={() => setMobileOpen(false)}><X size={18} /></button>
       </div>
       
-      <nav className="flex-1 flex flex-col gap-1">
+      <div className="preview-workspace">
+        <div className="workspace-mark">{initials}</div>
+        <div>
+          <strong>{orgName}</strong>
+          <small>{roleLabel}</small>
+        </div>
+        <ChevronDown size={15} />
+      </div>
+
+      <nav className="preview-nav" aria-label="Preview navigation">
+        <small className="nav-label">Workspace</small>
         {navItems.map((item) => (
           <Link
             key={item.path}
             to={item.path}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
-              isActive(item.path)
-                ? 'bg-primary/10 text-primary border border-primary/20 shadow-[inset_0_0_10px_rgba(99,102,241,0.1)]' 
-                : 'text-textMuted hover:text-text hover:bg-surface/50'
-            }`}
+            onClick={() => setMobileOpen(false)}
+            className={isActive(item.path) ? 'active' : ''}
           >
             {item.icon}
-            <span className="font-medium text-sm">{item.label}</span>
+            <span>{item.label}</span>
+            {item.path === '/leads' && wallets?.maps_credits?.available > 0 && <b>{wallets.maps_credits.available}</b>}
           </Link>
         ))}
 
-        {/* Admin section */}
         {isAdmin && (
           <>
-            <div className="mt-4 mb-2 px-3 text-xs font-semibold text-textMuted uppercase tracking-wider">Admin</div>
+            <small className="nav-label nav-spacer">Admin</small>
             {adminItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
-                  isAdminActive(item.path)
-                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                    : 'text-textMuted hover:text-text hover:bg-surface/50'
-                }`}
+                onClick={() => setMobileOpen(false)}
+                className={isAdminActive(item.path) ? 'active' : ''}
               >
                 {item.icon}
-                <span className="font-medium text-sm">{item.label}</span>
+                <span>{item.label}</span>
               </Link>
             ))}
           </>
         )}
       </nav>
 
-      {/* User info + Logout */}
-      <div className="space-y-3">
-        {user?.plan === 'demo' && (
-          <Link
-            to="/billing"
-            className="block rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 hover:bg-amber-500/15 transition-colors"
-          >
-            <div className="flex items-center gap-2 text-amber-300 font-semibold text-sm">
-              <Sparkles size={16} /> Upgrade your account
-            </div>
-            <div className="text-xs text-textMuted mt-1.5 leading-5">Unlock monthly calling and more lead searches.</div>
-          </Link>
-        )}
-        <div className="p-3 rounded-xl bg-gradient-to-br from-surface to-background border border-border/50">
-          <div className="text-xs text-textMuted mb-1">Signed in as</div>
-          <div className="text-sm font-medium text-text truncate">{user?.display_name || user?.username}</div>
-          <div className="text-xs text-textMuted capitalize mb-2">{roleLabel}</div>
-          
-          {wallets?.maps_credits?.available > 0 && (
-            <div className="mt-2 pt-2 border-t border-border/50 flex justify-between items-center text-xs">
-              <span className="text-textMuted">Available Leads</span>
-              <span className="font-bold text-emerald-400">{wallets.maps_credits.available.toLocaleString()}</span>
-            </div>
-          )}
-          
-          {profile?.subscription?.end_date && (
-            <div className="mt-2 pt-2 border-t border-border/50 flex justify-between items-center text-xs">
-              <span className="text-textMuted">Subscription</span>
-              <span className="font-bold text-amber-400">
-                {Math.max(0, Math.ceil((new Date(profile.subscription.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))} days left
-              </span>
-            </div>
-          )}
+      {user?.plan === 'demo' && (
+        <div className="preview-upgrade">
+          <span className="plan-label">Your workspace plan</span>
+          <strong>Demo Active</strong>
+          <p>Unlock monthly calling and more lead searches.</p>
+          <Link to="/billing" onClick={() => setMobileOpen(false)}>Upgrade Account <ArrowRight size={15} /></Link>
         </div>
-        <button
-          onClick={logout}
-          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-textMuted hover:text-red-400 hover:bg-red-500/10 transition-all text-sm"
-        >
-          <LogOut size={18} />
-          <span>Logout</span>
+      )}
+
+      <div className="preview-profile">
+        <div className="avatar">{initials}</div>
+        <div>
+          <strong>{user?.display_name || user?.username}</strong>
+          <small>
+            {profile?.subscription?.end_date
+              ? `${Math.max(0, Math.ceil((new Date(profile.subscription.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))} days left`
+              : roleLabel}
+          </small>
+        </div>
+        <button onClick={logout} className="ml-auto text-slate-400 hover:text-red-500 transition-colors">
+          <LogOut size={16} />
         </button>
       </div>
-    </div>
+    </aside>
   );
 }
 
 function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const [mobileOpen, setMobileOpen] = React.useState(false);
+  const location = useLocation();
+  const path = location.pathname.split('/')[1] || 'dashboard';
+  const pageName = path.charAt(0).toUpperCase() + path.slice(1);
+  const { user } = useAuth();
+  const initials = (user?.display_name || user?.username || 'U').substring(0, 2).toUpperCase();
+
   return (
-    <div className="min-h-screen bg-background text-text flex">
-      <Sidebar />
-      <main className="flex-1 ml-64 p-8 relative">
-        <div className="absolute top-0 left-0 w-full h-96 bg-primary/5 blur-[120px] -z-10 pointer-events-none rounded-full"></div>
-        {children}
+    <div className="preview-app">
+      {mobileOpen && <button className="preview-backdrop" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
+      <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
+      <main className="preview-main">
+        <header className="preview-topbar">
+          <button className="preview-menu" aria-label="Open menu" onClick={() => setMobileOpen(true)}><Menu size={21} /></button>
+          <div className="crumb">Workspace <span>/</span> <strong>{pageName}</strong></div>
+          <div className="top-actions">
+            <div className="top-avatar">{initials}</div>
+          </div>
+        </header>
+        <div className="preview-content">
+          {children}
+        </div>
       </main>
       <FloatingDialerWrapper />
     </div>
@@ -289,7 +295,7 @@ function HomeRoute() {
     );
   }
 
-  if (!isAuthenticated) return <LandingPage />;
+  if (!isAuthenticated) return <FrontendLandingPreview />;
   if (user?.must_change_password) return <Navigate to="/change-password" replace />;
   return <Navigate to={isAdmin ? '/admin' : '/dashboard'} replace />;
 }
@@ -303,7 +309,12 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/change-password" element={<ChangePassword />} />
-
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+      <Route path="/refund-policy" element={<RefundPolicy />} />
+      {/* Reference-only previews; the real app is routed below. */}
+      <Route path="/frontend-preview" element={<FrontendPreview />} />
+      <Route path="/frontend-preview/home" element={<FrontendLandingPreview />} />
       {/* Docs routes */}
       <Route path="/docs" element={<DocsLayout />}>
         <Route index element={<Overview />} />

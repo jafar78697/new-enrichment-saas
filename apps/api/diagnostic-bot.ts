@@ -35,7 +35,7 @@ async function runDiagnostic() {
     
     const lead = rows[0];
     const toPhone = '+13106368180'; // Force a known number for safety, or use lead.primary_phone
-    const fromPhone = process.env.SIGNALWIRE_PHONE_NUMBER;
+    const fromPhone = (process.env.SIGNALWIRE_PHONE_NUMBER || '').replace(/\D/g, '').replace(/^(\d)/, '+$1');
     
     console.log(`🤖 Step 1: Initiating call to ${toPhone} for lead ${lead.id}...`);
     

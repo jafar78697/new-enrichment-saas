@@ -11,15 +11,15 @@ export default function DocsLayout() {
   const location = useLocation();
   
   return (
-    <div className="min-h-screen bg-background text-text flex">
+    <div className="docs-shell min-h-screen bg-slate-50 text-slate-900 flex">
       {/* Sidebar */}
-      <div className="w-64 h-screen border-r border-border/50 bg-surface/30 backdrop-blur-xl flex flex-col p-4 fixed left-0 top-0">
-        <div className="flex items-center gap-3 px-2 mb-8 mt-2">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-white/10">
-            <PhoneCall size={18} className="text-white drop-shadow-sm" />
+      <div className="docs-sidebar w-64 h-screen border-r border-slate-200 bg-white flex flex-col p-4 fixed left-0 top-0">
+        <div className="docs-brand flex items-center gap-3 px-2 mb-8 mt-2">
+          <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/20">
+            <PhoneCall size={18} className="text-white" />
           </div>
-          <span className="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-50 to-gray-400">
-            Jento Docs
+          <span className="auth-brand-copy font-bold text-xl tracking-tight text-slate-900">
+            Jento<small>Voice Calling</small>
           </span>
         </div>
         

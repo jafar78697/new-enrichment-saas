@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { query } from '../db/index.js';
 import { asyncHandler, AppError } from '../utils/errors.js';
 import { signToken, requireAuth } from '../middleware/auth.js';
+import { cleanPhoneNumber } from '../../utils/phone.js';
 
 const router = Router();
 
@@ -61,7 +62,7 @@ router.post(
         role: row.role,
         status: row.status,
         signalwire_identity: row.signalwire_identity,
-        signalwire_phone_number: row.signalwire_phone_number,
+        signalwire_phone_number: cleanPhoneNumber(row.signalwire_phone_number),
         assigned_modules: assignedModules,
       },
     });
@@ -222,7 +223,13 @@ router.post(
     const { rows: freshRows } = await query('SELECT id, name, email, role, status, signalwire_identity, signalwire_phone_number FROM agents WHERE id = $1', [agentId]);
     const fresh = freshRows[0];
     const jwtToken = signToken(fresh);
-    res.json({ token: jwtToken, user: fresh });
+    res.json({ 
+      token: jwtToken, 
+      user: {
+        ...fresh,
+        signalwire_phone_number: cleanPhoneNumber(fresh.signalwire_phone_number)
+      } 
+    });
   }),
 );
 
