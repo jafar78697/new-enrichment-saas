@@ -174,9 +174,7 @@ export default function PhoneNumbers() {
                               headers: { Authorization: `Bearer ${token}` }
                             });
                             notify('Number set as your Caller ID successfully!', 'success');
-                            if (refreshProfile) refreshProfile();
-                            setMyNumbers(myNumbers.map(m => m.phone === n.phone ? { ...m, assignedTo: user.display_name || user.name } : m));
-                          } catch (err: any) {
+                            setMyNumbers(myNumbers.map(m => m.phone === n.phone ? { ...m, assignedTo: user.display_name } : m));
                             notify(err.response?.data?.error || 'Failed to set Caller ID.', 'error');
                           }
                         }}
