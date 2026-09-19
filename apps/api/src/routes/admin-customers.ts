@@ -1467,9 +1467,9 @@ export default async function adminCustomerRoutes(fastify: FastifyInstance) {
           [id],
         );
         
-        // Block all agents (child users) of this tenant from logging in
+        // Block all agents (child users) of this tenant from logging in and release their numbers
         await client.query(
-          `UPDATE agents SET status = 'suspended' WHERE tenant_id = $1`,
+          `UPDATE agents SET status = 'suspended', signalwire_phone_number = NULL, signalwire_phone_sid = NULL, signalwire_phone_area_code = NULL, is_available = false WHERE tenant_id = $1`,
           [id],
         );
 
