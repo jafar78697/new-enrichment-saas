@@ -377,7 +377,7 @@ router.post(
               signalwire_phone_purchased_at, is_available, last_login_at,
               invite_accepted_at, created_at
          FROM agents WHERE id = $1`,
-      [id]
+      [agentId]
     );
     res.json({ employee: fresh[0] });
   }),
