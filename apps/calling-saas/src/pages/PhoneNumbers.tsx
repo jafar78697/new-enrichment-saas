@@ -23,7 +23,7 @@ export default function PhoneNumbers() {
     axios.get(`${API_URL}/v1/phone-numbers`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => {
         if (res.data?.phoneNumbers) {
-          setMyNumbers(res.data.phoneNumbers.map((n: any) => ({ phone: n.phone_number, status: 'active', cost: '$1.50/mo' })));
+          setMyNumbers(res.data.phoneNumbers.map((n: any) => ({ phone: n.phone_number, status: 'active', cost: '$1.50/mo', assignedTo: n.assigned_to })));
         }
       }).catch(err => console.error(err));
   }, []);
@@ -158,25 +158,33 @@ export default function PhoneNumbers() {
                       Current Caller ID
                     </div>
                   ) : (
-                    <button 
-                      onClick={async () => {
-                        if (!user?.id) return;
-                        try {
-                          const token = localStorage.getItem('token');
-                          const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-                          await axios.post(`${API_URL}/api/employees/${user.id}/assign-number`, { phoneNumber: n.phone }, {
-                            headers: { Authorization: `Bearer ${token}` }
-                          });
-                          notify('Number set as your Caller ID successfully!', 'success');
-                          if (refreshProfile) refreshProfile();
-                        } catch (err: any) {
-                          notify(err.response?.data?.error || 'Failed to set Caller ID.', 'error');
-                        }
-                      }}
-                      className="text-xs text-primary hover:text-primary/80 transition-colors font-medium border border-primary/20 bg-primary/5 px-3 py-1.5 rounded-full"
-                    >
-                      Use as My Caller ID
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {n.assignedTo && (
+                        <div className="text-xs text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full font-medium">
+                          Assigned to {n.assignedTo}
+                        </div>
+                      )}
+                      <button 
+                        onClick={async () => {
+                          if (!user?.id) return;
+                          try {
+                            const token = localStorage.getItem('token');
+                            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+                            await axios.post(`${API_URL}/api/employees/${user.id}/assign-number`, { phoneNumber: n.phone }, {
+                              headers: { Authorization: `Bearer ${token}` }
+                            });
+                            notify('Number set as your Caller ID successfully!', 'success');
+                            if (refreshProfile) refreshProfile();
+                            setMyNumbers(myNumbers.map(m => m.phone === n.phone ? { ...m, assignedTo: user.display_name || user.name } : m));
+                          } catch (err: any) {
+                            notify(err.response?.data?.error || 'Failed to set Caller ID.', 'error');
+                          }
+                        }}
+                        className="text-xs text-primary hover:text-primary/80 transition-colors font-medium border border-primary/20 bg-primary/5 px-3 py-1.5 rounded-full"
+                      >
+                        Use as My Caller ID
+                      </button>
+                    </div>
                   )
                 )}
               </div>

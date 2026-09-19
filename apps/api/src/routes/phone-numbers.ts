@@ -158,21 +158,28 @@ export default async function phoneNumberRoutes(fastify: FastifyInstance) {
              COALESCE(pn.status, dp.status, 'active') as status,
              COALESCE(pn.capabilities, '{}'::jsonb) as capabilities,
              COALESCE(pn.monthly_cost, 0) as monthly_cost,
-             COALESCE(pn.purchased_at, dp.assigned_at, a.created_at) as purchased_at
+             COALESCE(pn.purchased_at, dp.assigned_at, a.created_at) as purchased_at,
+             a.name as assigned_to
            FROM agents a
            JOIN users u ON (u.id = a.platform_user_id OR (u.email = a.email AND u.email != '')) AND u.tenant_id = a.tenant_id
            LEFT JOIN phone_numbers pn ON pn.phone_number = a.signalwire_phone_number AND pn.tenant_id = a.tenant_id
            LEFT JOIN demo_number_pool dp ON dp.phone_number = a.signalwire_phone_number AND dp.assigned_tenant_id = a.tenant_id
            WHERE a.tenant_id = $1 AND u.id = $2 AND a.signalwire_phone_number IS NOT NULL`
-        : `SELECT id, phone_number, status, capabilities, monthly_cost, purchased_at FROM phone_numbers WHERE tenant_id = $1`;
+        : `SELECT pn.id, pn.phone_number, pn.status, pn.capabilities, pn.monthly_cost, pn.purchased_at,
+                  a.name as assigned_to
+           FROM phone_numbers pn
+           LEFT JOIN agents a ON a.signalwire_phone_number = pn.phone_number AND a.tenant_id = pn.tenant_id AND a.status = 'active'
+           WHERE pn.tenant_id = $1`;
       const { rows } = await fastify.db.query(query, role === 'agent' || role === 'employee' ? [tenantId, userId] : [tenantId]);
       
       // If customer, also append their assigned demo number (if any)
       if (role !== 'agent' && role !== 'employee') {
         const { rows: demoRows } = await fastify.db.query(
-          `SELECT id, phone_number, status, '{}'::jsonb as capabilities, 0 as monthly_cost, assigned_at as purchased_at 
-           FROM demo_number_pool 
-           WHERE assigned_tenant_id = $1 AND status = 'assigned'`,
+          `SELECT dp.id, dp.phone_number, dp.status, '{}'::jsonb as capabilities, 0 as monthly_cost, dp.assigned_at as purchased_at,
+                  a.name as assigned_to
+           FROM demo_number_pool dp
+           LEFT JOIN agents a ON a.signalwire_phone_number = dp.phone_number AND a.tenant_id = dp.assigned_tenant_id AND a.status = 'active'
+           WHERE dp.assigned_tenant_id = $1 AND dp.status = 'assigned'`,
           [tenantId]
         );
         rows.push(...demoRows);
