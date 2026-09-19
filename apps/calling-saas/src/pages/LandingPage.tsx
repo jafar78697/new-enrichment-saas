@@ -243,17 +243,16 @@ export default function LandingPage() {
           <div className="section-intro compact">
             <div>
               <div className="landing-eyebrow">
-                <span /> Everything in rhythm
+                <span /> More Information
               </div>
               <h2>
-                Tools that feel
+                What happens after
                 <br />
-                <em>easy to use.</em>
+                <em>you start?</em>
               </h2>
             </div>
             <p>
-              Small details add up: clean data, thoughtful calling tools and a
-              dashboard that tells the truth quickly.
+              Enter your details, use the shared demo calling pool, and upgrade when you are ready to scale.
             </p>
           </div>
           <div className="feature-grid">
@@ -279,16 +278,15 @@ export default function LandingPage() {
         <section className="result-section" id="results">
           <div className="result-copy">
             <div className="landing-eyebrow">
-              <span /> The calm behind the numbers
+              <span /> Live Call Console
             </div>
             <h2>
-              When the workflow
+              Track every conversation
               <br />
-              <em>gets out of the way.</em>
+              <em>from one focused workspace.</em>
             </h2>
             <p>
-              Your team gets a sharper view of the day: who to call, what to say
-              and what to do next.
+              Monitor active campaigns, dialers, and live voice interactions instantly.
             </p>
             <button
               className="landing-secondary light"
@@ -299,16 +297,16 @@ export default function LandingPage() {
           </div>
           <div className="result-stats">
             <div>
-              <strong>70%</strong>
-              <span>less manual prep</span>
+              <strong>3</strong>
+              <span>free demo calls</span>
             </div>
             <div>
-              <strong>100+</strong>
-              <span>hours back each month</span>
+              <strong>2</strong>
+              <span>Maps keyword searches</span>
             </div>
             <div>
               <strong>1</strong>
-              <span>workspace for your team</span>
+              <span>workspace</span>
             </div>
           </div>
         </section>
@@ -318,9 +316,9 @@ export default function LandingPage() {
               <span /> Ready to test Jento Calling?
             </div>
             <h2>
-              Make your next
+              Start demo access,
               <br />
-              <em>call count.</em>
+              <em>then upgrade.</em>
             </h2>
             <p>Start with a clean workspace and 3 free demo calls.</p>
           </div>
