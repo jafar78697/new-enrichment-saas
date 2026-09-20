@@ -217,6 +217,15 @@ export default function DashboardHome() {
                 {demoError && <div className="text-xs text-red-400 mt-1">{demoError}</div>}
               </div>
             )}
+            <a 
+              href="https://www.youtube.com/watch?v=lPfq0qUkbSY" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="primary-action" 
+              style={{ backgroundColor: '#dc2626', borderColor: '#dc2626', color: 'white' }}
+            >
+              YouTube Tutorial
+            </a>
             <Link to="/billing" className="primary-action">
               Upgrade Account
             </Link>
@@ -224,20 +233,7 @@ export default function DashboardHome() {
         </section>
       )}
 
-      <section style={{ marginBottom: '32px', width: '100%', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border-color)', background: 'var(--card-bg)' }}>
-        <div style={{ aspectRatio: '16/9', width: '100%' }}>
-          <iframe
-            width="100%"
-            height="100%"
-            src="https://www.youtube.com/embed/lPfq0qUkbSY?start=3&autoplay=0&rel=0"
-            title="Calling Google Leads - Team Management"
-            frameBorder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            referrerPolicy="strict-origin-when-cross-origin"
-            allowFullScreen
-          ></iframe>
-        </div>
-      </section>
+
 
       <div className="metric-grid">
         <div className="metric-card stone">
