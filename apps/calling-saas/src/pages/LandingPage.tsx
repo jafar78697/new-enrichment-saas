@@ -195,7 +195,7 @@ export default function LandingPage() {
             <iframe
               width="100%"
               height="100%"
-              src="https://www.youtube.com/embed/lPfq0qUkbSY?start=3&autoplay=0&rel=0"
+              src="https://www.youtube.com/embed/WMafaouAjQo?autoplay=0&rel=0"
               title="Calling Google Leads - Team Management"
               frameBorder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

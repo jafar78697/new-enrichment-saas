@@ -218,7 +218,7 @@ export default function DashboardHome() {
               </div>
             )}
             <a 
-              href="https://www.youtube.com/watch?v=lPfq0qUkbSY" 
+              href="https://www.youtube.com/watch?v=WMafaouAjQo" 
               target="_blank" 
               rel="noopener noreferrer" 
               className="primary-action" 
