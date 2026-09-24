@@ -277,7 +277,7 @@ export default function LiveCallMonitor({
     try {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
       const token = localStorage.getItem('enr_token') || localStorage.getItem('call_token');
-      const res = await fetch(`${API_URL}/telephony/call-end/${callSid}`, {
+      const res = await fetch(`${API_URL}/api/telephony/call-end/${callSid}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
