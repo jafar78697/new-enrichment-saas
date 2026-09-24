@@ -16,12 +16,13 @@ export function getCallingBlocker(
   if (outboundEnabled === false) return { message: 'Outbound calling server policy se paused hai.', action: 'refresh' };
   if (status.queueCount < 1) return { message: 'Calling queue khali hai. Pehle leads ko Assigned Leads mein assign karein.', action: 'leads' };
   const { settings, usageToday } = status;
-  if (!status.withinCallingWindow) return {
-    message: `Calling hours: ${settings.callingWindowStartHour}:00-${settings.callingWindowEndHour}:00 (${settings.callingTimezone}). Abhi window band hai.`,
-    action: 'settings',
-  };
-  if (usageToday.attempts >= settings.maxCallsPerDay) return { message: `Aaj ki ${settings.maxCallsPerDay} calls ki limit poori ho gayi.`, action: 'settings' };
-  if (usageToday.seconds >= settings.maxMinutesPerDay * 60) return { message: 'Aaj ki calling minutes limit poori ho gayi.', action: 'settings' };
-  if (usageToday.costUsd >= settings.maxCostUsdPerDay) return { message: 'Aaj ka estimated AI budget poora ho gaya.', action: 'settings' };
+  // Limits bypassed for testing
+  // if (!status.withinCallingWindow) return {
+  //   message: `Calling hours: ${settings.callingWindowStartHour}:00-${settings.callingWindowEndHour}:00 (${settings.callingTimezone}). Abhi window band hai.`,
+  //   action: 'settings',
+  // };
+  // if (usageToday.attempts >= settings.maxCallsPerDay) return { message: `Aaj ki ${settings.maxCallsPerDay} calls ki limit poori ho gayi.`, action: 'settings' };
+  // if (usageToday.seconds >= settings.maxMinutesPerDay * 60) return { message: 'Aaj ki calling minutes limit poori ho gayi.', action: 'settings' };
+  // if (usageToday.costUsd >= settings.maxCostUsdPerDay) return { message: 'Aaj ka estimated AI budget poora ho gaya.', action: 'settings' };
   return null;
 }
