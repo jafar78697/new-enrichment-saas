@@ -120,7 +120,8 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {})
   const nicheContext = isPlumbing
     ? `\n\nIMPORTANT: This lead is in plumbing. Ignore any generic or salon/beauty-specific wording in the saved agent prompt for this call.\n${PLUMBING_CONTEXT}`
     : '';
-  const prompt = `${agentConfig?.prompt || DEFAULT_PROMPT}${nicheContext}${leadContext}${toolPolicy}`;
+  const greetingInstruction = `\n\nIMPORTANT: Do not speak until the prospect speaks first. When the prospect first speaks (e.g., says "Hello"), you must respond with EXACTLY this greeting and nothing else for your first turn: "${greeting}"`;
+  const prompt = `${agentConfig?.prompt || DEFAULT_PROMPT}${nicheContext}${leadContext}${toolPolicy}${greetingInstruction}`;
   const primaryModel = env.DEEPGRAM_AGENT_MODEL || 'gpt-4o-mini';
   const fallbackModel = env.DEEPGRAM_AGENT_FALLBACK_MODEL || 'gpt-4.1-mini';
   const thinkProviders = [primaryModel, fallbackModel]
@@ -181,7 +182,6 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {})
         model: voice,
       },
     },
-    greeting,
   };
 }
 
