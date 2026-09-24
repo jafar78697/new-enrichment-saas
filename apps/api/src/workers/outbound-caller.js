@@ -8,7 +8,7 @@ import { normalizeNorthAmericanPhone } from '../utils/us-phone.js';
 const projectId = env.SIGNALWIRE_PROJECT_ID;
 const apiToken = env.SIGNALWIRE_API_TOKEN;
 const spaceUrl = env.SIGNALWIRE_SPACE_URL;
-const fromPhone = normalizeNorthAmericanPhone(env.SIGNALWIRE_PHONE_NUMBER);
+const fromPhones = (env.SIGNALWIRE_PHONE_NUMBER || '').split(',').map(n => normalizeNorthAmericanPhone(n.trim())).filter(Boolean);
 
 let signalwireClient = null;
 if (projectId && apiToken && spaceUrl) {
@@ -68,7 +68,7 @@ function isWithinCallingWindow(control) {
 
 function getWorkerConfigError() {
   if (!signalwireClient) return 'SignalWire credentials missing.';
-  if (!fromPhone) return 'SIGNALWIRE_PHONE_NUMBER is missing or is not a valid USA/Canada E.164 number.';
+  if (fromPhones.length === 0) return 'SIGNALWIRE_PHONE_NUMBER is missing or is not a valid USA/Canada E.164 number.';
   if (!env.PUBLIC_BASE_URL) return 'PUBLIC_BASE_URL is missing.';
   if (!PUBLIC_BASE_URL.startsWith('https://')) return 'PUBLIC_BASE_URL must be a public HTTPS URL reachable by SignalWire.';
   return null;
@@ -235,11 +235,15 @@ async function runWorkerTick() {
         const call = await signalwireClient.calls.create({
           url: webhookUrl,
           to: normalizedPhone,
-          from: fromPhone,
+          from: fromPhones[Math.floor(Math.random() * fromPhones.length)],
           method: 'POST',
           statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
           statusCallbackMethod: 'POST',
           statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+          machineDetection: 'DetectMessageEnd',
+          asyncAmd: 'true',
+          asyncAmdStatusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/amd-status?contactId=${lead.id}`,
+          asyncAmdStatusCallbackMethod: 'POST',
           timeout: 30,
           record: false,
         });

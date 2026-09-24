@@ -347,4 +347,35 @@ router.post(
   }),
 );
 
+/**
+ * POST /api/voice/webhooks/amd-status
+ * Receives Answering Machine Detection (AMD) status updates.
+ */
+router.post(
+  '/webhooks/amd-status',
+  validateTwilioSignature,
+  asyncHandler(async (req, res) => {
+    const { CallSid, AnsweredBy } = req.body;
+    console.log('[voice-agent] AMD status webhook:', { CallSid, AnsweredBy });
+
+    if (CallSid && AnsweredBy) {
+      // If AnsweredBy indicates a machine, we hang up the call to save costs and avoid leaving a voicemail
+      if (['machine_start', 'machine_end_beep', 'machine_end_silence', 'machine_end_other'].includes(AnsweredBy)) {
+        console.log(`[voice-agent] Machine detected for call ${CallSid}, hanging up immediately.`);
+        try {
+          const { signalwireClient } = await import('../../calls-module/config/signalwire.js');
+          if (signalwireClient) {
+            await signalwireClient.calls(CallSid).update({ status: 'completed' });
+          }
+          broadcastCallStatus(CallSid, 'voicemail');
+        } catch (err) {
+          console.error(`[voice-agent] Failed to hang up machine call ${CallSid}:`, err);
+        }
+      }
+    }
+
+    res.status(200).json({ received: true });
+  }),
+);
+
 export default router;

@@ -1029,7 +1029,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     }
 
     const signalWireClient = getSignalWireClient();
-    const fromPhone = normalizeNorthAmericanPhone(process.env.SIGNALWIRE_PHONE_NUMBER);
+    const fromPhones = (process.env.SIGNALWIRE_PHONE_NUMBER || '').split(',').map(n => normalizeNorthAmericanPhone(n.trim())).filter(Boolean);
+    const fromPhone = fromPhones.length > 0 ? fromPhones[Math.floor(Math.random() * fromPhones.length)] : null;
     const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000';
 
     if (!signalWireClient || !fromPhone) {
@@ -1065,6 +1066,10 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         statusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
         statusCallbackMethod: 'POST',
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+        machineDetection: 'DetectMessageEnd',
+        asyncAmd: 'true',
+        asyncAmdStatusCallback: `${publicBaseUrl}/api/voice/webhooks/amd-status?contactId=${leadId}`,
+        asyncAmdStatusCallbackMethod: 'POST',
         timeout: 30,
         record: false,
       });
