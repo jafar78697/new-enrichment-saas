@@ -34,6 +34,7 @@ export default function LiveCallMonitor({
   const [callStatus, setCallStatus] = useState<string>(callSid ? 'ringing' : 'waiting');
   const [error, setError] = useState<string | null>(null);
   const [skipping, setSkipping] = useState(false);
+  const [ending, setEnding] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
   const [aiAudioDetected, setAiAudioDetected] = useState(false);
   const [prospectAudioDetected, setProspectAudioDetected] = useState(false);
@@ -269,6 +270,26 @@ export default function LiveCallMonitor({
     }
   };
 
+  const endLiveCall = async () => {
+    if (!callSid || ending) return;
+    setEnding(true);
+    setError(null);
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const token = localStorage.getItem('enr_token') || localStorage.getItem('call_token');
+      const res = await fetch(`${API_URL}/telephony/call-end/${callSid}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Failed to end call');
+      setCallStatus('completed');
+    } catch (err: any) {
+      setError(err.message || 'Could not end the call.');
+    } finally {
+      setEnding(false);
+    }
+  };
+
   const statusLabel = () => {
     if (!callSid) return autoFollow ? 'Waiting for next call' : 'No active call';
     if (!isListening) return 'Live monitor disconnected';
@@ -416,20 +437,28 @@ export default function LiveCallMonitor({
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Headphones size={16} /> Connect Audio & Transcript</span>
           </button>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: onSkipCurrentCall ? '1fr 1fr' : '1fr', gap: 10 }}>
-            {onSkipCurrentCall && (
-              <button onClick={() => void handleSkip()} disabled={skipping} style={{
-                background: skipping ? '#6B7280' : '#F59E0B', color: '#111827', padding: '12px', borderRadius: '8px',
-                border: 'none', fontWeight: 'bold', cursor: skipping ? 'default' : 'pointer', width: '100%'
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 10 }}>
+              {onSkipCurrentCall && (
+                <button onClick={() => void handleSkip()} disabled={skipping} style={{
+                  background: skipping ? '#6B7280' : '#F59E0B', color: '#111827', padding: '12px', borderRadius: '8px',
+                  border: 'none', fontWeight: 'bold', cursor: skipping ? 'default' : 'pointer', flex: 1
+                }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><SkipForward size={16} /> {skipping ? 'Skipping...' : 'Machine / Skip Next'}</span>
+                </button>
+              )}
+              <button onClick={() => void endLiveCall()} disabled={ending} style={{
+                background: ending ? '#6B7280' : '#DC2626', color: 'white', padding: '12px', borderRadius: '8px',
+                border: 'none', fontWeight: 'bold', cursor: ending ? 'default' : 'pointer', flex: 1
               }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><SkipForward size={16} /> {skipping ? 'Skipping...' : 'Machine / Skip Next'}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><X size={16} /> {ending ? 'Ending...' : 'End Call'}</span>
               </button>
-            )}
+            </div>
             <button onClick={stopListening} style={{
-              background: '#DC2626', color: 'white', padding: '12px', borderRadius: '8px',
+              background: '#374151', color: 'white', padding: '12px', borderRadius: '8px',
               border: 'none', fontWeight: 'bold', cursor: 'pointer', width: '100%'
             }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><VolumeX size={16} /> Disconnect</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><VolumeX size={16} /> Disconnect Audio (Keep Call Live)</span>
             </button>
           </div>
         )}
