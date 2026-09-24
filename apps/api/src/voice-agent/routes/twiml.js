@@ -75,6 +75,7 @@ router.post(
     const answeredBy = String(payload.AnsweredBy || '').toLowerCase();
     const nonHumanAnswer = answeredBy === 'fax' || answeredBy.startsWith('machine');
     if (nonHumanAnswer) {
+      const detectedStatus = answeredBy === 'fax' ? 'failed' : 'voicemail';
       if (payload.contactId) {
         await query(
           `UPDATE enrichment_results
@@ -82,19 +83,21 @@ router.post(
                raw_data = (COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid')
                  || jsonb_build_object(
                       'answered_by', $1::text,
-                      'call_status', 'machine_detected',
+                      'call_status', $2::text,
                       'machine_detection_seconds', 10,
                       'call_ended_at', NOW()::text
                     ),
-               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $2::text)
-           WHERE id = $3::uuid AND do_not_call = false`,
+               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $3::text)
+           WHERE id = $4::uuid AND do_not_call = false`,
           [
             answeredBy,
+            detectedStatus,
             `[AI Call] ${answeredBy || 'machine'} detected by SignalWire in the first 10 seconds; call ended before Deepgram started.`,
             payload.contactId,
           ],
         );
       }
+      broadcastCallStatus(payload.CallSid, detectedStatus);
       console.log(`[voice-agent] ${answeredBy} detected for ${payload.CallSid}; hanging up before AI stream.`);
       response.hangup();
       return res.type('text/xml').send(response.toString());
@@ -108,6 +111,7 @@ router.post(
       const { rows } = await query(
         `SELECT er.ai_agent_provider, er.assigned_ai_agent_id, er.tenant_id,
                 er.ai_voice_consent, er.do_not_call,
+                er.raw_data->>'call_origin' AS call_origin,
                 ac.id AS active_agent_id
          FROM enrichment_results er
          LEFT JOIN ai_agent_configs ac
@@ -250,7 +254,6 @@ router.post(
         `UPDATE enrichment_results
          SET raw_data = COALESCE(raw_data, '{}'::jsonb)
              || jsonb_strip_nulls(jsonb_build_object(
-                  'active_call_sid', $1::text,
                   'call_sid', $1::text,
                   'call_status', $2::text,
                   'call_duration_seconds', NULLIF($3::text, '')::int,
@@ -272,7 +275,7 @@ router.post(
     if (contactId && ['busy', 'failed', 'no-answer', 'canceled'].includes(req.body.CallStatus)) {
       await query(
         `UPDATE enrichment_results
-         SET lead_stage = 'no_answer',
+         SET lead_stage = CASE WHEN lead_stage = 'calling' THEN 'no_answer' ELSE lead_stage END,
              raw_data = (COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid')
                || jsonb_build_object(
                     'call_status', $1::text,
@@ -293,7 +296,7 @@ router.post(
     if (contactId && req.body.CallStatus === 'completed') {
       await query(
         `UPDATE enrichment_results
-         SET lead_stage = 'called',
+         SET lead_stage = CASE WHEN lead_stage = 'calling' THEN 'called' ELSE lead_stage END,
              raw_data = (COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid')
                || jsonb_build_object(
                     'call_status', 'completed',

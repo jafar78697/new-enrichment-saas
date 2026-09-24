@@ -52,12 +52,37 @@ Rules:
 `;
 
 const PLUMBING_CONTEXT = `
-Plumbing conversation guidance:
-Use the prospect's trade language naturally: emergency calls, burst pipes,
-drain backups, water heaters, sewer work, dispatch, technicians, service areas,
-after-hours coverage, estimates, and repeat customers. Do not assume they offer
-any particular service. The key qualification is whether a real person can
-answer and follow up quickly, not whether the business needs more leads.
+Plumbing sales script — follow this order. This instruction has priority over
+any conflicting generic or saved agent prompt:
+
+1. The first greeting only asks whether you are speaking with the owner. Wait
+   for the person's reply before delivering the offer.
+2. If they are the owner, say naturally: "Thank you. My name is Emma. I'm an AI
+   assistant calling from Jento AI, and I have a great offer for you. Do you
+   have two minutes? I'll keep it very brief." Wait for their answer.
+3. If they say yes, say: "Great. Jento AI provides a 24/7 AI receptionist for
+   your plumbing business. It can answer incoming calls, respond to new leads,
+   collect customer details, and help schedule appointments while your team is
+   busy or after hours. We also set up your website and appointment system so
+   your leads are handled properly from the first call. The complete setup is
+   available for 500 US dollars. Would you be open to a short 10-minute demo
+   with our team?"
+4. If they are not the owner, ask for the owner or the person responsible for
+   the website, appointments, or incoming calls. Give the offer only after the
+   right person is available.
+5. If they show interest, collect their preferred meeting day, time, timezone,
+   callback number, and email one item at a time. Describe it as a meeting
+   request until the scheduling system confirms it.
+6. If they ask a question, briefly explain that Jento AI helps businesses with
+   website improvements, appointment workflows, and a 24/7 AI receptionist for
+   incoming-call and lead follow-up. Do not claim a feature is already installed.
+7. If they are busy, ask for a better time. If they decline, thank them and end
+   without pressure. Respect any do-not-call request immediately.
+
+Speak in short, natural sentences. The only approved package price is 500 US
+dollars for the complete setup described above. Do not invent discounts,
+recurring charges, extra fees, guaranteed results, integrations, business facts,
+or confirmed appointments. Never give technical plumbing advice.
 `;
 
 function buildListenProvider() {
@@ -88,7 +113,7 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {})
   const nicheName = typeof lead?.niche_name === 'string' ? lead.niche_name.toLowerCase() : '';
   const isPlumbing = /plumb|drain|sewer|water heater/.test(nicheName);
   const greetingTemplate = isPlumbing
-    ? 'Hi, am I speaking with someone from {company_name}? This is the Gento AI assistant. Is now a bad time for a quick question about missed plumbing calls?'
+    ? 'Hi, am I speaking with the owner of {company_name}?'
     : (agentConfig?.greeting || 'Hi, this is the Gento AI assistant. Is now a good time for a quick conversation?');
   const greeting = greetingTemplate.replaceAll('{company_name}', companyName || 'your business');
   const leadContext = companyName
@@ -99,8 +124,8 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {})
     ? `\n\nIMPORTANT: This lead is in plumbing. Ignore any generic or salon/beauty-specific wording in the saved agent prompt for this call.\n${PLUMBING_CONTEXT}`
     : '';
   const prompt = `${agentConfig?.prompt || DEFAULT_PROMPT}${nicheContext}${leadContext}${toolPolicy}`;
-  const primaryModel = env.DEEPGRAM_AGENT_MODEL || 'gpt-5.6-luna';
-  const fallbackModel = env.DEEPGRAM_AGENT_FALLBACK_MODEL || 'gpt-5.4-mini';
+  const primaryModel = env.DEEPGRAM_AGENT_MODEL || 'gpt-4o-mini';
+  const fallbackModel = env.DEEPGRAM_AGENT_FALLBACK_MODEL || 'gpt-4.1-mini';
   const thinkProviders = [primaryModel, fallbackModel]
     .filter((model, index, models) => model && models.indexOf(model) === index)
     .map((model) => ({

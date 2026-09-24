@@ -92,7 +92,9 @@ export default function GoogleMapScraper() {
 
   const handleScrape = async (e: React.FormEvent) => {
     e.preventDefault();
-    const keywords = bulkKeywords.split('\n').map(k => k.trim()).filter(k => k);
+    // Normalize Windows line endings before splitting so pasted keyword lists
+    // behave the same in every browser.
+    const keywords = bulkKeywords.replace(/\r\n?/g, '\n').split('\n').map(k => k.trim()).filter(k => k);
     if (keywords.length === 0) return;
     const requestedLocation = location.trim() || 'United States';
 
@@ -180,9 +182,19 @@ export default function GoogleMapScraper() {
         }
       }).catch(err => console.error("Failed to fetch niches", err));
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to scrape:', error);
-      toast.error('Failed to scrape from Google Maps. Ensure your API key is configured on the backend.');
+      setScrapeJobs(prev => prev.map(job =>
+        job.status === 'scraping'
+          ? { ...job, status: 'failed', completedAt: new Date().toISOString() }
+          : job
+      ));
+
+      // Show the server's real reason (for example, insufficient Maps
+      // credits or an invalid account) instead of always blaming the API key.
+      const serverMessage = error?.response?.data?.error || error?.response?.data?.message;
+      const message = serverMessage || error?.message || 'Google Maps scraping failed.';
+      toast.error(message);
     } finally {
       setIsScraping(false);
     }

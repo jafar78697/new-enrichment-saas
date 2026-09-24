@@ -4,7 +4,7 @@ set -Eeuo pipefail
 # Deploy Frontend to Cloudflare Pages
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# The calls backend now lives merged inside api.jentoai.pro (EC2 13.61.8.100)
+# The calls backend now lives merged inside api.jentoai.pro (Google VM 34.27.29.88)
 # at /api/* paths. Override only if you split it out into a different host.
 CALLS_URL="${CALLS_URL:-https://api.jentoai.pro}"
 

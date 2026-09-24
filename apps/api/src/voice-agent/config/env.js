@@ -41,8 +41,11 @@ const envSchema = z.object({
   // The older Google/OpenAI/ElevenLabs variables may remain in the deployment
   // environment, but no active Deepgram voice-agent path reads them.
   DEEPGRAM_API_KEY: z.preprocess(emptyIfPlaceholder, z.string().optional()),
-  DEEPGRAM_AGENT_MODEL: z.preprocess(emptyIfPlaceholder, z.string().default('gpt-5.6-luna')),
-  DEEPGRAM_AGENT_FALLBACK_MODEL: z.preprocess(emptyIfPlaceholder, z.string().default('gpt-5.4-mini')),
+  // Deepgram's managed Chat Completions path supports function tools reliably
+  // with the 4.x models. Reasoning-first 5.x models may reject tools when the
+  // provider adds reasoning_effort, causing a connected call to produce no reply.
+  DEEPGRAM_AGENT_MODEL: z.preprocess(emptyIfPlaceholder, z.string().default('gpt-4o-mini')),
+  DEEPGRAM_AGENT_FALLBACK_MODEL: z.preprocess(emptyIfPlaceholder, z.string().default('gpt-4.1-mini')),
   DEEPGRAM_AGENT_LISTEN_MODEL: z.preprocess(emptyIfPlaceholder, z.string().default('flux-general-en')),
   DEEPGRAM_AGENT_EOT_THRESHOLD: z.coerce.number().min(0.5).max(0.9).default(0.75),
   DEEPGRAM_AGENT_EAGER_EOT_THRESHOLD: z.coerce.number().min(0.3).max(0.9).default(0.45),

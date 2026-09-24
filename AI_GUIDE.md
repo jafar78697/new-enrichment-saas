@@ -12,14 +12,14 @@ The repository uses a monorepo-style structure inside `apps/` with a shared Post
 - **`apps/worker-browser/` (or `browser-enrichment` script)**: Node.js worker using Puppeteer for sites with Cloudflare protection.
 
 ## 2. Server & Deployment
-- **Target Server**: AWS EC2 Instance at `13.61.8.100`.
-- **SSH Key**: The user's local machine uses `~/Downloads/aws-enrichment-key.pem` to SSH into `ubuntu@13.61.8.100`.
+- **Target Server**: Google Compute Engine VM at `34.27.29.88`.
+- **SSH Key**: The user's local machine uses `~/.ssh/google_compute_engine` to SSH into `jafar-tayyar-siddiqi@34.27.29.88`.
 - **Process Manager**: All backend services are managed by **PM2** on the EC2 server.
     - `enrichment-api` (Express backend, 1 instance)
     - `enrichment-worker` (Python HTTP worker, 3 instances)
     - `browser-enrichment` (Node.js Puppeteer worker, 1 instance)
 - **Deployment Script**: Always use `./deploy-to-gcp.sh` from the project root. This script builds the frontend locally, rsyncs the entire directory to EC2, and automatically restarts the PM2 processes. **Do not use other deploy scripts unless explicitly instructed.**
-- **Hotfixes**: For urgent backend fixes, you can `rsync` individual files to `ubuntu@13.61.8.100:/home/ubuntu/enrichment-saas/...` and then run `ssh ubuntu@13.61.8.100 "pm2 restart enrichment-api"` to apply the fix instantly without a full rebuild.
+- **Hotfixes**: For urgent backend fixes, you can `scp` individual files to `jafar-tayyar-siddiqi@34.27.29.88:/home/jafar-tayyar-siddiqi/enrichment-saas/...` and then run `ssh jafar-tayyar-siddiqi@34.27.29.88 "pm2 restart enrichment-api"` to apply the fix instantly without a full rebuild.
 
 ## 3. Database Constraints
 - **Type**: PostgreSQL

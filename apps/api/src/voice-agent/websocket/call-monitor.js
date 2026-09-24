@@ -3,9 +3,18 @@ import { query } from '../../calls-module/db/index.js';
 import { env } from '../config/env.js';
 import { mulawToLinear16 } from '../utils/mulaw.js';
 
-let ioInstance = null;
 let monitorNamespace = null;
 const audioLogCounts = new Map();
+
+// tsx can load this JavaScript module through both a TypeScript import graph and
+// Node's native ESM graph. Keep the Socket.IO namespace on globalThis so every
+// instance broadcasts into the same live-monitor room.
+const sharedMonitorState = globalThis.__jentoCallMonitorState
+  || (globalThis.__jentoCallMonitorState = { namespace: null });
+
+function getMonitorNamespace() {
+  return monitorNamespace || sharedMonitorState.namespace;
+}
 
 function verifyMonitorToken(token) {
   if (!token || typeof token !== 'string') throw new Error('Authentication required');
@@ -22,8 +31,8 @@ function verifyMonitorToken(token) {
 }
 
 export function initCallMonitorSocket(io) {
-  ioInstance = io;
   monitorNamespace = io.of('/call-monitor');
+  sharedMonitorState.namespace = monitorNamespace;
 
   monitorNamespace.use((socket, next) => {
     try {
@@ -105,7 +114,8 @@ export function initCallMonitorSocket(io) {
  * We convert it to LINEAR16 PCM before sending because browsers can't easily play mulaw.
  */
 export function broadcastCallAudio(callSid, speaker, base64Mulaw) {
-  if (!monitorNamespace) return;
+  const namespace = getMonitorNamespace();
+  if (!namespace) return;
   
   try {
     const pcmBuffer = mulawToLinear16(base64Mulaw);
@@ -114,17 +124,17 @@ export function broadcastCallAudio(callSid, speaker, base64Mulaw) {
     const count = (audioLogCounts.get(callSid) || 0) + 1;
     audioLogCounts.set(callSid, count);
     if (count === 1 || count % 250 === 0) {
-      const subscriberCount = monitorNamespace.adapter.rooms.get(room)?.size || 0;
+      const subscriberCount = namespace.adapter.rooms.get(room)?.size || 0;
       console.log(`[voice-agent:call-monitor] emitting live_audio call=${callSid} speaker=${speaker} frames=${count} subscribers=${subscriberCount}`);
     }
     
-    monitorNamespace.to(room).emit('live_audio', {
+    namespace.to(room).emit('live_audio', {
       callSid,
       speaker, // 'prospect' or 'ai'
       audio: pcmBase64
     });
   } catch (err) {
-    // Ignore conversion errors
+    console.error(`[voice-agent:call-monitor] live_audio conversion failed for ${callSid}:`, err?.message || err);
   }
 }
 
@@ -132,9 +142,10 @@ export function broadcastCallAudio(callSid, speaker, base64Mulaw) {
  * Broadcast a live transcript text to all subscribers.
  */
 export function broadcastCallTranscript(callSid, speaker, text) {
-  if (!monitorNamespace) return;
+  const namespace = getMonitorNamespace();
+  if (!namespace) return;
   
-  monitorNamespace.to(`call_${callSid}`).emit('live_transcript', {
+  namespace.to(`call_${callSid}`).emit('live_transcript', {
     callSid,
     speaker,
     text,
@@ -146,12 +157,13 @@ export function broadcastCallTranscript(callSid, speaker, text) {
  * Broadcast call status (ringing, in-progress, completed) to subscribers.
  */
 export function broadcastCallStatus(callSid, status) {
-  if (!monitorNamespace) return;
-  if (['completed', 'canceled', 'busy', 'failed', 'no-answer'].includes(status)) {
+  const namespace = getMonitorNamespace();
+  if (!namespace) return;
+  if (['completed', 'canceled', 'busy', 'failed', 'no-answer', 'voicemail'].includes(status)) {
     audioLogCounts.delete(callSid);
   }
   
-  monitorNamespace.to(`call_${callSid}`).emit('call_status', {
+  namespace.to(`call_${callSid}`).emit('call_status', {
     callSid,
     status,
     timestamp: new Date().toISOString()
@@ -159,5 +171,5 @@ export function broadcastCallStatus(callSid, status) {
 }
 
 export function broadcastCallAudioClear(callSid) {
-  monitorNamespace?.to(`call_${callSid}`).emit('clear_audio', { callSid, speaker: 'ai' });
+  getMonitorNamespace()?.to(`call_${callSid}`).emit('clear_audio', { callSid, speaker: 'ai' });
 }

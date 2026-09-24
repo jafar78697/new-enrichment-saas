@@ -4,7 +4,7 @@ import { CreditCard, CheckCircle, PhoneCall, MapPin, Users, MessageCircle } from
 import { useNotifications } from '../components/Notifications';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-const WHATSAPP_NUMBER = '923004994645'; // Configured WhatsApp number
+const WHATSAPP_NUMBER = '923104989363'; // Configured WhatsApp number
 
 export default function Billing() {
   const { notify } = useNotifications();

@@ -51,19 +51,8 @@ router.post(
         }
       }
 
-      // Guard: check maps_credits wallet if tenant context is available.
-      // This route is a legacy path — the metered Fastify route is preferred.
-      // We do a minimum viability check (must have > 0 credits) but don't reserve.
-      if (req.tenantId) {
-        const walletResult = await query(
-          `SELECT available FROM wallets WHERE tenant_id = $1 AND unit = 'maps_credits' LIMIT 1`,
-          [req.tenantId]
-        );
-        const available = Number(walletResult.rows[0]?.available || 0);
-        if (available <= 0) {
-          return res.status(402).json({ error: 'Insufficient maps credits. Please top up your balance to continue scraping.' });
-        }
-      }
+      // This legacy enrichment app does not use the paid Maps-credit wallet.
+      // The metered /v1 route used by calling-saas keeps its own billing guard.
 
       let apiKey = null;
       if (google_cloud_account === 'account_1') apiKey = process.env.GOOGLE_MAPS_API_KEY_1;
@@ -185,8 +174,9 @@ router.post(
           if (seenPhones.has(lead.phone)) continue;
           seenPhones.add(lead.phone);
 
-          const offset = idx * 13;
+          const offset = idx * 14;
           values.push(
+            req.tenantId || null,
             lead.name.trim(),
             lead.phone.trim(),
             null, // company
@@ -201,16 +191,16 @@ router.post(
             null, // instagram
             0 // score
           );
-          placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13})`);
+          placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13}, $${offset + 14})`);
           idx++;
         }
 
         if (placeholders.length > 0) {
           await query(
             `
-              INSERT INTO contacts (name, phone_number, company, email, notes, assigned_agent_id, source, niche_id, website, linkedin, facebook, instagram, score)
+              INSERT INTO contacts (tenant_id, name, phone_number, company, email, notes, assigned_agent_id, source, niche_id, website, linkedin, facebook, instagram, score)
               VALUES ${placeholders.join(', ')}
-              ON CONFLICT(phone_number) DO UPDATE SET
+              ON CONFLICT (tenant_id, phone_number) WHERE tenant_id IS NOT NULL DO UPDATE SET
                 niche_id = COALESCE(contacts.niche_id, EXCLUDED.niche_id),
                 assigned_agent_id = COALESCE(contacts.assigned_agent_id, EXCLUDED.assigned_agent_id),
                 website = COALESCE(contacts.website, EXCLUDED.website)

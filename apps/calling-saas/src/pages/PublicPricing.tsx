@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 const startingPriceUsd = 20;
-const WHATSAPP_NUMBER = '923004994645';
+const WHATSAPP_NUMBER = '923104989363';
 
 export default function PublicPricing() {
   const [teamSize, setTeamSize] = useState<number>(1);

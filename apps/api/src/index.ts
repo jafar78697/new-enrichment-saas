@@ -213,25 +213,26 @@ fastify.decorate('authenticate', async (request: any, reply: any) => {
         // employee's tenant and assigned modules so /v1 enrichment routes can
         // apply the same Access System permissions as /api contacts/calls.
         if (decodedPayload.sub) {
+          const defaultVoiceTenantId = process.env.VOICE_AGENT_TENANT_ID || null;
           const { rows } = await fastify.db.query(
-            `SELECT a.id as user_id, a.tenant_id, a.role, a.status,
+            `SELECT a.id as user_id, COALESCE(a.tenant_id, $2::uuid) AS tenant_id, a.role, a.status,
                     COALESCE(ARRAY_AGG(DISTINCT am.module) FILTER (WHERE am.module IS NOT NULL), '{}') AS assigned_modules,
                     t.plan, t.status AS tenant_status, w.id AS workspace_id
              FROM agents a
              LEFT JOIN agent_modules am ON am.agent_id = a.id
-             LEFT JOIN tenants t ON t.id = a.tenant_id
-             LEFT JOIN workspaces w ON w.tenant_id = a.tenant_id
+             LEFT JOIN tenants t ON t.id = COALESCE(a.tenant_id, $2::uuid)
+             LEFT JOIN workspaces w ON w.tenant_id = COALESCE(a.tenant_id, $2::uuid)
              WHERE a.id = $1 AND t.deleted_at IS NULL
-             GROUP BY a.id, a.tenant_id, a.role, a.status, t.plan, t.status, w.id
+             GROUP BY a.id, COALESCE(a.tenant_id, $2::uuid), a.role, a.status, t.plan, t.status, w.id
              LIMIT 1`,
-            [decodedPayload.sub],
+            [decodedPayload.sub, defaultVoiceTenantId],
           );
           if (!rows[0]) return reply.code(401).send({ error: 'User not found' });
           if (rows[0].status !== 'active' || rows[0].tenant_status !== 'active') {
             return reply.code(403).send({ error: 'Account is inactive', code: 'ACCOUNT_INACTIVE' });
           }
           request.tenant = {
-            tenantId: rows[0].tenant_id || process.env.VOICE_AGENT_TENANT_ID,
+            tenantId: rows[0].tenant_id,
             userId: rows[0].user_id,
             workspaceId: rows[0].workspace_id,
             plan: rows[0].plan || 'starter',

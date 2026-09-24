@@ -70,7 +70,14 @@ router.get(
     }
 
     if (req.user.role !== 'manager') {
-      params.push(req.user.id);
+      // The calls table stores agent_id (from the agents table), NOT user_id.
+      // We must resolve the agent row for this user so the filter matches.
+      const { rows: agentRows } = await query(
+        `SELECT id FROM agents WHERE email = $1 ${req.tenantId ? 'AND tenant_id = $2' : ''} LIMIT 1`,
+        req.tenantId ? [req.user.email, req.tenantId] : [req.user.email]
+      );
+      const agentId = agentRows[0]?.id ?? req.user.id;
+      params.push(agentId);
       where.push(`c.agent_id = $${params.length}`);
     }
 
@@ -168,8 +175,15 @@ router.post(
     if (req.tenantId && call.tenant_id !== req.tenantId) {
       throw new AppError('Call not found', 404);
     }
-    if (req.user.role !== 'manager' && Number(call.agent_id) !== Number(req.user.id)) {
-      throw new AppError('You can only manage recordings for your own calls', 403);
+    if (req.user.role !== 'manager') {
+      const { rows: agentRows } = await query(
+        `SELECT id FROM agents WHERE email = $1 ${req.tenantId ? 'AND tenant_id = $2' : ''} LIMIT 1`,
+        req.tenantId ? [req.user.email, req.tenantId] : [req.user.email]
+      );
+      const myAgentId = agentRows[0]?.id ?? req.user.id;
+      if (Number(call.agent_id) !== Number(myAgentId)) {
+        throw new AppError('You can only manage recordings for your own calls', 403);
+      }
     }
 
     if (payload.action === 'start') {
@@ -249,8 +263,15 @@ router.get(
     if (req.tenantId && call.tenant_id !== req.tenantId) {
       throw new AppError('Recording not found', 404);
     }
-    if (req.user.role !== 'manager' && Number(call.agent_id) !== Number(req.user.id)) {
-      throw new AppError('You can only play recordings for your own calls', 403);
+    if (req.user.role !== 'manager') {
+      const { rows: agentRows } = await query(
+        `SELECT id FROM agents WHERE email = $1 ${req.tenantId ? 'AND tenant_id = $2' : ''} LIMIT 1`,
+        req.tenantId ? [req.user.email, req.tenantId] : [req.user.email]
+      );
+      const myAgentId = agentRows[0]?.id ?? req.user.id;
+      if (Number(call.agent_id) !== Number(myAgentId)) {
+        throw new AppError('You can only play recordings for your own calls', 403);
+      }
     }
 
     // Proxy the recording from SignalWire/Twilio to avoid the Basic Auth popup in browser

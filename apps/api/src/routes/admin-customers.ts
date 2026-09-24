@@ -7,7 +7,7 @@ import { requireRole } from '../middleware/require-role';
 import { ROLES, AUTH_CONFIG, CALLING_DEFAULTS } from '../config/saas';
 import { WalletService } from '../services/wallet.service';
 import { recordAuditLog } from '../services/audit-log.service';
-import { normalizeUSPhone } from '../utils/us-phone.js';
+import { normalizeUSPhone, normalizeNorthAmericanPhone } from '../utils/us-phone.js';
 
 // Route modules are evaluated before index.ts runs its dotenv setup in ESM.
 // Load here so provider constants are never captured as empty at startup.

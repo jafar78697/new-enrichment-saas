@@ -29,6 +29,10 @@ const CALLING_TIMEZONES = new Set([
   'America/Toronto',
   'America/Vancouver',
 ]);
+const ALWAYS_ON_TENANT_IDS = new Set([
+  'c1f6f7a0-f75d-46a2-afc7-810bde42c467',
+  '1f7d38fc-bb75-47ae-8290-223506dcb0bf',
+]);
 
 function numberInRange(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number(value);
@@ -49,8 +53,9 @@ function normalizedCallingControl(row: any = {}) {
   const timezone = CALLING_TIMEZONES.has(row.calling_timezone)
     ? row.calling_timezone
     : 'America/New_York';
-  const startHour = Math.round(numberInRange(row.calling_window_start_hour, 9, 0, 23));
-  const endHour = Math.round(numberInRange(row.calling_window_end_hour, 17, 1, 24));
+  const alwaysOn = ALWAYS_ON_TENANT_IDS.has(String(row.tenant_id || ''));
+  const startHour = alwaysOn ? 0 : Math.round(numberInRange(row.calling_window_start_hour, 9, 0, 23));
+  const endHour = alwaysOn ? 24 : Math.round(numberInRange(row.calling_window_end_hour, 17, 1, 24));
 
   return {
     isRunning: row.is_running === true,
@@ -73,6 +78,7 @@ function hourInTimezone(timezone: string) {
 }
 
 function isWithinCallingWindow(control: any) {
+  if (ALWAYS_ON_TENANT_IDS.has(String(control?.tenant_id || ''))) return true;
   const timezone = CALLING_TIMEZONES.has(control?.calling_timezone)
     ? control.calling_timezone
     : 'America/New_York';
@@ -113,6 +119,13 @@ async function writeAudit(
   } catch (err) {
     fastify.log.warn({ err, action }, 'audit log failed');
   }
+}
+
+function uuidOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null;
 }
 
 function getSignalWireClient() {
@@ -672,34 +685,50 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     );
     const { rows: nextRows } = await fastify.db.query(
       `SELECT
-         id,
-         company_name,
-         domain,
-         primary_phone,
-         lead_stage
-       FROM enrichment_results
-       WHERE tenant_id = $1
-         AND assigned_to_ai = true
-         AND lead_stage IN ('assigned', 'followup')
-         AND do_not_call = false
-         AND primary_phone IS NOT NULL
-         AND primary_phone <> ''
-         AND (next_followup_at IS NULL OR next_followup_at <= NOW())
+         er.id,
+         er.company_name,
+         er.domain,
+         er.primary_phone,
+         er.lead_stage
+       FROM enrichment_results er
+       JOIN ai_agent_configs ac
+         ON ac.id = er.assigned_ai_agent_id AND ac.tenant_id = er.tenant_id
+       WHERE er.tenant_id = $1
+         AND er.assigned_to_ai = true
+         AND ac.is_active = true AND ac.mode = 'outbound'
+         AND er.lead_stage IN ('assigned', 'followup')
+         AND er.do_not_call = false
+         AND er.primary_phone IS NOT NULL
+         AND er.primary_phone <> ''
+         AND (er.next_followup_at IS NULL OR er.next_followup_at <= NOW())
        ORDER BY
-         CASE WHEN lead_stage = 'followup' THEN 0 ELSE 1 END,
-         COALESCE(next_followup_at, created_at) ASC
+         CASE WHEN er.lead_stage = 'followup' THEN 0 ELSE 1 END,
+         COALESCE(er.next_followup_at, er.created_at) ASC
        LIMIT 1`,
       [tenantId],
     );
     const { rows: queueRows } = await fastify.db.query(
       `SELECT COUNT(*)::int AS count
+       FROM enrichment_results er
+       JOIN ai_agent_configs ac
+         ON ac.id = er.assigned_ai_agent_id AND ac.tenant_id = er.tenant_id
+       WHERE er.tenant_id = $1
+         AND er.assigned_to_ai = true
+         AND ac.is_active = true AND ac.mode = 'outbound'
+         AND er.lead_stage IN ('assigned', 'followup')
+         AND er.do_not_call = false
+         AND er.primary_phone IS NOT NULL
+         AND er.primary_phone <> ''`,
+      [tenantId],
+    );
+    const { rows: pendingConsentRows } = await fastify.db.query(
+      `SELECT COUNT(*)::int AS count
        FROM enrichment_results
        WHERE tenant_id = $1
          AND assigned_to_ai = true
          AND lead_stage IN ('assigned', 'followup')
-         AND do_not_call = false
-         AND primary_phone IS NOT NULL
-         AND primary_phone <> ''`,
+         AND ai_voice_consent = false
+         AND do_not_call = false`,
       [tenantId],
     );
     const { rows: stageRows } = await fastify.db.query(
@@ -746,7 +775,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       lastCall,
       nextLead,
       queueCount: queueRows[0]?.count || 0,
-      pendingConsentCount: 0,
+      pendingConsentCount: pendingConsentRows[0]?.count || 0,
       stageCounts,
       recentActivity: recentRows,
       settings: {
@@ -831,7 +860,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
        WHERE er.tenant_id = $1
          AND er.assigned_to_ai = true
          AND er.lead_stage IN ('assigned', 'followup')
-         AND er.do_not_call = false
+          AND er.do_not_call = false
          AND er.primary_phone IS NOT NULL AND er.primary_phone <> ''
          AND ac.is_active = true AND ac.mode = 'outbound'`,
       [tenantId],
@@ -986,39 +1015,17 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     if (!isWithinCallingWindow(rawControl)) {
       return reply.code(409).send({ error: `Calling is outside the ${settings.callingTimezone} campaign window` });
     }
-    const { rows: usageRows } = await fastify.db.query(
-      `SELECT
-         (SELECT COUNT(*)::int FROM enrichment_results
-          WHERE tenant_id = $1 AND assigned_to_ai = true
-            AND (last_contacted_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date) AS attempts,
-         (SELECT COUNT(*)::int FROM enrichment_results
-          WHERE tenant_id = $1 AND assigned_to_ai = true
-            AND last_contacted_at >= NOW() - INTERVAL '1 minute') AS attempts_last_minute,
-         (SELECT COUNT(*)::int FROM enrichment_results
-          WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling') AS active_calls,
-         COALESCE((SELECT SUM(duration_sec) FROM ai_call_sessions
-                   WHERE tenant_id = $1
-                     AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
-         COALESCE((SELECT SUM(cost_estimate_usd) FROM ai_call_sessions
-                   WHERE tenant_id = $1
-                     AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric
-         + COALESCE((SELECT SUM(estimated_cost_usd) FROM ai_usage_ledger
-                     WHERE tenant_id = $1 AND created_at >= date_trunc('day', NOW())), 0)::numeric AS cost`,
-      [tenantId, settings.callingTimezone],
+    // Manual calls are explicitly chosen by the user, so they bypass the
+    // automatic campaign's daily, rate, duration, and cost caps. A single
+    // active call is still enforced to prevent overlapping audio sessions.
+    const { rows: activeCallRows } = await fastify.db.query(
+      `SELECT COUNT(*)::int AS active_calls
+       FROM enrichment_results
+       WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'`,
+      [tenantId],
     );
-    const usage = usageRows[0] || {};
-    if (Number(usage.attempts_last_minute || 0) >= settings.callsPerMinute) {
-      return reply.code(429).send({ error: `Calls-per-minute limit of ${settings.callsPerMinute} is reached` });
-    }
-    if (Number(usage.active_calls || 0) >= numberInRange(process.env.AI_MAX_ACTIVE_CALLS, 1, 1, 5)) {
+    if (Number(activeCallRows[0]?.active_calls || 0) >= numberInRange(process.env.AI_MAX_ACTIVE_CALLS, 1, 1, 5)) {
       return reply.code(429).send({ error: 'An AI call is already active' });
-    }
-    const nextMaxCost = (numberInRange(process.env.AI_MAX_SECONDS_PER_CALL, 120, 60, 600) / 60)
-      * numberInRange(process.env.AI_ESTIMATED_COST_USD_PER_MINUTE, 0.1, 0.01, 10);
-    if (Number(usage.attempts || 0) >= settings.maxCallsPerDay
-      || Number(usage.seconds || 0) >= settings.maxMinutesPerDay * 60
-      || Number(usage.cost || 0) + nextMaxCost > settings.maxCostUsdPerDay) {
-      return reply.code(429).send({ error: 'A daily AI calling safety limit is reached' });
     }
 
     const signalWireClient = getSignalWireClient();
@@ -1059,11 +1066,6 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         statusCallbackMethod: 'POST',
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
         timeout: 30,
-        machineDetection: 'Enable',
-        machineDetectionTimeout: 10,
-        machineDetectionSpeechThreshold: 2400,
-        machineDetectionSpeechEndThreshold: 1200,
-        machineDetectionSilenceTimeout: 5000,
         record: false,
       });
       callSid = call.sid;
@@ -1074,6 +1076,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          SET raw_data = COALESCE(raw_data, '{}'::jsonb)
              || jsonb_build_object(
                   'active_call_sid', $1::text,
+                  'call_origin', 'manual',
                   'call_started_at', NOW()::text,
                   'call_status', 'initiated',
                   'call_duration_seconds', 0
@@ -1288,10 +1291,11 @@ export default async function crmRoutes(fastify: FastifyInstance) {
 
     // Stage-change side effect: history + audit
     if (body.lead_stage && body.lead_stage !== current[0].lead_stage) {
+      const changedBy = uuidOrNull(userId);
       await fastify.db.query(
         `INSERT INTO lead_stage_history (tenant_id, lead_id, from_stage, to_stage, changed_by)
          VALUES ($1, $2, $3, $4, $5)`,
-        [tenantId, request.params.id, current[0].lead_stage, body.lead_stage, userId],
+        [tenantId, request.params.id, current[0].lead_stage, body.lead_stage, changedBy],
       );
       await writeAudit(fastify, tenantId, userId, 'lead.stage_changed', 'lead', request.params.id, {
         from: current[0].lead_stage, to: body.lead_stage,

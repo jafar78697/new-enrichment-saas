@@ -1,5 +1,5 @@
 // Calls API client
-// Wraps the Node/Express call-system backend exposed at https://calls.jentoai.com
+// Wraps the Node/Express call-system backend exposed at https://api.jentoai.pro
 // Base URL is controlled by VITE_CALLS_URL.
 
 const CALLS_URL =

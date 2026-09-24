@@ -72,7 +72,7 @@ export interface TwilioAvailableNumber {
 }
 
 export interface AuthUser {
-  id: number;
+  id: number | string;
   name: string;
   username?: string;
   email: string;
@@ -217,15 +217,67 @@ export const employeesApi = {
 
 // ─── Auth helpers ─────────────────────────────────────────────────────
 export const callAuthApi = {
-  login: (identifier: string, password: string) => {
+  login: async (identifier: string, password: string) => {
     const isEmail = identifier.includes('@');
-    return request<{ token: string; user: AuthUser }>('/auth/login', {
+    const agentResponse = await fetch(`${CALLS_API_BASE}/auth/login`, {
       method: 'POST',
-      body: JSON.stringify({ 
-        [isEmail ? 'email' : 'username']: identifier, 
-        password 
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        [isEmail ? 'email' : 'username']: identifier,
+        password,
       }),
+      credentials: 'omit',
     });
+
+    if (agentResponse.ok) {
+      return agentResponse.json() as Promise<{ token: string; user: AuthUser }>;
+    }
+
+    // Keep explicit employee account states such as suspended or invite-not-
+    // accepted. Only a plain credential miss should fall through to CRM auth.
+    if (agentResponse.status !== 401) {
+      const body = await agentResponse.json().catch(() => null) as { error?: string; message?: string } | null;
+      throw new Error(body?.error || body?.message || `Login failed (${agentResponse.status})`);
+    }
+
+    const platformBase = CALLS_API_BASE.replace(/\/api$/, '');
+    const platformResponse = await fetch(`${platformBase}/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: identifier, password }),
+      credentials: 'omit',
+    });
+
+    if (platformResponse.ok) {
+      const platformSession = await platformResponse.json() as {
+        token: string;
+        user: {
+          id: string;
+          username?: string;
+          email: string;
+          display_name?: string;
+          role?: string;
+        };
+      };
+      const managerRoles = new Set(['platform_admin', 'tenant_owner', 'owner', 'admin', 'manager']);
+      const mappedRole: UserRole = managerRoles.has(platformSession.user.role || '') ? 'manager' : 'employee';
+
+      return {
+        token: platformSession.token,
+        user: {
+          id: platformSession.user.id,
+          name: platformSession.user.display_name || platformSession.user.username || platformSession.user.email,
+          username: platformSession.user.username,
+          email: platformSession.user.email,
+          role: mappedRole,
+          status: 'active' as EmployeeStatus,
+          assigned_modules: [],
+        },
+      };
+    }
+
+    const body = await platformResponse.json().catch(() => null) as { error?: string; message?: string } | null;
+    throw new Error(body?.error || body?.message || `Login failed (${platformResponse.status})`);
   },
 
   acceptInvite: (token: string, password: string) =>
@@ -252,7 +304,12 @@ export function storeCallSession(token: string, user: AuthUser) {
   // The unified app shell still checks enr_token for protected routes.
   localStorage.setItem('enr_token', token);
   // Keep DialerPopup's legacy agent-id key in sync so each employee calls from their own number.
-  localStorage.setItem('call_agent_id', String(user.id));
+  const numericAgentId = typeof user.id === 'number' ? user.id : Number(user.id);
+  if (Number.isInteger(numericAgentId) && numericAgentId > 0) {
+    localStorage.setItem('call_agent_id', String(numericAgentId));
+  } else {
+    localStorage.removeItem('call_agent_id');
+  }
 }
 
 export function clearCallSession() {

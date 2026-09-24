@@ -14,7 +14,7 @@ export function getCallingBlocker(
   if (status.isRunning) return null;
   if (!selectedAgentId) return { message: 'Koi active outbound agent select nahi hai.', action: 'agent' };
   if (outboundEnabled === false) return { message: 'Outbound calling server policy se paused hai.', action: 'refresh' };
-  if (status.queueCount < 1) return { message: 'Calling queue khali hai. Koi callable lead assign nahi hui.', action: 'leads' };
+  if (status.queueCount < 1) return { message: 'Calling queue khali hai. Pehle leads ko Assigned Leads mein assign karein.', action: 'leads' };
   const { settings, usageToday } = status;
   if (!status.withinCallingWindow) return {
     message: `Calling hours: ${settings.callingWindowStartHour}:00-${settings.callingWindowEndHour}:00 (${settings.callingTimezone}). Abhi window band hai.`,

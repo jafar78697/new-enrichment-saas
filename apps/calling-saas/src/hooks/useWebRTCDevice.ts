@@ -493,7 +493,8 @@ export function useWebRTCDevice(agentId: number | null | undefined): UseWebRTCDe
       clearTranscriptionRetry();
       const context = new AudioContext();
       const source = context.createMediaStreamSource(stream);
-      const processor = context.createScriptProcessor(4096, 1, 1);
+      // Use 1024 buffer size for lower latency (64ms at 16000Hz) instead of 4096 (256ms)
+      const processor = context.createScriptProcessor(1024, 1, 1);
       const gain = context.createGain();
       gain.gain.value = 0;
       const token = localStorage.getItem('token') || localStorage.getItem('enr_token') || '';
@@ -654,9 +655,16 @@ export function useWebRTCDevice(agentId: number | null | undefined): UseWebRTCDe
       activeTrackedCallIdRef.current = authorization?.trackedCallId || null;
 
       const destination = authorization?.to || phoneNumber;
+      
+      const queryParams = new URLSearchParams();
+      if (agentId) queryParams.append('agentId', String(agentId));
+      if (contactId) queryParams.append('contactId', String(contactId));
+      if (record) queryParams.append('record', 'true');
+      
+      const destinationNumber = queryParams.toString() ? `${destination}?${queryParams.toString()}` : destination;
 
       const call = await client.newCall({
-        destinationNumber: destination,
+        destinationNumber,
         callerNumber: authorization?.callerId || callerId || undefined,
         userVariables: {
           record: record ? 'true' : 'false',

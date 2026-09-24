@@ -359,9 +359,99 @@ export default function LandingPage() {
           </Link>
         </section>
       </main>
-      <footer className="landing-footer">
-        <span>Jento / Voice Calling</span>
-        <span>Lead enrichment · Outreach · Growth</span>
+      <footer style={{
+        background: '#0f172a',
+        color: '#fff',
+        padding: '72px max(28px, calc((100% - 1184px) / 2)) 0',
+      }}>
+        {/* Main footer grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: 48,
+          paddingBottom: 48,
+          borderBottom: '1px solid #1e293b',
+        }}>
+          {/* Brand column */}
+          <div style={{ maxWidth: 260 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 11,
+                background: '#2563eb', color: '#fff',
+                display: 'grid', placeItems: 'center',
+                fontSize: 15, fontWeight: 800,
+                boxShadow: '0 7px 16px #2563eb35',
+              }}>J</div>
+              <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: -1 }}>
+                Jento<span style={{ color: '#60a5fa', fontWeight: 400 }}> AI</span>
+              </span>
+            </div>
+            <p style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.7, margin: '0 0 20px' }}>
+              Your complete sales acceleration platform — lead enrichment, voice calling, and outreach automation in one place.
+            </p>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <a href="https://jentoai.pro" target="_blank" rel="noopener noreferrer" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '8px 14px', borderRadius: 10,
+                border: '1px solid #334155', background: '#1e293b',
+                color: '#e2e8f0', fontSize: 11, fontWeight: 600,
+                textDecoration: 'none', transition: 'background .2s',
+              }}>
+                Visit JentoAI <ArrowUpRight size={13} />
+              </a>
+            </div>
+          </div>
+
+          {/* Product links */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 20 }}>Product</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <Link to="/login" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none' }}>Login</Link>
+              <Link to="/signup" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none' }}>Create Account</Link>
+              <Link to="/demo" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none' }}>Free Demo</Link>
+              <a href="https://voice.jentoai.pro" target="_blank" rel="noopener noreferrer" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none' }}>Voice Platform</a>
+            </div>
+          </div>
+
+          {/* Features */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 20 }}>Features</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <span style={{ color: '#94a3b8', fontSize: 13 }}>Lead Scraping</span>
+              <span style={{ color: '#94a3b8', fontSize: 13 }}>Browser Calling</span>
+              <span style={{ color: '#94a3b8', fontSize: 13 }}>Call Recording</span>
+              <span style={{ color: '#94a3b8', fontSize: 13 }}>Team Management</span>
+              <span style={{ color: '#94a3b8', fontSize: 13 }}>CRM Pipeline</span>
+            </div>
+          </div>
+
+          {/* Resources & Support */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 20 }}>Resources</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <a href="https://youtu.be/WMafaouAjQo" target="_blank" rel="noopener noreferrer" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                Video Tutorial <ArrowUpRight size={12} />
+              </a>
+              <span style={{ color: '#94a3b8', fontSize: 13 }}>support@jentoai.pro</span>
+              <a href="https://jentoai.pro" target="_blank" rel="noopener noreferrer" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'none' }}>JentoAI Pro</a>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom bar */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '24px 0 28px',
+          flexWrap: 'wrap',
+          gap: 12,
+        }}>
+          <span style={{ color: '#475569', fontSize: 11 }}>© {new Date().getFullYear()} Jento AI. All rights reserved.</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+            <span style={{ color: '#475569', fontSize: 11 }}>Lead enrichment · Outreach · Growth</span>
+          </div>
+        </div>
       </footer>
     </div>
   );

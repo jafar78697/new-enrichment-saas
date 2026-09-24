@@ -31,6 +31,17 @@ function dedupeAndNormalize(domains: string[]): string[] {
   return result;
 }
 
+// Calls-module employee tokens use a numeric agent id in `request.tenant.userId`.
+// The enrichment jobs table stores created_by as a UUID user reference, so a
+// legacy caller should create the job without that optional attribution rather
+// than sending a numeric value to PostgreSQL.
+function uuidOrNull(value: unknown): string | null {
+  const candidate = String(value ?? '').trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)
+    ? candidate
+    : null;
+}
+
 async function checkHttpQuota(db: any, tenantId: string, plan: string, count: number): Promise<boolean> {
   const { rows } = await db.query(
     `SELECT http_enrichments_used, http_limit FROM usage_counters
@@ -64,7 +75,7 @@ export default async function jobRoutes(fastify: FastifyInstance) {
 
     const db = new JobRepository(fastify.db, tenantId);
     const job = await db.create({
-      workspace_id: workspaceId, created_by: userId, source_type: 'api',
+      workspace_id: workspaceId, created_by: uuidOrNull(userId), source_type: 'api',
       mode: body.mode || EnrichmentMode.SMART_HYBRID,
       total_items: uniqueDomains.length,
       idempotency_key: body.idempotency_key,

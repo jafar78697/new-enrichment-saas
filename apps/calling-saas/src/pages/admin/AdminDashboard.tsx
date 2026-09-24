@@ -293,7 +293,7 @@ export default function AdminDashboard() {
       if (settingsForm.dollars && Number(settingsForm.dollars) > 0) {
         promises.push(axios.post(`${API_URL}/v1/admin/customers/${selectedCustomerId}/wallet/topup`, {
           unit: 'maps_credits',
-          amount: Number(settingsForm.dollars) * 750,
+          amount: Number(settingsForm.dollars) * 1000,
           description: `Added via admin dashboard $${settingsForm.dollars}`
         }, { headers: authHeaders() }));
       }
@@ -659,7 +659,7 @@ export default function AdminDashboard() {
                         className="input-field w-full text-lg font-bold text-emerald-400 placeholder:text-gray-700"
                       />
                       <div className="text-sm font-medium text-emerald-400 mt-2 bg-emerald-400/10 p-2 rounded-lg border border-emerald-400/20">
-                        ✓ Grants {(Number(settingsForm.dollars || 0) * 750).toLocaleString()} lead extractions
+                        ✓ Grants {(Number(settingsForm.dollars || 0) * 1000).toLocaleString()} lead extractions
                       </div>
                       {customerDetail.wallet_activity?.filter((entry: any) => entry.unit === 'maps_credits').slice(0, 3).map((entry: any, index: number) => (
                         <div key={`${entry.created_at}-${index}`} className="mt-2 rounded-lg border border-border/40 bg-background/40 px-3 py-2 text-xs text-textMuted">

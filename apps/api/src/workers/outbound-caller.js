@@ -241,11 +241,6 @@ async function runWorkerTick() {
           statusCallbackMethod: 'POST',
           statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
           timeout: 30,
-          machineDetection: 'Enable',
-          machineDetectionTimeout: 10,
-          machineDetectionSpeechThreshold: 2400,
-          machineDetectionSpeechEndThreshold: 1200,
-          machineDetectionSilenceTimeout: 5000,
           record: false,
         });
 
@@ -260,6 +255,7 @@ async function runWorkerTick() {
            SET raw_data = COALESCE(raw_data, '{}'::jsonb)
                || jsonb_build_object(
                     'active_call_sid', $1::text,
+                    'call_origin', 'automatic',
                     'call_started_at', NOW()::text,
                     'call_status', 'initiated',
                     'call_duration_seconds', 0,

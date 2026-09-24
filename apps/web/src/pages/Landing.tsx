@@ -106,7 +106,7 @@ export default function LandingPage() {
 
           <div className="landing-actions">
             {token ? (
-              <Link to="/app" className="landing-primary-button">
+              <Link to="/dashboard" className="landing-primary-button">
                 Open Dashboard
               </Link>
             ) : (

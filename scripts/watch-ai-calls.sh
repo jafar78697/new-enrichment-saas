@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVER_IP="${SERVER_IP:-13.61.8.100}"
-SSH_KEY="${SSH_KEY:-$HOME/Downloads/aws-enrichment-key.pem}"
+SERVER_IP="${SERVER_IP:-34.27.29.88}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/google_compute_engine}"
 REMOTE_USER="${REMOTE_USER:-ubuntu}"
 
 echo "=============================================="

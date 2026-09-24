@@ -860,6 +860,36 @@ router.post(
       await handleRecordingWebhook(req.body);
     }
 
+    // ── Start recording when the call is actually answered ──────────────
+    if (req.body.CallSid && req.body.CallStatus === 'in-progress' && signalwireClient) {
+      const callSidForRec = req.body.ParentCallSid || req.body.CallSid;
+      try {
+        const { rows: recRows } = await query(
+          `SELECT id, recording_enabled, recording_sid FROM calls
+           WHERE (call_sid = $1 OR child_call_sid = $1) AND recording_enabled = true AND recording_sid IS NULL
+           LIMIT 1`,
+          [callSidForRec]
+        );
+        if (recRows.length > 0) {
+          const recording = await signalwireClient.calls(req.body.CallSid).recordings.create({
+            recordingStatusCallback: absoluteUrl(req, '/api/signalwire/webhooks/call-status'),
+            recordingStatusCallbackMethod: 'POST',
+            recordingStatusCallbackEvent: 'in-progress completed absent',
+            recordingChannels: 'mono',
+            recordingTrack: 'both'
+          });
+          await query(
+            `UPDATE calls SET recording_sid = $1, recording_status = $2, updated_at = NOW()
+             WHERE id = $3`,
+            [recording.sid, recording.status, recRows[0].id]
+          );
+          console.log(`[RECORDING] Started recording for call ${req.body.CallSid} (DB id=${recRows[0].id})`);
+        }
+      } catch (recErr) {
+        console.error(`[RECORDING] Failed to start recording for answered call ${req.body.CallSid}:`, recErr.message);
+      }
+    }
+
     if (req.body.CallSid && req.body.CallStatus) {
       await handleCallStatusWebhook(req.body);
       const terminalStatuses = new Set(['completed', 'busy', 'failed', 'no-answer', 'canceled']);
@@ -964,16 +994,11 @@ router.post(
       shouldRecord: payload.record === true
     });
 
-    if (payload.record === true && signalwireClient) {
-      try {
-        await signalwireClient.calls(payload.callSid).recordings.create({
-          recordingStatusCallback: absoluteUrl(req, '/api/signalwire/webhooks/call-status'),
-          recordingStatusCallbackEvent: ['in-progress', 'completed', 'absent']
-        });
-        console.log(`[OUTBOUND] Started recording for WebRTC call ${payload.callSid}`);
-      } catch (recordingError) {
-        console.error(`[OUTBOUND] Failed to start recording for WebRTC call ${payload.callSid}:`, recordingError.message);
-      }
+    // Recording is now started in the call-status webhook when the call is
+    // actually answered (in-progress). Attempting to start it here would fail
+    // because the call is still ringing at this point.
+    if (payload.record === true) {
+      console.log(`[OUTBOUND] Recording requested for ${payload.callSid} — will start when call is answered.`);
     }
 
     res.json({ success: true, callId: payload.callSid });

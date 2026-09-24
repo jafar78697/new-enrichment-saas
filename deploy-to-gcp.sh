@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════
-#  Deploy Enrichment SaaS API to AWS EC2 via Rsync
+#  Deploy Enrichment SaaS API to Google Compute Engine via Rsync
 #  (Bypasses GitHub completely for instant, private updates)
 # ═══════════════════════════════════════════════════════
 set -e
@@ -89,7 +89,8 @@ const migrations = [
   '025_employee_permissions.sql',
   '026_admin_bulk_provisioning.sql',
   '027_call_destination_cooldown.sql',
-  '028_launch_readiness.sql'
+  '028_launch_readiness.sql',
+  '029_platform_default_ai_calling.sql'
 ];
 
 async function main() {
@@ -111,6 +112,11 @@ main().catch((err) => {
   process.exit(1);
 });
 NODE
+
+# Tenantless legacy manager sessions use the platform's default AI Calling
+# workspace. Keep this explicit so customer tenants are never guessed.
+sed -i '/^VOICE_AGENT_TENANT_ID=/d' /home/jafar-tayyar-siddiqi/enrichment-saas/apps/api/.env
+echo 'VOICE_AGENT_TENANT_ID="1f7d38fc-bb75-47ae-8290-223506dcb0bf"' >> /home/jafar-tayyar-siddiqi/enrichment-saas/apps/api/.env
 
 echo "→ Setting up Python Worker..."
 cd /home/jafar-tayyar-siddiqi/enrichment-saas/apps/worker-http

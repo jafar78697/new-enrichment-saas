@@ -210,9 +210,14 @@ export default function DashboardHome() {
                 {demoUsage.calls_remaining <= 0 ? (
                   <button disabled className="outline-action opacity-50 cursor-not-allowed">Demo Completed</button>
                 ) : (
-                  <button onClick={handleStartDemo} disabled={assigning} className="outline-action">
-                    {assigning ? 'Starting...' : 'Start Demo Session'} <ArrowRight size={16} />
-                  </button>
+                <button 
+                  onClick={handleStartDemo} 
+                  disabled={assigning} 
+                  className="primary-action"
+                  style={{ backgroundColor: '#16a34a', borderColor: '#16a34a', color: 'white' }}
+                >
+                  {assigning ? 'Starting...' : 'Start Demo Session'} <ArrowRight size={16} />
+                </button>
                 )}
                 {demoError && <div className="text-xs text-red-400 mt-1">{demoError}</div>}
               </div>
@@ -337,6 +342,83 @@ export default function DashboardHome() {
           </div>
         )}
       </div>
+
+      {/* ─── Footer ──────────────────────────────────────────────────────── */}
+      <footer style={{
+        marginTop: 56,
+        borderTop: '1px solid #e2e8f0',
+        padding: '40px 0 32px',
+      }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 32,
+          marginBottom: 32,
+        }}>
+          {/* Brand */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: 10,
+                background: '#2563eb', color: '#fff',
+                display: 'grid', placeItems: 'center',
+                fontSize: 14, fontWeight: 800,
+                boxShadow: '0 4px 12px #2563eb30',
+              }}>J</div>
+              <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: -0.8, color: '#0f172a' }}>
+                Jento<span style={{ color: '#2563eb', fontWeight: 400 }}> AI</span>
+              </span>
+            </div>
+            <p style={{ color: '#64748b', fontSize: 12, lineHeight: 1.6, maxWidth: 220, margin: 0 }}>
+              Lead enrichment, outreach &amp; voice calling — everything your sales team needs.
+            </p>
+          </div>
+
+          {/* Quick Links */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', textTransform: 'uppercase' as const, letterSpacing: 1.2, marginBottom: 14 }}>Quick Links</div>
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+              <Link to="/leads" style={{ color: '#64748b', fontSize: 13, textDecoration: 'none' }}>Lead List</Link>
+              <Link to="/calls" style={{ color: '#64748b', fontSize: 13, textDecoration: 'none' }}>Call History</Link>
+              <Link to="/employees" style={{ color: '#64748b', fontSize: 13, textDecoration: 'none' }}>Employees</Link>
+              <Link to="/settings" style={{ color: '#64748b', fontSize: 13, textDecoration: 'none' }}>Settings</Link>
+            </div>
+          </div>
+
+          {/* Resources */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', textTransform: 'uppercase' as const, letterSpacing: 1.2, marginBottom: 14 }}>Resources</div>
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+              <a href="https://youtu.be/WMafaouAjQo" target="_blank" rel="noopener noreferrer" style={{ color: '#64748b', fontSize: 13, textDecoration: 'none' }}>Video Tutorial</a>
+              <a href="https://jentoai.pro" target="_blank" rel="noopener noreferrer" style={{ color: '#64748b', fontSize: 13, textDecoration: 'none' }}>JentoAI Pro</a>
+              <a href="https://voice.jentoai.pro" target="_blank" rel="noopener noreferrer" style={{ color: '#64748b', fontSize: 13, textDecoration: 'none' }}>Voice Platform</a>
+            </div>
+          </div>
+
+          {/* Support */}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', textTransform: 'uppercase' as const, letterSpacing: 1.2, marginBottom: 14 }}>Support</div>
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+              <span style={{ color: '#64748b', fontSize: 13 }}>support@jentoai.pro</span>
+              <span style={{ color: '#64748b', fontSize: 13 }}>WhatsApp: +1 (203) 555-0100</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom bar */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          borderTop: '1px solid #e2e8f0',
+          paddingTop: 20,
+          flexWrap: 'wrap' as const,
+          gap: 12,
+        }}>
+          <span style={{ color: '#94a3b8', fontSize: 11 }}>© {new Date().getFullYear()} Jento AI. All rights reserved.</span>
+          <span style={{ color: '#94a3b8', fontSize: 11 }}>Lead enrichment · Outreach · Growth</span>
+        </div>
+      </footer>
     </div>
   );
 }

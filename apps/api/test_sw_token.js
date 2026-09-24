@@ -1,15 +1,16 @@
+import dotenv from 'dotenv';
 import axios from 'axios';
-async function test() {
-  try {
-    const creds = Buffer.from('52cc08f5-0818-4a57-b09a-f4efb707a216:PT923e592759ad263e77d704daecf1ffbf8a77d8da60cb9a56').toString('base64');
-    const res = await axios.post('https://jentoai.signalwire.com/api/relay/rest/tokens', {
-      // what payload?
-    }, {
-      headers: { Authorization: `Basic ${creds}` }
-    });
-    console.log(res.data);
-  } catch (err) {
-    console.log(err.response?.data || err.message);
-  }
+
+dotenv.config({ path: '.env' });
+
+const { SIGNALWIRE_PROJECT_ID, SIGNALWIRE_API_TOKEN, SIGNALWIRE_SPACE_URL } = process.env;
+if (!SIGNALWIRE_PROJECT_ID || !SIGNALWIRE_API_TOKEN || !SIGNALWIRE_SPACE_URL) {
+  throw new Error('SignalWire credentials are required.');
 }
-test();
+
+const spaceUrl = SIGNALWIRE_SPACE_URL.replace(/^https?:\/\//, '').replace(/\/$/, '');
+const credentials = Buffer.from(`${SIGNALWIRE_PROJECT_ID}:${SIGNALWIRE_API_TOKEN}`).toString('base64');
+const response = await axios.post(`https://${spaceUrl}/api/relay/rest/tokens`, {}, {
+  headers: { Authorization: `Basic ${credentials}` },
+});
+console.log(JSON.stringify({ tokenEndpointReached: true, status: response.status }));

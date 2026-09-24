@@ -160,7 +160,7 @@ export const INDUSTRY_PROMPTS = {
 export function getNicheGuidance(value = '') {
   const niche = String(value).toLowerCase();
   if (/plumb|hvac|electric|roof|contractor/.test(niche)) {
-    return 'Ask about missed calls while crews are on jobs, emergency-call intake, and booking estimates. Focus on fewer missed jobs and less office phone work.';
+    return 'First ask whether you are speaking with the owner. If yes, introduce yourself as Emma, an AI assistant from Jento AI, ask whether they have two minutes, and wait for permission. Then explain that Jento AI provides a 24/7 AI receptionist that answers calls, responds to new leads, collects customer details, and helps schedule appointments. Mention the website and appointment-system setup and the complete 500 US dollar offer, then ask for a short 10-minute demo. If they are not the owner, ask for the person responsible for the website, appointments, or incoming calls.';
   }
   if (/real estate|realtor|property/.test(niche)) {
     return 'Ask about missed buyer or seller inquiries and slow lead follow-up. Focus on immediate answers, lead qualification, and booking viewings or consultations.';

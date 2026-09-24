@@ -483,7 +483,7 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
           [allLeads.length, enrichmentJobId]
         );
 
-        const finalCost = uniqueLeadCount;
+        const finalCost = newLeadCount || 0;
 
         await finishClient.query(
           `UPDATE metered_maps_jobs

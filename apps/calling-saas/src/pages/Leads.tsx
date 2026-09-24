@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { CalendarClock, ClipboardPaste, ExternalLink, Filter, LoaderCircle, Phone, Save, StickyNote, Trash2, Upload, Users, X, FileSpreadsheet } from 'lucide-react';
 import { callsApi, type Agent, type Contact } from '../services/callsApi';
-import { openDialer } from '../dialer-events';
+import { openDialer, RELOAD_CONTACTS_EVENT } from '../dialer-events';
 import { useNotifications } from '../components/Notifications';
 import { normalizeNorthAmericanPhone } from '../utils/phone';
 
@@ -172,8 +172,8 @@ export default function Leads() {
       : '';
   const activeFilterCount = Number(employeeFilter !== 'all') + Number(leadFilter !== 'all');
 
-  async function loadContacts() {
-    setLoadingContacts(true);
+  async function loadContacts(background = false) {
+    if (!background) setLoadingContacts(true);
     try {
       const [response, agentsResponse] = await Promise.all([
         callsApi.listContacts(),
@@ -185,12 +185,16 @@ export default function Leads() {
       console.error('Could not load contacts', error);
       notify('Unable to load the Lead List. Refresh the page and try again.', 'error');
     } finally {
-      setLoadingContacts(false);
+      if (!background) setLoadingContacts(false);
     }
   }
 
   useEffect(() => {
     loadContacts();
+    
+    const handleReload = () => loadContacts(true);
+    window.addEventListener(RELOAD_CONTACTS_EVENT, handleReload);
+    return () => window.removeEventListener(RELOAD_CONTACTS_EVENT, handleReload);
   }, []);
 
   async function importPastedLeads() {

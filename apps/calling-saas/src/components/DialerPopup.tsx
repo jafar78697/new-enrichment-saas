@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ClipboardPenLine, LoaderCircle, Mic, PhoneCall, PhoneOff, Volume2, VolumeX } from 'lucide-react';
 import useWebRTCDevice, { type CallStatus, type DeviceStatus } from '../hooks/useWebRTCDevice';
+import { reloadContacts } from '../dialer-events';
 import { callsApi, type Agent } from '../services/callsApi';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
@@ -301,6 +302,7 @@ export default function DialerPopup({
           meeting_time: meetingTime || null,
           stage,
         });
+        reloadContacts();
       } catch (err) {
         console.error('Failed to save wrap up details', err);
       }

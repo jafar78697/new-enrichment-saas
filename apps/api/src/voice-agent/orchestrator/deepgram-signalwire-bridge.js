@@ -3,7 +3,7 @@ import { RestClient } from '@signalwire/compatibility-api';
 import { env } from '../config/env.js';
 import { buildDeepgramSettings } from '../providers/deepgram-agent.js';
 import { query } from '../../calls-module/db/index.js';
-import { broadcastCallAudio, broadcastCallTranscript, broadcastCallAudioClear } from '../websocket/call-monitor.js';
+import { broadcastCallAudio, broadcastCallTranscript, broadcastCallAudioClear, broadcastCallStatus } from '../websocket/call-monitor.js';
 import { detectCallStateFromTranscript, CallStates } from '../detection/call-state-detector.js';
 import { createVoiceAgentWebSocketServer } from '../websocket/upgrade-router.js';
 
@@ -121,6 +121,7 @@ async function loadSessionContext(sessionId) {
        er.company_name,
        er.industry_guess,
        er.raw_data->>'niche_name' AS niche_name,
+       er.raw_data->>'call_origin' AS call_origin,
        jsonb_build_object(
          'id', ac.id,
          'name', ac.name,
@@ -244,6 +245,29 @@ async function handleDeepgramEvent(event, context) {
       }
       if (isTerminalDetection(detection)) {
         context.detectionLocked = true;
+        const terminalStatus = detection.state === CallStates.VOICEMAIL ? 'voicemail' : 'no-answer';
+        await query(
+          `UPDATE enrichment_results er
+           SET lead_stage = 'no_answer',
+               raw_data = COALESCE(er.raw_data, '{}'::jsonb)
+                 || jsonb_build_object(
+                      'call_status', $1::text,
+                      'answered_by', $2::text,
+                      'call_ended_at', NOW()::text
+                    ),
+               lead_notes = CONCAT_WS(E'\n', NULLIF(er.lead_notes, ''), $3::text)
+           FROM ai_call_sessions s
+           WHERE s.id = $4
+             AND er.id = s.lead_id
+             AND er.tenant_id = s.tenant_id`,
+          [
+            terminalStatus,
+            detection.state,
+            `[AI Call] ${detection.state} detected from the live conversation; call ended.`,
+            context.sessionId,
+          ],
+        );
+        broadcastCallStatus(context.callSid, terminalStatus);
         await closePhoneCall({
           callSid: context.callSid,
           signalWireWs: context.signalWireWs,
@@ -292,6 +316,7 @@ export function attachDeepgramBridge(httpServer) {
   const wss = createVoiceAgentWebSocketServer(httpServer, '/api/voice/signalwire/deepgram-stream');
 
   wss.on('connection', (signalWireWs) => {
+    console.log('[deepgram-bridge] SignalWire media stream connected.');
     let streamSid = null;
     let callSid = null;
     let sessionId = null;
@@ -307,6 +332,8 @@ export function attachDeepgramBridge(httpServer) {
     let cleanupStarted = false;
     let startReceived = false;
     let sessionValidated = false;
+    let signalWireAudioFrames = 0;
+    let deepgramAudioFrames = 0;
     const context = { signalWireWs, streamSid, callSid, sessionId, deepgramWs, agentConfig, detectionLocked: false };
 
     const cleanup = async (state = 'stopped') => {
@@ -366,6 +393,12 @@ export function attachDeepgramBridge(httpServer) {
           callSid = start.callSid || start.call_sid || parameters.CallSid || null;
           sessionId = parameters.sessionId || parameters.session_id || null;
 
+          console.log('[deepgram-bridge] SignalWire stream started:', {
+            callSid,
+            streamSid,
+            hasSessionId: Boolean(sessionId),
+          });
+
           if (!streamSid || !sessionId || !callSid || !env.DEEPGRAM_API_KEY) {
             console.error('[deepgram-bridge] Missing stream, session, or Deepgram configuration; closing stream.');
             signalWireWs.close(1008, 'invalid-agent-stream');
@@ -400,7 +433,12 @@ export function attachDeepgramBridge(httpServer) {
             return;
           }
 
-          const remainingSeconds = await enforceDailyLimit(session.tenant_id);
+          // An operator selected this call manually, so the campaign's daily
+          // spending/minute cap does not terminate it after SignalWire connects.
+          // Automatic Enable Calling jobs keep the normal campaign cap.
+          const remainingSeconds = session.call_origin === 'manual'
+            ? env.AI_MAX_SECONDS_PER_CALL
+            : await enforceDailyLimit(session.tenant_id);
           if (cleanupStarted) return;
           if (remainingSeconds <= 0) {
             console.warn('[deepgram-bridge] AI daily budget cap reached; rejecting stream.');
@@ -447,7 +485,15 @@ export function attachDeepgramBridge(httpServer) {
             if (settingsSent || deepgramWs?.readyState !== WebSocket.OPEN) return;
             deepgramWs.send(JSON.stringify(buildDeepgramSettings({ company_name: session.company_name, niche_name: session.niche_name || session.industry_guess }, agentConfig)));
             settingsSent = true;
+            console.log('[deepgram-bridge] Deepgram settings sent:', { callSid, sessionId });
           };
+
+          // Deepgram expects Settings as soon as its WebSocket is ready. Waiting
+          // only for a Welcome event can leave a live phone call with no greeting.
+          deepgramWs.on('open', () => {
+            console.log('[deepgram-bridge] Deepgram WebSocket connected:', { callSid, sessionId });
+            sendSettings();
+          });
 
           deepgramWs.on('unexpected-response', (_request, response) => {
             console.error(`[deepgram-bridge] Unexpected Deepgram response: ${response.statusCode}`);
@@ -458,9 +504,22 @@ export function attachDeepgramBridge(httpServer) {
             try {
             if (cleanupStarted) return;
             if (isBinary) {
+              deepgramAudioFrames += 1;
+              if (deepgramAudioFrames === 1) {
+                console.log('[deepgram-bridge] First AI audio frame received from Deepgram:', {
+                  callSid,
+                  bytes: data.length,
+                });
+              }
               if (signalWireWs.readyState === WebSocket.OPEN) {
                 const payload = data.toString('base64');
-                signalWireWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload } }));
+                signalWireWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload } }), (error) => {
+                  if (error) {
+                    console.error('[deepgram-bridge] AI audio could not be sent to SignalWire:', error.message);
+                  } else if (deepgramAudioFrames === 1) {
+                    console.log('[deepgram-bridge] First AI audio frame sent to SignalWire:', { callSid, streamSid });
+                  }
+                });
                 if (callSid) broadcastCallAudio(callSid, 'ai', payload);
               }
               return;
@@ -468,8 +527,20 @@ export function attachDeepgramBridge(httpServer) {
 
             const event = safeJsonParse(data.toString());
             if (!event) return;
-            if (event.type === 'Welcome') sendSettings();
+            if (['AgentThinking', 'ConversationText', 'AgentAudioDone', 'Warning', 'Error'].includes(event.type)) {
+              console.log('[deepgram-bridge] Deepgram event:', {
+                callSid,
+                type: event.type,
+                role: event.role || null,
+                description: event.description || event.message || null,
+              });
+            }
+            if (event.type === 'Welcome') {
+              console.log('[deepgram-bridge] Deepgram welcome received:', { callSid, sessionId });
+              sendSettings();
+            }
             if (event.type === 'SettingsApplied') {
+              console.log('[deepgram-bridge] Deepgram settings applied:', { callSid, sessionId, pendingFrames: pendingAudioFrames.length });
               deepgramReady = true;
               for (const frame of pendingAudioFrames) {
                 if (deepgramWs.readyState === WebSocket.OPEN) deepgramWs.send(frame);
@@ -483,7 +554,13 @@ export function attachDeepgramBridge(httpServer) {
             }
           });
 
-          deepgramWs.on('close', () => {
+          deepgramWs.on('close', (code, reason) => {
+            console.log('[deepgram-bridge] Deepgram WebSocket closed:', {
+              callSid,
+              sessionId,
+              code,
+              reason: reason?.toString() || '',
+            });
             if (!cleanupStarted) closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'deepgram-disconnected' }).catch(() => null);
           });
           deepgramWs.on('error', (error) => console.error('[deepgram-bridge] WebSocket error:', error.message));
@@ -493,6 +570,13 @@ export function attachDeepgramBridge(httpServer) {
         if (message.event === 'media' && message.media?.payload) {
           if (!sessionValidated || !streamRegistered || cleanupStarted) return;
           const audio = Buffer.from(message.media.payload, 'base64');
+          signalWireAudioFrames += 1;
+          if (signalWireAudioFrames === 1) {
+            console.log('[deepgram-bridge] First customer audio frame received from SignalWire:', {
+              callSid,
+              bytes: audio.length,
+            });
+          }
           if (callSid) broadcastCallAudio(callSid, 'prospect', message.media.payload);
           if (deepgramWs?.readyState === WebSocket.OPEN && deepgramReady) {
             deepgramWs.send(audio);
@@ -503,7 +587,15 @@ export function attachDeepgramBridge(httpServer) {
           return;
         }
 
-        if (message.event === 'stop') await cleanup('stopped');
+        if (message.event === 'stop') {
+          console.log('[deepgram-bridge] SignalWire stream stopped:', {
+            callSid,
+            sessionId,
+            customerAudioFrames: signalWireAudioFrames,
+            aiAudioFrames: deepgramAudioFrames,
+          });
+          await cleanup('stopped');
+        }
       } catch (error) {
         console.error('[deepgram-bridge] SignalWire message failed:', error.message);
         if (sessionValidated) await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'bridge-error' });
@@ -511,9 +603,17 @@ export function attachDeepgramBridge(httpServer) {
       }
     });
 
-    signalWireWs.on('close', () => cleanup('closed').catch((error) => {
+    signalWireWs.on('close', (code, reason) => {
+      console.log('[deepgram-bridge] SignalWire media stream closed:', {
+        callSid,
+        sessionId,
+        code,
+        reason: reason?.toString() || '',
+      });
+      cleanup('closed').catch((error) => {
       console.error('[deepgram-bridge] Cleanup failed:', error.message);
-    }));
+      });
+    });
   });
 
   console.log('[deepgram-bridge] SignalWire bridge attached at /api/voice/signalwire/deepgram-stream');

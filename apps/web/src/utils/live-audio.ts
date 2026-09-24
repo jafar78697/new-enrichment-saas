@@ -1,5 +1,24 @@
 type Speaker = 'ai' | 'prospect';
 
+// A browser only permits sound after a real user click. Keeping one unlocked
+// AudioContext alive means the Listen Live popup can open later without losing
+// the first seconds of an AI call.
+let sharedAudioContext: AudioContext | null = null;
+
+export function getLiveAudioContext() {
+  if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    sharedAudioContext = new AudioContextClass({ sampleRate: 8000 }) as AudioContext;
+  }
+  return sharedAudioContext;
+}
+
+export async function unlockLiveAudio() {
+  const context = getLiveAudioContext();
+  if (context.state !== 'running') await context.resume();
+  return context;
+}
+
 export class LiveAudioPlayer {
   private nextStart: Record<Speaker, number> = { ai: 0, prospect: 0 };
   private sources: Record<Speaker, Set<AudioBufferSourceNode>> = { ai: new Set(), prospect: new Set() };

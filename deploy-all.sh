@@ -23,11 +23,11 @@ bash deploy-calling-saas.sh
 
 API_URL="${API_URL:-https://api.jentoai.pro}" bash deploy-voice-frontend.sh
 
-# 2. Backend (rsync -> AWS EC2)
+# 2. Backend (rsync -> Google Compute Engine VM 34.27.29.88)
 echo ""
-echo "⚙️ [2/2] Deploying Backend to AWS EC2 via rsync..."
+echo "⚙️ [2/2] Deploying Backend to Google VM via rsync..."
 bash deploy-to-gcp.sh
 
 echo ""
-echo "✅ All Done! Frontends are deployed to Cloudflare via Wrangler and Backend is live on AWS EC2."
+echo "✅ All Done! Frontends are deployed to Cloudflare via Wrangler and Backend is live on Google VM 34.27.29.88."
 echo "======================================================"
