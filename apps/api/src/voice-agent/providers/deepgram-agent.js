@@ -96,10 +96,7 @@ function buildListenProvider() {
   if (isFluxModel) {
     listenProvider.version = 'v2';
     listenProvider.eot_threshold = env.DEEPGRAM_AGENT_EOT_THRESHOLD;
-    listenProvider.eager_eot_threshold = Math.min(
-      env.DEEPGRAM_AGENT_EAGER_EOT_THRESHOLD,
-      env.DEEPGRAM_AGENT_EOT_THRESHOLD,
-    );
+    // We intentionally omit eager_eot_threshold to avoid premature "first-word" interruptions.
     listenProvider.eot_timeout_ms = env.DEEPGRAM_AGENT_EOT_TIMEOUT_MS;
   } else {
     listenProvider.smart_format = true;
