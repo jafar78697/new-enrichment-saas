@@ -11,6 +11,7 @@ interface LiveCallMonitorProps {
   activeLeadName?: string | null;
   onCallEnded?: (callSid: string, status: string) => void;
   onSkipCurrentCall?: (callSid: string, reason: string) => Promise<void> | void;
+  fromPhone?: string | null;
 }
 
 interface TranscriptEntry {
@@ -28,6 +29,7 @@ export default function LiveCallMonitor({
   activeLeadName = null,
   onCallEnded,
   onSkipCurrentCall,
+  fromPhone = null,
 }: LiveCallMonitorProps) {
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
   const [isListening, setIsListening] = useState(false);
@@ -370,6 +372,15 @@ export default function LiveCallMonitor({
           <strong style={{ display: 'block', color: '#F8FAFC', marginBottom: 4 }}>
             {callSid ? activeLeadName || 'Current live call' : 'Waiting for next call'}
           </strong>
+          {fromPhone && callSid && (
+            <div style={{ color: '#22C55E', fontWeight: 600, fontSize: 13, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ position: 'relative', display: 'flex', width: 8, height: 8 }}>
+                <span style={{ position: 'absolute', display: 'inline-flex', width: '100%', height: '100%', borderRadius: '50%', background: '#4ADE80', opacity: 0.75, animation: 'ping 1s cubic-bezier(0, 0, 0.2, 1) infinite' }}></span>
+                <span style={{ position: 'relative', display: 'inline-flex', width: 8, height: 8, borderRadius: '50%', background: '#22C55E' }}></span>
+              </span>
+              Calling from: {fromPhone}
+            </div>
+          )}
           {statusHelp()}
         </div>
 

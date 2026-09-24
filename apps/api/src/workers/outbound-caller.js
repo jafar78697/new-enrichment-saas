@@ -9,6 +9,7 @@ const projectId = env.SIGNALWIRE_PROJECT_ID;
 const apiToken = env.SIGNALWIRE_API_TOKEN;
 const spaceUrl = env.SIGNALWIRE_SPACE_URL;
 const fromPhones = (env.SIGNALWIRE_PHONE_NUMBER || '').split(',').map(n => normalizeNorthAmericanPhone(n.trim())).filter(Boolean);
+let currentPhoneIndex = 0;
 
 let signalwireClient = null;
 if (projectId && apiToken && spaceUrl) {
@@ -232,10 +233,15 @@ async function runWorkerTick() {
 
         console.log(`[outbound-caller] Initiating call to lead: ${lead.company_name || lead.domain} (${normalizedPhone})`);
         const webhookUrl = `${PUBLIC_BASE_URL}/api/voice/twiml/outbound?contactId=${lead.id}&tenantId=${lead.tenant_id}`;
+        
+        // Strict Round-Robin selection
+        const callerId = fromPhones[currentPhoneIndex];
+        currentPhoneIndex = (currentPhoneIndex + 1) % fromPhones.length;
+        
         const call = await signalwireClient.calls.create({
           url: webhookUrl,
           to: normalizedPhone,
-          from: fromPhones[Math.floor(Math.random() * fromPhones.length)],
+          from: callerId,
           method: 'POST',
           statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
           statusCallbackMethod: 'POST',
@@ -263,10 +269,11 @@ async function runWorkerTick() {
                     'call_started_at', NOW()::text,
                     'call_status', 'initiated',
                     'call_duration_seconds', 0,
-                    'recording_enabled', false
+                    'recording_enabled', false,
+                    'from_phone', $3::text
                   )
            WHERE id = $2`,
-          [call.sid, lead.id],
+          [call.sid, lead.id, callerId],
         );
         console.log(`[outbound-caller] SignalWire call created for lead ${lead.id}: ${call.sid}.`);
       } catch (err) {

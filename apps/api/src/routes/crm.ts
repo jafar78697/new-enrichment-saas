@@ -1030,7 +1030,8 @@ export default async function crmRoutes(fastify: FastifyInstance) {
 
     const signalWireClient = getSignalWireClient();
     const fromPhones = (process.env.SIGNALWIRE_PHONE_NUMBER || '').split(',').map(n => normalizeNorthAmericanPhone(n.trim())).filter(Boolean);
-    const fromPhone = fromPhones.length > 0 ? fromPhones[Math.floor(Math.random() * fromPhones.length)] : null;
+    if (typeof global.manualPhoneIndex === 'undefined') global.manualPhoneIndex = 0;
+    const fromPhone = fromPhones.length > 0 ? fromPhones[global.manualPhoneIndex++ % fromPhones.length] : null;
     const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:3000';
 
     if (!signalWireClient || !fromPhone) {
@@ -1084,10 +1085,11 @@ export default async function crmRoutes(fastify: FastifyInstance) {
                   'call_origin', 'manual',
                   'call_started_at', NOW()::text,
                   'call_status', 'initiated',
-                  'call_duration_seconds', 0
+                  'call_duration_seconds', 0,
+                  'from_phone', $3::text
                 )
          WHERE id = $2`,
-        [callSid, leadId],
+        [callSid, leadId, fromPhone],
       );
 
       fastify.log.info({ leadId, callSid }, 'Manual outbound call created');

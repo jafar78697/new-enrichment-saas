@@ -746,6 +746,7 @@ export default function AgentPipelinePage() {
           autoStart
           autoFollow
           activeLeadName={activeLead ? activeLead.company_name || activeLead.domain : null}
+          fromPhone={activeLead?.raw_data?.from_phone || null}
           onClose={() => {
             setDismissedLiveCallSid(listenCallSid);
             setListeningEnabled(false);
