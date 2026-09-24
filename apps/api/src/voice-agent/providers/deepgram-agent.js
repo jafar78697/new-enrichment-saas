@@ -33,7 +33,7 @@ Call flow:
    support@jentoai.com and say it slowly: support at jentoai dot com.
    If they do not want to share an email, offer to take only a phone number or
    end politely.
-8. If not interested or busy, thank them and end. Never pressure them.
+8. If they say "no" or are not interested, try to briefly overcome the objection once by highlighting the time they could save. If they firmly decline again, thank them and end. Never pressure them.
 
 Rules:
 - Never pretend that the lead called you.
@@ -76,8 +76,7 @@ any conflicting generic or saved agent prompt:
 6. If they ask a question, briefly explain that Jento AI helps businesses with
    website improvements, appointment workflows, and a 24/7 AI receptionist for
    incoming-call and lead follow-up. Do not claim a feature is already installed.
-7. If they are busy, ask for a better time. If they decline, thank them and end
-   without pressure. Respect any do-not-call request immediately.
+7. If they decline or say "no", do not just hang up. Politely try to overcome the objection once by highlighting that this AI can save them hours of missed calls or answer basic questions for them. If they firmly say no again or are busy, thank them and end without pressure. Respect any do-not-call request immediately.
 
 Speak in short, natural sentences. The only approved package price is 500 US
 dollars for the complete setup described above. Do not invent discounts,
@@ -120,7 +119,7 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {})
   const nicheContext = isPlumbing
     ? `\n\nIMPORTANT: This lead is in plumbing. Ignore any generic or salon/beauty-specific wording in the saved agent prompt for this call.\n${PLUMBING_CONTEXT}`
     : '';
-  const greetingInstruction = `\n\nIMPORTANT: Do not speak until the prospect speaks first. When the prospect first speaks (e.g., says "Hello"), you must respond with EXACTLY this greeting and nothing else for your first turn: "${greeting}"`;
+  const greetingInstruction = `\n\nIMPORTANT: Do not speak until the prospect speaks first. When the prospect first speaks with a clear greeting (e.g., "Hello", "Yes"), you must respond with EXACTLY this greeting and nothing else for your first turn: "${greeting}". If the user's first input is clearly background noise or an STT hallucination (like "Hold a minute", "Thank you"), ignore it and just say "Hello?" to prompt them.`;
   const prompt = `${agentConfig?.prompt || DEFAULT_PROMPT}${nicheContext}${leadContext}${toolPolicy}${greetingInstruction}`;
   const primaryModel = env.DEEPGRAM_AGENT_MODEL || 'gpt-4o-mini';
   const fallbackModel = env.DEEPGRAM_AGENT_FALLBACK_MODEL || 'gpt-4.1-mini';

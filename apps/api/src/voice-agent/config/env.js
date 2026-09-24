@@ -49,7 +49,7 @@ const envSchema = z.object({
   DEEPGRAM_AGENT_LISTEN_MODEL: z.preprocess(emptyIfPlaceholder, z.string().default('flux-general-en')),
   DEEPGRAM_AGENT_EOT_THRESHOLD: z.coerce.number().min(0.5).max(0.99).default(0.85),
   DEEPGRAM_AGENT_EOT_TIMEOUT_MS: z.coerce.number().int().min(300).max(10000).default(2500),
-  DEEPGRAM_AGENT_VOICE: z.preprocess(emptyIfPlaceholder, z.string().default('flux-kit-en')),
+  DEEPGRAM_AGENT_VOICE: z.preprocess(emptyIfPlaceholder, z.string().default('aura-asteria-en')),
   DEEPGRAM_BROWSER_PREVIEW_MAX_SECONDS: z.coerce.number().int().min(60).max(600).default(120),
   DEEPGRAM_BROWSER_PREVIEW_MAX_ACTIVE_PER_USER: z.coerce.number().int().min(1).max(2).default(1),
   AI_MAX_SECONDS_PER_CALL: z.coerce.number().int().min(60).max(600).default(180),
