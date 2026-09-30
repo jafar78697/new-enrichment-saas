@@ -73,35 +73,8 @@ router.post(
     const response = new RestClient.LaML.VoiceResponse();
 
     const answeredBy = String(payload.AnsweredBy || '').toLowerCase();
-    const nonHumanAnswer = answeredBy === 'fax' || answeredBy.startsWith('machine');
-    if (nonHumanAnswer) {
-      const detectedStatus = answeredBy === 'fax' ? 'failed' : 'voicemail';
-      if (payload.contactId) {
-        await query(
-          `UPDATE enrichment_results
-           SET lead_stage = 'no_answer',
-               raw_data = (COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid')
-                 || jsonb_build_object(
-                      'answered_by', $1::text,
-                      'call_status', $2::text,
-                      'machine_detection_seconds', 10,
-                      'call_ended_at', NOW()::text
-                    ),
-               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $3::text)
-           WHERE id = $4::uuid AND do_not_call = false`,
-          [
-            answeredBy,
-            detectedStatus,
-            `[AI Call] ${answeredBy || 'machine'} detected by SignalWire in the first 10 seconds; call ended before Deepgram started.`,
-            payload.contactId,
-          ],
-        );
-      }
-      broadcastCallStatus(payload.CallSid, detectedStatus);
-      console.log(`[voice-agent] ${answeredBy} detected for ${payload.CallSid}; hanging up before AI stream.`);
-      response.hangup();
-      return res.type('text/xml').send(response.toString());
-    }
+    // AMD can classify a greeting as a machine. Keep the stream open so the
+    // operator can hear the greeting and choose the final result in the popup.
 
     let provider = null;
     let sessionId = null;
@@ -242,13 +215,6 @@ router.post(
       contactId,
     });
 
-    if (req.body.CallStatus && req.body.CallSid) {
-      broadcastCallStatus(req.body.CallSid, req.body.CallStatus);
-      if (req.body.ParentCallSid) {
-        broadcastCallStatus(req.body.ParentCallSid, req.body.CallStatus);
-      }
-    }
-
     if (contactId && req.body.CallSid) {
       await query(
         `UPDATE enrichment_results
@@ -272,6 +238,31 @@ router.post(
       );
     }
 
+    if (req.body.CallSid && req.body.CallStatus) {
+      const terminalNoAnswer = ['busy', 'failed', 'no-answer', 'canceled'].includes(req.body.CallStatus);
+      const terminal = terminalNoAnswer || req.body.CallStatus === 'completed';
+      await query(
+        `UPDATE ai_call_sessions
+         SET call_state = $2,
+             answered_at = CASE WHEN $2 = 'answered' THEN COALESCE(answered_at, NOW()) ELSE answered_at END,
+             ended_at = CASE WHEN $4 THEN COALESCE(ended_at, NOW()) ELSE ended_at END,
+             duration_sec = GREATEST(
+               COALESCE(duration_sec, 0),
+               COALESCE(NULLIF($3::text, '')::int, 0)
+             ),
+             outcome = CASE WHEN $5 THEN COALESCE(outcome, 'no_answer') ELSE outcome END,
+             hangup_reason = CASE WHEN $5 THEN COALESCE(hangup_reason, $2) ELSE hangup_reason END
+         WHERE signalwire_call_sid = $1`,
+        [
+          req.body.CallSid,
+          req.body.CallStatus,
+          req.body.CallDuration || req.body.Duration || null,
+          terminal,
+          terminalNoAnswer,
+        ],
+      );
+    }
+
     if (contactId && ['busy', 'failed', 'no-answer', 'canceled'].includes(req.body.CallStatus)) {
       await query(
         `UPDATE enrichment_results
@@ -279,6 +270,8 @@ router.post(
              raw_data = (COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid')
                || jsonb_build_object(
                     'call_status', $1::text,
+                    'ai_outcome', 'no_answer',
+                    'ai_outcome_source', 'telecom_event',
                     'call_ended_at', NOW()::text,
                     'call_duration_seconds', COALESCE(NULLIF($2::text, '')::int, COALESCE((raw_data->>'call_duration_seconds')::int, 0))
                   ),
@@ -340,6 +333,12 @@ router.post(
       );
     }
 
+    // Notify the browser only after the lead record carries the final state.
+    if (req.body.CallStatus && req.body.CallSid) {
+      broadcastCallStatus(req.body.CallSid, req.body.CallStatus);
+      if (req.body.ParentCallSid) broadcastCallStatus(req.body.ParentCallSid, req.body.CallStatus);
+    }
+
     // Post-call processing will be triggered by the orchestrator
     // when it receives the Twilio Media Streams 'stop' event.
 
@@ -358,20 +357,32 @@ router.post(
     const { CallSid, AnsweredBy } = req.body;
     console.log('[voice-agent] AMD status webhook:', { CallSid, AnsweredBy });
 
-    if (CallSid && AnsweredBy) {
-      // If AnsweredBy indicates a machine, we hang up the call to save costs and avoid leaving a voicemail
-      if (['machine_start', 'machine_end_beep', 'machine_end_silence', 'machine_end_other'].includes(AnsweredBy)) {
-        console.log(`[voice-agent] Machine detected for call ${CallSid}, hanging up immediately.`);
-        try {
-          const { signalwireClient } = await import('../../calls-module/config/signalwire.js');
-          if (signalwireClient) {
-            await signalwireClient.calls(CallSid).update({ status: 'completed' });
-          }
-          broadcastCallStatus(CallSid, 'voicemail');
-        } catch (err) {
-          console.error(`[voice-agent] Failed to hang up machine call ${CallSid}:`, err);
-        }
+    if (CallSid && ['machine_start', 'machine_end_beep', 'machine_end_silence', 'machine_end_other'].includes(AnsweredBy)) {
+      const finalMachineResult = ['machine_end_beep', 'machine_end_silence', 'machine_end_other'].includes(AnsweredBy);
+      await query(
+        `UPDATE ai_call_sessions
+         SET first_answer_type = COALESCE(first_answer_type, $2),
+             outcome = CASE WHEN $3 THEN COALESCE(outcome, 'voicemail') ELSE outcome END,
+             call_state = CASE WHEN $3 THEN 'voicemail' ELSE call_state END
+         WHERE signalwire_call_sid = $1`,
+        [CallSid, AnsweredBy, finalMachineResult],
+      );
+      const contactId = typeof req.query.contactId === 'string' ? req.query.contactId : null;
+      if (contactId) {
+        await query(
+          `UPDATE enrichment_results
+           SET raw_data = COALESCE(raw_data, '{}'::jsonb)
+             || jsonb_build_object('answered_by', $1::text, 'call_status', 'voicemail_detected', 'voicemail_detected_at', NOW()::text)
+             || CASE WHEN $3::boolean
+                  THEN jsonb_build_object('ai_outcome', 'voicemail', 'ai_outcome_source', 'telecom_event')
+                  ELSE '{}'::jsonb
+                END
+           WHERE id = $2::uuid`,
+          [AnsweredBy, contactId, finalMachineResult],
+        );
       }
+      console.log(`[voice-agent] Machine detected for ${CallSid}; keeping stream open for live voicemail audio.`);
+      broadcastCallStatus(CallSid, 'voicemail-detected');
     }
 
     res.status(200).json({ received: true });

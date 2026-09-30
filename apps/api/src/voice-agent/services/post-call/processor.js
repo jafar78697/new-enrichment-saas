@@ -147,9 +147,9 @@ export async function processPostCall(callSid) {
             nextStage = 'interested';
           } else if (leadQualification.outcome === 'callback_requested') {
             nextStage = 'followup';
-          } else if (leadQualification.outcome === 'voicemail' || leadQualification.outcome === 'no_answer') {
+          } else if (leadQualification.outcome === 'voicemail' || leadQualification.outcome === 'no_answer' || leadQualification.outcome === 'gatekeeper') {
             nextStage = 'no_answer';
-          } else if (leadQualification.outcome === 'not_interested') {
+          } else if (leadQualification.outcome === 'not_interested' || leadQualification.outcome === 'wrong_number') {
             nextStage = 'closed_lost';
           }
           await callsQuery(
@@ -232,7 +232,7 @@ async function analyzeCall(transcript) {
   "qualification": {
     "isQualified": false,
     "score": 0,
-    "outcome": "interested|not_interested|callback_requested|meeting_booked|voicemail|no_answer|wrong_number|unknown",
+    "outcome": "interested|not_interested|callback_requested|meeting_booked|voicemail|no_answer|wrong_number|gatekeeper|unknown",
     "reasoning": "brief text",
     "suggested_follow_up": null,
     "budget_mentioned": false,
@@ -241,6 +241,20 @@ async function analyzeCall(transcript) {
     "client_details": {}
   }
 }
+
+CRITICAL RULES FOR "outcome" CLASSIFICATION (READ CAREFULLY):
+- "voicemail": Transcript contains automated phrases like "leave a message", "after the tone", or the AI is clearly talking to a recording.
+- "no_answer": Call is extremely short with no human conversation. E.g., prospect says "hello" but hangs up before the AI finishes its first sentence, or complete silence.
+- "not_interested": 
+    1. Prospect explicitly says "no", "no no", "not interested", "stop calling".
+    2. Prospect hangs up abruptly RIGHT AFTER the AI's introduction (e.g., "Hi, this is David...") without engaging.
+    3. Prospect shows annoyance and cuts the call.
+- "gatekeeper": A receptionist, assistant, or family member answers and says the target person is unavailable, or refuses to transfer the call.
+- "interested": Prospect listens, asks questions about the service, shows positive engagement, or requests more info.
+- "callback_requested": Prospect is busy right now and asks to call back later. (If gatekeeper says call back later, also use callback_requested).
+- "meeting_booked": A specific date/time is agreed upon for a meeting.
+- "wrong_number": Prospect says "wrong number" or "no one by that name here".
+
 Use only facts in the transcript. Sentiment score must be between -1 and 1. Qualification score must be 0 to 100.
 
 Transcript:
@@ -419,13 +433,26 @@ async function qualifyLead(transcript, session) {
   const prompt = `You are a lead qualification expert. Analyze this cold call transcript and return a JSON object with:
 - "isQualified": boolean — true if the lead showed genuine interest
 - "score": number from 0-100 — lead quality score
-- "outcome": one of "interested", "not_interested", "callback_requested", "meeting_booked", "voicemail", "no_answer", "wrong_number"
+- "outcome": one of "interested", "not_interested", "callback_requested", "meeting_booked", "voicemail", "no_answer", "wrong_number", "gatekeeper", "unknown"
 - "reasoning": brief explanation of the qualification decision
 - "suggested_follow_up": if qualified, what the next step should be
 - "budget_mentioned": boolean
 - "timeline_mentioned": boolean
 - "decision_maker": boolean — if the person has decision-making authority
 - "client_details": an object containing specific details provided by the client (e.g., name, company, email, phone number, budget, pain points, specific requirements). Omit keys if they were not mentioned.
+
+CRITICAL RULES FOR "outcome" CLASSIFICATION (READ CAREFULLY):
+- "voicemail": Transcript contains automated phrases like "leave a message", "after the tone", or the AI is clearly talking to a recording.
+- "no_answer": Call is extremely short with no human conversation. E.g., prospect says "hello" but hangs up before the AI finishes its first sentence, or complete silence.
+- "not_interested": 
+    1. Prospect explicitly says "no", "no no", "not interested", "stop calling".
+    2. Prospect hangs up abruptly RIGHT AFTER the AI's introduction (e.g., "Hi, this is David...") without engaging.
+    3. Prospect shows annoyance and cuts the call.
+- "gatekeeper": A receptionist, assistant, or family member answers and says the target person is unavailable, or refuses to transfer the call.
+- "interested": Prospect listens, asks questions about the service, shows positive engagement, or requests more info.
+- "callback_requested": Prospect is busy right now and asks to call back later. (If gatekeeper says call back later, also use callback_requested).
+- "meeting_booked": A specific date/time is agreed upon for a meeting.
+- "wrong_number": Prospect says "wrong number" or "no one by that name here".
 
 Call Transcript:
 ${transcriptText.slice(-4000)}

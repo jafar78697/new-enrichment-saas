@@ -9,7 +9,7 @@ const projectId = env.SIGNALWIRE_PROJECT_ID;
 const apiToken = env.SIGNALWIRE_API_TOKEN;
 const spaceUrl = env.SIGNALWIRE_SPACE_URL;
 const fromPhones = (env.SIGNALWIRE_PHONE_NUMBER || '').split(',').map(n => normalizeNorthAmericanPhone(n.trim())).filter(Boolean);
-let currentPhoneIndex = 0;
+
 
 let signalwireClient = null;
 if (projectId && apiToken && spaceUrl) {
@@ -59,7 +59,6 @@ function normalizedControl(control) {
 }
 
 function isWithinCallingWindow(control) {
-  return true; // Bypassed for testing
   const hour = Number(new Intl.DateTimeFormat('en-US', {
     timeZone: control.callingTimezone,
     hour: '2-digit',
@@ -125,40 +124,6 @@ async function runWorkerTick() {
         }
         if (!isWithinCallingWindow(control)) continue;
 
-        const { rows: dailyRows } = await query(
-          `SELECT
-             (SELECT COUNT(*)::int
-              FROM enrichment_results
-              WHERE tenant_id = $1 AND assigned_to_ai = true
-                AND (last_contacted_at AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date) AS attempts,
-             COALESCE((SELECT SUM(duration_sec)
-                       FROM ai_call_sessions
-                       WHERE tenant_id = $1
-                         AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::int AS seconds,
-             COALESCE((SELECT SUM(cost_estimate_usd)
-                       FROM ai_call_sessions
-                       WHERE tenant_id = $1
-                         AND (started_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date = (NOW() AT TIME ZONE $2)::date), 0)::numeric
-             + COALESCE((SELECT SUM(estimated_cost_usd) FROM ai_usage_ledger
-                         WHERE tenant_id = $1 AND created_at >= date_trunc('day', NOW())), 0)::numeric AS cost`,
-          [control.tenant_id, control.callingTimezone],
-        );
-        const daily = dailyRows[0] || {};
-        const nextMaxCost = (env.AI_MAX_SECONDS_PER_CALL / 60) * env.AI_ESTIMATED_COST_USD_PER_MINUTE;
-        let dailyLimitReached = Number(daily.attempts || 0) >= control.maxCallsPerDay
-          || Number(daily.seconds || 0) >= control.maxMinutesPerDay * 60
-          || Number(daily.cost || 0) + nextMaxCost > control.maxCostUsdPerDay;
-        
-        dailyLimitReached = false; // Bypassed for testing
-        if (dailyLimitReached) {
-          await query(
-            `UPDATE ai_calling_controls SET is_running = false, updated_at = NOW() WHERE tenant_id = $1`,
-            [control.tenant_id],
-          );
-          console.warn(`[outbound-caller] Daily safety limit reached for tenant ${control.tenant_id}; calling paused.`);
-          continue;
-        }
-
         // A missing webhook must never block a tenant's campaign forever.
         await query(
           `UPDATE enrichment_results
@@ -171,20 +136,36 @@ async function runWorkerTick() {
         );
 
         const { rows: activeRows } = await query(
-          `SELECT COUNT(*)::int AS count FROM enrichment_results
-           WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'`,
+          `SELECT
+             EXISTS (
+               SELECT 1 FROM enrichment_results
+               WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'
+             ) OR EXISTS (
+               SELECT 1 FROM ai_call_sessions
+               WHERE tenant_id = $1
+                 AND ended_at IS NULL
+                 AND call_state NOT IN ('completed', 'closed', 'stopped', 'error')
+             ) AS active,
+             EXISTS (
+               SELECT 1 FROM ai_call_sessions
+               WHERE tenant_id = $1 AND ended_at > NOW() - INTERVAL '10 seconds'
+             ) AS cooling_down`,
           [control.tenant_id],
         );
-        if ((activeRows[0]?.count || 0) > 0) continue;
+        if (activeRows[0]?.active || activeRows[0]?.cooling_down) continue;
 
-        const { rows: minuteRows } = await query(
-          `SELECT COUNT(*)::int AS count
-           FROM enrichment_results
-           WHERE tenant_id = $1 AND assigned_to_ai = true
-             AND last_contacted_at >= NOW() - INTERVAL '1 minute'`,
-          [control.tenant_id],
+        // P1 FIX: Cleanup zombie "called" or "calling" leads that got stuck
+        // (e.g. process crashed or bridge failed to clean up)
+        await query(
+          `UPDATE enrichment_results
+           SET lead_stage = 'assigned',
+               lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[System] Call timed out in called state, reset to assigned')
+           WHERE tenant_id = $1
+             AND assigned_to_ai = true
+             AND lead_stage IN ('calling', 'called')
+             AND last_contacted_at < NOW() - INTERVAL '15 minutes'`,
+          [control.tenant_id]
         );
-        if (Number(minuteRows[0]?.count || 0) >= control.callsPerMinute) continue;
 
         const { rows } = await query(
           `UPDATE enrichment_results 
@@ -197,6 +178,12 @@ async function runWorkerTick() {
                AND do_not_call = false
                AND (last_contacted_at IS NULL OR last_contacted_at < NOW() - INTERVAL '24 hours')
                AND (next_followup_at IS NULL OR next_followup_at <= NOW())
+               AND NOT EXISTS (
+                 SELECT 1 FROM enrichment_results dup
+                 WHERE dup.tenant_id = $1
+                   AND dup.primary_phone = enrichment_results.primary_phone
+                   AND dup.lead_stage NOT IN ('assigned', 'followup')
+               )
                AND EXISTS (
                  SELECT 1 FROM ai_agent_configs ac
                  WHERE ac.id = enrichment_results.assigned_ai_agent_id
@@ -237,9 +224,15 @@ async function runWorkerTick() {
         console.log(`[outbound-caller] Initiating call to lead: ${lead.company_name || lead.domain} (${normalizedPhone})`);
         const webhookUrl = `${PUBLIC_BASE_URL}/api/voice/twiml/outbound?contactId=${lead.id}&tenantId=${lead.tenant_id}`;
         
-        // Strict Round-Robin selection
-        const callerId = fromPhones[currentPhoneIndex];
-        currentPhoneIndex = (currentPhoneIndex + 1) % fromPhones.length;
+        // Strict rotation: each completed attempt advances to the next
+        // configured SignalWire caller ID. No area-code override can skip one.
+        const { rows: sequenceRows } = await query(
+          `SELECT COUNT(*)::int AS attempts
+           FROM enrichment_results
+           WHERE tenant_id = $1 AND assigned_to_ai = true AND last_contacted_at IS NOT NULL`,
+          [control.tenant_id],
+        );
+        const callerId = fromPhones[Number(sequenceRows[0]?.attempts || 0) % fromPhones.length];
         
         const call = await signalwireClient.calls.create({
           url: webhookUrl,
@@ -249,10 +242,6 @@ async function runWorkerTick() {
           statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
           statusCallbackMethod: 'POST',
           statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-          machineDetection: 'DetectMessageEnd',
-          asyncAmd: 'true',
-          asyncAmdStatusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/amd-status?contactId=${lead.id}`,
-          asyncAmdStatusCallbackMethod: 'POST',
           timeout: 30,
           record: false,
         });

@@ -197,7 +197,10 @@ export const leadsApi = {
     api
       .get<{ lead: Lead; history: any[]; tasks: Task[] }>(`/leads/${id}`)
       .then((r) => r.data),
-  patch: (id: string, body: Partial<Lead>) =>
+  patch: (id: string, body: Partial<Lead> & {
+    call_result_source?: 'manual';
+    call_result_outcome?: 'voicemail' | 'no_answer' | 'followup' | 'interested' | 'not_interested';
+  }) =>
     api.patch<{ lead: Lead }>(`/leads/${id}`, body).then((r) => r.data),
 };
 

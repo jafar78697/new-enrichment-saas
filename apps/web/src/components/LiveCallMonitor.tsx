@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Bot, Headphones, SkipForward, User, VolumeX, X } from 'lucide-react';
+import { Bot, Headphones, SkipForward, Square, User, VolumeX, X, RefreshCw } from 'lucide-react';
 import { getLiveAudioContext, LiveAudioPlayer, unlockLiveAudio } from '../utils/live-audio';
 
 interface LiveCallMonitorProps {
@@ -11,6 +11,7 @@ interface LiveCallMonitorProps {
   activeLeadName?: string | null;
   onCallEnded?: (callSid: string, status: string) => void;
   onSkipCurrentCall?: (callSid: string, reason: string) => Promise<void> | void;
+  onDisableCalling?: () => Promise<void> | void;
   fromPhone?: string | null;
 }
 
@@ -29,14 +30,17 @@ export default function LiveCallMonitor({
   activeLeadName = null,
   onCallEnded,
   onSkipCurrentCall,
+  onDisableCalling,
   fromPhone = null,
 }: LiveCallMonitorProps) {
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
   const [isListening, setIsListening] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [callStatus, setCallStatus] = useState<string>(callSid ? 'ringing' : 'waiting');
   const [error, setError] = useState<string | null>(null);
   const [skipping, setSkipping] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [disabling, setDisabling] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
   const [aiAudioDetected, setAiAudioDetected] = useState(false);
   const [prospectAudioDetected, setProspectAudioDetected] = useState(false);
@@ -46,9 +50,14 @@ export default function LiveCallMonitor({
   const playerRef = useRef<LiveAudioPlayer | null>(null);
   const pendingAudioRef = useRef<Array<{ audio: string; speaker: 'ai' | 'prospect' }>>([]);
   const subscribedCallSidRef = useRef<string | null>(null);
+  const callSidRef = useRef<string | null>(callSid);
+  const onCallEndedRef = useRef(onCallEnded);
   const announcedTerminalStatusRef = useRef<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const ringbackRef = useRef<{ oscillators: OscillatorNode[], interval: number | null }>({ oscillators: [], interval: null });
+
+  callSidRef.current = callSid;
+  onCallEndedRef.current = onCallEnded;
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -130,12 +139,16 @@ export default function LiveCallMonitor({
   const startListening = () => {
     try {
       void enableAudio();
-      if (!callSid) {
+      if (!callSidRef.current) {
         setCallStatus('waiting');
-        return;
       }
+      setIsConnecting(true);
       if (socketRef.current) {
-        socketRef.current.connect();
+        if (!socketRef.current.connected) socketRef.current.connect();
+        else if (callSidRef.current && subscribedCallSidRef.current !== callSidRef.current) {
+          socketRef.current.emit('subscribe_call', { callSid: callSidRef.current });
+          subscribedCallSidRef.current = callSidRef.current;
+        }
         return;
       }
 
@@ -143,24 +156,37 @@ export default function LiveCallMonitor({
       const token = localStorage.getItem('enr_token') || localStorage.getItem('call_token');
       socketRef.current = io(`${SOCKET_URL}/call-monitor`, {
         auth: { token },
-        transports: ['websocket', 'polling'],
-        timeout: 10000,
-        reconnectionAttempts: 3,
+        // Polling establishes a reliable Cloudflare session first, then
+        // Socket.IO upgrades it to WebSocket for low-latency audio.
+        transports: ['polling', 'websocket'],
+        upgrade: true,
+        tryAllTransports: true,
+        timeout: 20000,
+        reconnectionDelay: 500,
+        reconnectionDelayMax: 3000,
+        reconnectionAttempts: Infinity,
       });
 
       socketRef.current.on('connect', () => {
-        socketRef.current?.emit('subscribe_call', { callSid });
-        subscribedCallSidRef.current = callSid;
+        setIsConnecting(false);
+        setIsListening(true);
+        setError(null);
+        const currentCallSid = callSidRef.current;
+        if (currentCallSid) {
+          socketRef.current?.emit('subscribe_call', { callSid: currentCallSid });
+          subscribedCallSidRef.current = currentCallSid;
+        }
       });
 
       socketRef.current.on('monitor_subscribed', (data: { callSid: string }) => {
-        if (data.callSid !== callSid) return;
+        if (data.callSid !== callSidRef.current) return;
         setIsListening(true);
         setError(null);
       });
 
       socketRef.current.on('call_status', (data: { callSid?: string; status: string }) => {
-        if (data.callSid && data.callSid !== callSid) return;
+        const currentCallSid = callSidRef.current;
+        if (data.callSid && data.callSid !== currentCallSid) return;
         setCallStatus(data.status);
         if (['voicemail', 'no-answer'].includes(data.status) && announcedTerminalStatusRef.current !== data.status) {
           announcedTerminalStatusRef.current = data.status;
@@ -174,15 +200,15 @@ export default function LiveCallMonitor({
             window.speechSynthesis.speak(announcement);
           }
         }
-        if (['completed', 'canceled', 'busy', 'failed', 'no-answer', 'voicemail'].includes(data.status) && callSid) {
+        if (['completed', 'canceled', 'busy', 'failed', 'no-answer', 'voicemail'].includes(data.status) && currentCallSid) {
           playerRef.current?.clear();
-          onCallEnded?.(callSid, data.status);
+          onCallEndedRef.current?.(currentCallSid, data.status);
         }
       });
 
       socketRef.current.on('live_audio', (data: { callSid?: string; speaker: string; audio: string }) => {
-        if (data.callSid && data.callSid !== callSid) return;
-        if (callStatus !== 'in-progress') setCallStatus('in-progress');
+        if (data.callSid && data.callSid !== callSidRef.current) return;
+        setCallStatus((current) => current === 'in-progress' ? current : 'in-progress');
         if (data.speaker !== 'ai' && data.speaker !== 'prospect') return;
         if (data.speaker === 'ai') setAiAudioDetected(true);
         if (data.speaker === 'prospect') setProspectAudioDetected(true);
@@ -197,7 +223,7 @@ export default function LiveCallMonitor({
       });
 
       socketRef.current.on('clear_audio', (data: { callSid?: string }) => {
-        if (!data.callSid || data.callSid === callSid) playerRef.current?.clear('ai');
+        if (!data.callSid || data.callSid === callSidRef.current) playerRef.current?.clear('ai');
       });
       socketRef.current.on('disconnect', () => {
         setIsListening(false);
@@ -205,19 +231,20 @@ export default function LiveCallMonitor({
       });
 
       socketRef.current.on('live_transcript', (data: TranscriptEntry) => {
-        if (data.callSid && data.callSid !== callSid) return;
+        if (data.callSid && data.callSid !== callSidRef.current) return;
         setTranscripts((prev) => [...prev, data]);
       });
 
       socketRef.current.on('connect_error', (err) => {
         console.error('Socket connect error:', err);
-        setError(err.message || 'Failed to connect to live stream server.');
+        setError(err.message === 'timeout'
+          ? 'Live audio reconnect ho raha hai. Call chalti rahegi; 2-3 seconds wait karein.'
+          : (err.message || 'Failed to connect to live stream server.'));
         setIsListening(false);
       });
 
       socketRef.current.on('monitor_error', (data: { error?: string }) => {
         setError(data.error || 'Live call access could not be verified.');
-        setIsListening(false);
       });
 
     } catch (err: any) {
@@ -245,11 +272,22 @@ export default function LiveCallMonitor({
     setAiAudioDetected(false);
     setProspectAudioDetected(false);
     announcedTerminalStatusRef.current = null;
+    const socket = socketRef.current;
+    const previousCallSid = subscribedCallSidRef.current;
+    if (socket && previousCallSid && previousCallSid !== callSid) {
+      socket.emit('unsubscribe_call', { callSid: previousCallSid });
+      subscribedCallSidRef.current = null;
+    }
+    if (socket?.connected && callSid && subscribedCallSidRef.current !== callSid) {
+      socket.emit('subscribe_call', { callSid });
+      subscribedCallSidRef.current = callSid;
+    }
+  }, [callSid]);
+
+  useEffect(() => {
     if (autoStart) startListening();
-    return () => {
-      stopListening();
-    };
-  }, [callSid, autoStart]);
+    return () => stopListening();
+  }, [autoStart]);
 
   useEffect(() => () => {
     // Keep the shared context unlocked for the next automatic call.
@@ -292,14 +330,30 @@ export default function LiveCallMonitor({
     }
   };
 
+  const disableAutomaticCalling = async () => {
+    if (!onDisableCalling || disabling) return;
+    setDisabling(true);
+    setError(null);
+    try {
+      await onDisableCalling();
+      setCallStatus('completed');
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Automatic calling disable nahi ho saki.');
+    } finally {
+      setDisabling(false);
+    }
+  };
+
   const statusLabel = () => {
     if (!callSid) return autoFollow ? 'Waiting for next call' : 'No active call';
     if (!isListening) return 'Live monitor disconnected';
     if (callStatus === 'initiated') return 'Starting call';
     if (callStatus === 'ringing') return 'Phone ringing';
     if (callStatus === 'answered') return 'Answered — connecting AI';
+    if (callStatus === 'ivr-navigation') return 'IVR menu — pressing key';
     if (['starting', 'streaming', 'in-progress'].includes(callStatus)) return 'AI call live';
     if (callStatus === 'voicemail') return 'Voicemail detected';
+    if (callStatus === 'voicemail-detected') return 'Voicemail greeting detected';
     if (callStatus === 'no-answer') return 'No answer';
     if (callStatus === 'completed') return 'Call ended';
     return callStatus.charAt(0).toUpperCase() + callStatus.slice(1);
@@ -310,12 +364,14 @@ export default function LiveCallMonitor({
     if (!isListening) return 'Live connection band hai. Connect Audio & Transcript dabayein.';
     if (['initiated', 'ringing'].includes(callStatus)) return 'Phone abhi baj raha hai. Customer ne abhi call receive nahi ki.';
     if (callStatus === 'answered') return 'Customer ne call receive kar li hai. AI ki greeting connect ho rahi hai.';
+    if (callStatus === 'ivr-navigation') return 'Automated menu mila hai. AI abhi jaan boojh kar silent hai aur representative wala key press kar raha hai.';
     if (['starting', 'streaming', 'in-progress'].includes(callStatus)) {
       return aiAudioDetected || prospectAudioDetected
         ? 'Call live hai. Neeche AI aur customer ki baat show ho rahi hai.'
         : 'Call answer ho gayi hai. AI ki greeting aur conversation ka wait ho raha hai.';
     }
     if (callStatus === 'voicemail') return 'SignalWire ne answering machine detect ki. Call end ho gayi hai aur result Voicemail select hoga.';
+    if (callStatus === 'voicemail-detected') return 'Voicemail greeting mil gayi hai. Audio sun sakte hain; system final call status ka wait kar raha hai.';
     if (callStatus === 'no-answer') return 'Kisi ne phone answer nahi kiya. Call end ho gayi hai aur result No Answer select hoga.';
     if (['completed', 'canceled', 'busy', 'failed'].includes(callStatus)) return 'Call finish ho gayi hai. Ab result popup se status save karein.';
     return 'Call status update ho raha hai.';
@@ -325,7 +381,7 @@ export default function LiveCallMonitor({
     <div style={{
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
       backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex',
-      alignItems: 'center', justifyContent: 'center', zIndex: 1000
+      alignItems: 'center', justifyContent: 'center', zIndex: 500
     }}>
       <div style={{
         background: '#111827', color: '#F3F4F6', width: 'min(560px, calc(100vw - 32px))',
@@ -388,7 +444,9 @@ export default function LiveCallMonitor({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
             <div style={{ border: '1px solid #374151', borderRadius: 8, padding: '10px 12px', background: aiAudioDetected ? '#064E3B' : '#1F2937' }}>
               <div style={{ color: '#94A3B8', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>AI voice</div>
-              <div style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 700, marginTop: 3 }}>{aiAudioDetected ? 'Speaking / audio received' : 'Waiting for greeting'}</div>
+              <div style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 700, marginTop: 3 }}>
+                {aiAudioDetected ? 'Speaking / audio received' : callStatus === 'ivr-navigation' ? 'Silent while IVR connects' : 'Waiting for greeting'}
+              </div>
             </div>
             <div style={{ border: '1px solid #374151', borderRadius: 8, padding: '10px 12px', background: prospectAudioDetected ? '#1D4ED8' : '#1F2937' }}>
               <div style={{ color: '#CBD5E1', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Customer voice</div>
@@ -440,23 +498,36 @@ export default function LiveCallMonitor({
           }}>
             Waiting for next call
           </button>
-        ) : !isListening ? (
-          <button onClick={startListening} style={{
-            background: '#2563EB', color: 'white', padding: '12px', borderRadius: '8px',
-            border: 'none', fontWeight: 'bold', cursor: 'pointer', width: '100%'
-          }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Headphones size={16} /> Connect Audio & Transcript</span>
-          </button>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ display: 'flex', gap: 10 }}>
-              {onSkipCurrentCall && (
-                <button onClick={() => void handleSkip()} disabled={skipping} style={{
-                  background: skipping ? '#6B7280' : '#F59E0B', color: '#111827', padding: '12px', borderRadius: '8px',
-                  border: 'none', fontWeight: 'bold', cursor: skipping ? 'default' : 'pointer', flex: 1
+              {!isListening ? (
+                <button onClick={startListening} disabled={isConnecting} style={{
+                  background: isConnecting ? '#4B5563' : '#2563EB', color: 'white', padding: '12px', borderRadius: '8px',
+                  border: 'none', fontWeight: 'bold', cursor: isConnecting ? 'wait' : 'pointer', flex: 1
                 }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><SkipForward size={16} /> {skipping ? 'Skipping...' : 'Machine / Skip Next'}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    {isConnecting ? <RefreshCw size={16} className="animate-spin" /> : <Headphones size={16} />}
+                    {isConnecting ? 'Connecting...' : 'Connect Audio'}
+                  </span>
                 </button>
+              ) : (
+                <>
+                  {onSkipCurrentCall && (
+                    <button onClick={() => void handleSkip()} disabled={skipping} style={{
+                      background: skipping ? '#6B7280' : '#F59E0B', color: '#111827', padding: '12px', borderRadius: '8px',
+                      border: 'none', fontWeight: 'bold', cursor: skipping ? 'default' : 'pointer', flex: 1
+                    }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><SkipForward size={16} /> {skipping ? 'Skipping...' : 'Machine / Skip Next'}</span>
+                    </button>
+                  )}
+                  <button onClick={stopListening} style={{
+                    background: '#374151', color: 'white', padding: '12px', borderRadius: '8px',
+                    border: 'none', fontWeight: 'bold', cursor: 'pointer', flex: 1
+                  }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><VolumeX size={16} /> Disconnect Audio</span>
+                  </button>
+                </>
               )}
               <button onClick={() => void endLiveCall()} disabled={ending} style={{
                 background: ending ? '#6B7280' : '#DC2626', color: 'white', padding: '12px', borderRadius: '8px',
@@ -465,12 +536,16 @@ export default function LiveCallMonitor({
                 <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><X size={16} /> {ending ? 'Ending...' : 'End Call'}</span>
               </button>
             </div>
-            <button onClick={stopListening} style={{
-              background: '#374151', color: 'white', padding: '12px', borderRadius: '8px',
-              border: 'none', fontWeight: 'bold', cursor: 'pointer', width: '100%'
-            }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><VolumeX size={16} /> Disconnect Audio (Keep Call Live)</span>
-            </button>
+            {onDisableCalling && (
+              <button onClick={() => void disableAutomaticCalling()} disabled={disabling} style={{
+                background: disabling ? '#6B7280' : '#991B1B', color: 'white', padding: '12px', borderRadius: '8px',
+                border: '1px solid #EF4444', fontWeight: 'bold', cursor: disabling ? 'default' : 'pointer', width: '100%'
+              }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+                  <Square size={16} fill="currentColor" /> {disabling ? 'Disabling...' : 'Disable AI Calling'}
+                </span>
+              </button>
+            )}
           </div>
         )}
       </div>

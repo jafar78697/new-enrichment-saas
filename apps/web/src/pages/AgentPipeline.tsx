@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { parsePhoneNumberFromString } from 'libphonenumber-js/min';
-import { Bot, Filter, Gauge, Phone, PhoneCall, RefreshCw, Search, Settings2, ShieldCheck, Square, UserPlus, Volume2, X } from 'lucide-react';
-import { leadsApi, type CallingQueueLead, type CallingSettings, type CallingStatusResponse, type Lead, type Stage } from '../services/crmApi';
+import { Bot, CheckCircle2, Filter, Phone, PhoneCall, RefreshCw, Search, Settings2, Square, UserPlus, X } from 'lucide-react';
+import { leadsApi, type CallingQueueLead, type CallingStatusResponse, type Lead } from '../services/crmApi';
 import { nichesApi, type Niche } from '../services/nichesApi';
 import { callsApi, type Contact } from '../services/callsApi';
 import { deepgramAgentsApi, type DeepgramAgent, type DeepgramAgentStatus } from '../services/deepgramAgentsApi';
@@ -21,7 +21,15 @@ const LEAD_FILTERS = [
 ] as const;
 
 type LeadFilter = (typeof LEAD_FILTERS)[number]['key'];
-type CallResultOutcome = '' | 'voicemail' | 'no_answer' | 'followup' | 'interested' | 'not_interested';
+
+type AiResultNotice = {
+  callSid: string;
+  leadName: string;
+  phone: string | null;
+  label: string;
+  summary: string;
+  color: string;
+};
 
 type LeadStatusSource = Pick<Lead, 'lead_stage' | 'lead_notes' | 'raw_data'> | Pick<CallingQueueLead, 'lead_stage' | 'lead_notes' | 'raw_data'>;
 
@@ -30,44 +38,44 @@ function isVoicemailLead(lead: Pick<LeadStatusSource, 'lead_notes' | 'raw_data'>
   return /machine|voicemail|answering machine/i.test(detected);
 }
 
+function isIvrLead(lead: Pick<LeadStatusSource, 'lead_notes' | 'raw_data'>) {
+  const detected = `${String(lead.raw_data?.answered_by || '')} ${String(lead.raw_data?.call_status || '')} ${lead.lead_notes || ''}`;
+  return /ivr|phone menu|automated menu/i.test(detected);
+}
+
+function callResultSource(lead: Pick<LeadStatusSource, 'lead_notes' | 'raw_data'>): 'ai' | 'manual' | null {
+  const source = String(lead.raw_data?.ai_outcome_source || lead.raw_data?.call_result_source || '').toLowerCase();
+  if (source === 'manual') return 'manual';
+  if (['ai', 'automatic', 'live_tool', 'telecom_event'].includes(source)) return 'ai';
+  if (/\[Call result\]/i.test(lead.lead_notes || '')) return 'manual';
+  if (lead.raw_data?.ai_outcome || lead.raw_data?.answered_by || lead.raw_data?.call_status) return 'ai';
+  return null;
+}
+
 function simpleLeadStatus(lead: LeadStatusSource) {
-  if (lead.lead_stage === 'interested') return { label: 'Interested', color: '#047857' };
-  if (lead.lead_stage === 'closed_lost') return { label: 'Not Interested', color: '#be123c' };
-  if (lead.lead_stage === 'followup') return { label: 'Follow-up', color: '#ca8a04' };
-  if (isVoicemailLead(lead)) return { label: 'Voicemail', color: '#7c3aed' };
-  if (lead.lead_stage === 'no_answer') return { label: 'No Answer', color: '#ea580c' };
+  const source = callResultSource(lead);
+  const resultColor = source === 'ai' ? '#059669' : source === 'manual' ? '#dc2626' : null;
+  if (lead.lead_stage === 'interested') return { label: 'Interested', color: resultColor || '#047857', source };
+  if (lead.lead_stage === 'closed_lost') return { label: 'Not Interested', color: resultColor || '#be123c', source };
+  if (lead.lead_stage === 'followup') return { label: 'Follow-up', color: resultColor || '#ca8a04', source };
+  if (isVoicemailLead(lead)) return { label: 'Voicemail', color: resultColor || '#7c3aed', source };
+  if (lead.lead_stage === 'no_answer') return { label: isIvrLead(lead) ? 'IVR Menu' : 'No Answer', color: resultColor || '#ea580c', source };
   if (lead.lead_stage === 'calling') return { label: 'Calling', color: '#2563eb' };
   if (lead.lead_stage === 'assigned') return { label: 'Assigned Lead', color: '#0f766e' };
   return { label: 'Needs Result', color: '#64748b' };
 }
 
-function suggestedCallResult(lead: Pick<Lead, 'lead_stage' | 'lead_notes' | 'raw_data'>): CallResultOutcome {
-  if (lead.lead_stage === 'interested') return 'interested';
-  if (lead.lead_stage === 'closed_lost') return 'not_interested';
-  if (lead.lead_stage === 'followup') return 'followup';
-  if (isVoicemailLead(lead)) return 'voicemail';
-  if (lead.lead_stage === 'no_answer') return 'no_answer';
-  return '';
-}
-
-function callResultKey(lead: CallingQueueLead | null) {
-  if (!lead) return null;
-  return `${lead.id}:${String(lead.raw_data?.call_sid || lead.raw_data?.call_started_at || lead.last_contacted_at || '')}`;
-}
-
-function isCallStillInProgress(status: CallingStatusResponse) {
-  const lead = status.lastCall;
-  if (!lead) return false;
-  return lead.lead_stage === 'calling'
-    || status.activeLeadId === lead.id
-    || Boolean(lead.raw_data?.active_call_sid);
-}
-
-function isCompletedCall(status: CallingStatusResponse, activeCallInMonitor: boolean) {
-  const lead = status.lastCall;
-  if (!lead || status.activeCallSid || activeCallInMonitor || isCallStillInProgress(status)) return false;
-  return ['called', 'no_answer', 'followup', 'interested', 'closed_won', 'closed_lost'].includes(lead.lead_stage)
-    || Boolean(lead.raw_data?.call_ended_at);
+function aiOutcomeStatus(lead: Lead) {
+  const outcome = String(lead.raw_data?.ai_outcome || '').toLowerCase();
+  if (outcome === 'voicemail') return { label: 'Voicemail', color: '#059669' };
+  if (outcome === 'no_answer') return { label: isIvrLead(lead) ? 'IVR Menu' : 'No Answer', color: '#059669' };
+  if (outcome === 'interested') return { label: 'Interested', color: '#059669' };
+  if (outcome === 'followup') return { label: 'Follow-up', color: '#059669' };
+  if (['not_interested', 'do_not_call'].includes(outcome)) return { label: 'Not Interested', color: '#059669' };
+  if (outcome === 'technical_error') return { label: 'Technical Error', color: '#dc2626' };
+  if (outcome === 'called' || lead.lead_stage === 'called') return { label: 'Call Completed', color: '#059669' };
+  const status = simpleLeadStatus(lead);
+  return { label: status.label, color: status.color };
 }
 
 function isCallableNorthAmericanNumber(raw: string | null | undefined) {
@@ -159,28 +167,10 @@ export default function AgentPipelinePage() {
   const [activeCallSid, setActiveCallSid] = useState<string | null>(null);
   const [activeCallLeadId, setActiveCallLeadId] = useState<string | null>(null);
   const [callingStatus, setCallingStatus] = useState<CallingStatusResponse | null>(null);
-  const [callingSettings, setCallingSettings] = useState<CallingSettings>({
-    callsPerMinute: 1,
-    maxCallsPerDay: 5,
-    maxMinutesPerDay: 10,
-    maxCostUsdPerDay: 1,
-    callingTimezone: 'America/New_York',
-    callingWindowStartHour: 9,
-    callingWindowEndHour: 17,
-  });
-  const [settingsBusy, setSettingsBusy] = useState(false);
   const [manualCallingId, setManualCallingId] = useState<string | null>(null);
-  const [callResultQueue, setCallResultQueue] = useState<Lead[]>([]);
-  const [callResultOutcome, setCallResultOutcome] = useState<CallResultOutcome>('');
-  const [followupAt, setFollowupAt] = useState('');
-  const [callResultNotes, setCallResultNotes] = useState('');
-  const [callResultSaving, setCallResultSaving] = useState(false);
-  const settingsLoadedRef = useRef(false);
-  const pipelineLoadedRef = useRef(false);
-  const seenCallResultsRef = useRef(new Set<string>());
+  const [aiResultNotice, setAiResultNotice] = useState<AiResultNotice | null>(null);
   const nicheSelectRef = useRef<HTMLSelectElement>(null);
   const leadListRef = useRef<HTMLDivElement>(null);
-  const settingsRef = useRef<HTMLElement>(null);
 
   const outboundAgents = useMemo(
     () => agents.filter((agent) => agent.isActive && agent.mode === 'outbound'),
@@ -201,31 +191,13 @@ export default function AgentPipelinePage() {
       const freshLeads = leadResult.leads || [];
       setLeads(freshLeads);
       setCallingStatus(callingStatus);
-      if (!settingsLoadedRef.current && callingStatus.settings) {
-        setCallingSettings(callingStatus.settings);
-        settingsLoadedRef.current = true;
-      }
       setAutomationRunning(callingStatus.isRunning);
       const liveCallSid = callingStatus.activeCallSid || Object.values(activeResult.activeCalls || {})[0] || null;
       setActiveCallSid(liveCallSid);
-      setActiveCallLeadId((current) => callingStatus.activeLeadId || (liveCallSid ? current : null));
-      const resultKey = callResultKey(callingStatus.lastCall);
-      const activeCallInMonitor = Object.keys(activeResult.activeCalls || {}).length > 0;
-      const callFinished = isCompletedCall(callingStatus, activeCallInMonitor);
-      if (!pipelineLoadedRef.current) {
-        // Do not mark an in-progress call as seen. If the page is refreshed
-        // while it is dialing, the completed result must still open the modal.
-        if (resultKey && callFinished) seenCallResultsRef.current.add(resultKey);
-        pipelineLoadedRef.current = true;
-      } else if (resultKey && callFinished && !seenCallResultsRef.current.has(resultKey)) {
-        seenCallResultsRef.current.add(resultKey);
-        const finishedLead = freshLeads.find((lead) => lead.id === callingStatus.lastCall?.id);
-        if (finishedLead) {
-          setCallResultQueue((current) => current.some((lead) => lead.id === finishedLead.id)
-            ? current
-            : [...current, finishedLead]);
-        }
-      }
+      const mappedLeadId = callingStatus.activeLeadId
+        || Object.entries(activeResult.activeCalls || {}).find(([, sid]) => sid === liveCallSid)?.[0]
+        || null;
+      setActiveCallLeadId(mappedLeadId);
       setPipelineError('');
     } catch (e: any) {
       setPipelineError(e?.response?.data?.error || e?.message || 'Failed to load AI agent pipeline');
@@ -267,14 +239,11 @@ export default function AgentPipelinePage() {
     setCurrentPage(1);
   }, [leadFilter, q, selectedNicheId]);
 
-  const currentCallResultLead = callResultQueue[0] || null;
-
   useEffect(() => {
-    if (!currentCallResultLead) return;
-    setCallResultOutcome(suggestedCallResult(currentCallResultLead));
-    setFollowupAt('');
-    setCallResultNotes('');
-  }, [currentCallResultLead?.id]);
+    if (!aiResultNotice) return;
+    const timer = window.setTimeout(() => setAiResultNotice(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [aiResultNotice]);
 
   useEffect(() => {
     let cancelled = false;
@@ -395,25 +364,6 @@ export default function AgentPipelinePage() {
     }
   };
 
-  const saveCallingSettings = async () => {
-    setSettingsBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const result = await leadsApi.updateCallingSettings({
-        callsPerMinute: callingSettings.callsPerMinute,
-        maxCallsPerDay: callingSettings.maxCallsPerDay,
-      });
-      setCallingSettings(result.settings);
-      setMessage('Calls per minute aur daily calls save ho gayi hain.');
-      await loadPipeline();
-    } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Calling settings save nahi ho sakin');
-    } finally {
-      setSettingsBusy(false);
-    }
-  };
-
   const toggleContact = (id: number) => {
     setSelectedContactIds((current) => current.includes(id)
       ? current.filter((contactId) => contactId !== id)
@@ -428,7 +378,6 @@ export default function AgentPipelinePage() {
     setError('');
     if (blocker.action === 'agent') navigate('/ai-agent');
     if (blocker.action === 'refresh') void loadPipeline();
-    if (blocker.action === 'settings') settingsRef.current?.focus();
     if (blocker.action === 'leads') {
       setLeadFilter('assigned');
       if (!selectedNicheId) nicheSelectRef.current?.focus();
@@ -445,10 +394,6 @@ export default function AgentPipelinePage() {
         return;
       }
       if (!callingStatus) return;
-      const confirmed = window.confirm(
-        `${callingStatus.queueCount} queued lead${callingStatus.queueCount === 1 ? '' : 's'} par outbound calling start karni hai? Aaj maximum ${callingStatus.settings.maxCallsPerDay} calls attempt hongi.`,
-      );
-      if (!confirmed) return;
     }
     setControlBusy(true);
     setMessage('');
@@ -466,7 +411,8 @@ export default function AgentPipelinePage() {
         const result = await leadsApi.startCalling();
         if (!result.ok) throw new Error(result.message || 'AI outbound calling server policy se band hai.');
         setAutomationRunning(true);
-        setMessage('Automatic calling started for assigned leads');
+        setListeningEnabled(true);
+        setMessage('Automatic calling started for assigned leads. Live listen enabled.');
       }
       await loadPipeline();
       setLeadFilter('assigned');
@@ -475,6 +421,18 @@ export default function AgentPipelinePage() {
     } finally {
       setControlBusy(false);
     }
+  };
+
+  const disableCallingFromMonitor = async () => {
+    const result = await leadsApi.stopCalling();
+    setAutomationRunning(false);
+    setListeningEnabled(false);
+    setListenCallSid(null);
+    setActiveCallSid(null);
+    setActiveCallLeadId(null);
+    setMessage(`AI calling disabled${result.stoppedCalls ? `; ${result.stoppedCalls} live call ended` : ''}.`);
+    await loadPipeline();
+    setLeadFilter('assigned');
   };
 
   const toggleLiveListen = async () => {
@@ -517,6 +475,48 @@ export default function AgentPipelinePage() {
     await loadPipeline();
   };
 
+  const showAiResultForFinishedCall = async (callSid: string) => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 300 : 500));
+      try {
+        const result = await leadsApi.list({ limit: 5000, assigned_to_ai: true });
+        const lead = (result.leads || []).find((item) => (
+          String(item.raw_data?.call_sid || '') === callSid
+          || String(item.raw_data?.active_call_sid || '') === callSid
+        ));
+        if (!lead) continue;
+
+        const isFinal = ['called', 'no_answer', 'followup', 'interested', 'closed_won', 'closed_lost'].includes(lead.lead_stage)
+          || Boolean(lead.raw_data?.ai_outcome)
+          || Boolean(lead.raw_data?.call_ended_at);
+        if (!isFinal) continue;
+
+        const resultStatus = aiOutcomeStatus(lead);
+        setAiResultNotice({
+          callSid,
+          leadName: lead.company_name || lead.domain,
+          phone: lead.primary_phone || null,
+          label: resultStatus.label,
+          summary: lead.ai_summary || 'AI ne call ka result CRM mein save kar diya hai.',
+          color: resultStatus.color,
+        });
+        return;
+      } catch {
+        // Retry briefly because the telecom terminal event can arrive before
+        // the AI outcome transaction becomes visible to the browser.
+      }
+    }
+
+    setAiResultNotice({
+      callSid,
+      leadName: 'Recent call',
+      phone: null,
+      label: 'Result Processing',
+      summary: 'AI result abhi CRM mein process ho raha hai. Lead list automatically refresh hogi.',
+      color: '#d97706',
+    });
+  };
+
   const callLeadNow = async (lead: Lead) => {
     // Unlock audio before the asynchronous call request so Listen Live can
     // play the first AI greeting as soon as the popup opens.
@@ -541,52 +541,10 @@ export default function AgentPipelinePage() {
     }
   };
 
-  const saveCallResult = async () => {
-    if (!currentCallResultLead || !callResultOutcome) {
-      setError('Call ka result select karein.');
-      return;
-    }
-    if (callResultOutcome === 'followup' && !followupAt) {
-      setError('Follow-up ki date aur time select karein.');
-      return;
-    }
-    const resultLabels: Record<Exclude<CallResultOutcome, ''>, string> = {
-      voicemail: 'Voicemail',
-      no_answer: 'No Answer',
-      followup: 'Follow-up',
-      interested: 'Interested',
-      not_interested: 'Not Interested',
-    };
-    const stage: Stage = callResultOutcome === 'followup'
-      ? 'followup'
-      : callResultOutcome === 'interested'
-        ? 'interested'
-        : callResultOutcome === 'not_interested'
-          ? 'closed_lost'
-          : 'no_answer';
-    const resultNote = `[Call result] ${resultLabels[callResultOutcome]}${callResultNotes.trim() ? ` — ${callResultNotes.trim()}` : ''}`;
-    setCallResultSaving(true);
-    setError('');
-    try {
-      await leadsApi.patch(currentCallResultLead.id, {
-        lead_stage: stage,
-        next_followup_at: callResultOutcome === 'followup' ? new Date(followupAt).toISOString() : null,
-        lead_notes: [currentCallResultLead.lead_notes, resultNote].filter(Boolean).join('\n'),
-      });
-      setMessage(`${currentCallResultLead.company_name || currentCallResultLead.domain}: ${resultLabels[callResultOutcome]} save ho gaya.`);
-      setCallResultQueue((current) => current.slice(1));
-      await loadPipeline();
-    } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Call result save nahi ho saka');
-    } finally {
-      setCallResultSaving(false);
-    }
-  };
-
-  const activeLead = useMemo(
-    () => leads.find((lead) => lead.id === callingStatus?.activeLeadId || lead.id === activeCallLeadId) || null,
-    [leads, callingStatus?.activeLeadId, activeCallLeadId],
-  );
+  const activeLead = useMemo(() => {
+    const currentLeadId = callingStatus?.activeLeadId || activeCallLeadId;
+    return currentLeadId ? leads.find((lead) => lead.id === currentLeadId) || null : null;
+  }, [leads, callingStatus?.activeLeadId, activeCallLeadId]);
 
   const bannerText = useMemo(() => {
     if (!callingStatus) return '';
@@ -650,13 +608,7 @@ export default function AgentPipelinePage() {
             {automationRunning ? <Square size={14} fill="currentColor" /> : <PhoneCall size={15} />}
             {controlBusy ? 'Please wait...' : automationRunning ? 'Disable Calling' : 'Enable Calling'}
           </button>
-          <button 
-            onClick={() => void toggleLiveListen()} 
-            className={`flex items-center gap-2 h-10 px-4 rounded-lg font-bold text-xs text-white shadow-sm hover:shadow-md transition-all duration-200 active:scale-95 ${listeningEnabled ? 'bg-red-600 hover:bg-red-700' : 'bg-violet-600 hover:bg-violet-700'}`}
-          >
-            {listeningEnabled ? <Square size={14} fill="currentColor" /> : <Volume2 size={16} />}
-            {listeningEnabled ? 'Stop Listening' : 'Listen Live'}
-          </button>
+
           <button onClick={() => navigate('/ai-agent')} className="flex items-center gap-2 h-10 px-4 rounded-lg font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 active:scale-95">
             <Settings2 size={15} /> Agent Setup
           </button>
@@ -671,7 +623,7 @@ export default function AgentPipelinePage() {
           <span className="min-w-0 break-words">{startBlocker.message}</span>
           <button onClick={() => resolveStartBlocker(startBlocker)} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-amber-300 bg-white px-3 text-xs font-bold">
             {startBlocker.action === 'leads' ? <UserPlus size={15} /> : startBlocker.action === 'refresh' ? <RefreshCw size={15} /> : <Settings2 size={15} />}
-            {startBlocker.action === 'leads' ? 'Select & assign leads' : startBlocker.action === 'agent' ? 'Agent Setup' : startBlocker.action === 'settings' ? 'Calling limits' : 'Retry status'}
+            {startBlocker.action === 'leads' ? 'Select & assign leads' : startBlocker.action === 'agent' ? 'Agent Setup' : 'Retry status'}
           </button>
         </div>
       )}
@@ -687,28 +639,6 @@ export default function AgentPipelinePage() {
       {agentStatus && !agentStatus.outboundEnabled && (
         <Alert danger text="Outbound calling server safety policy se paused hai. Leads assign ho sakti hain, lekin calls start nahi hongi." />
       )}
-      <section ref={settingsRef} tabIndex={-1} className="border-y border-slate-200 bg-white py-4 px-1">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <ShieldCheck size={18} className="text-teal-700" />
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">Automatic calling limits</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Yeh limits sirf Enable Calling ke liye hain. Manual Call now par daily limit apply nahi hoti.</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-4 text-xs font-semibold text-slate-600">
-            <span>Today: {callingStatus?.usageToday.attempts || 0}/{callingSettings.maxCallsPerDay} calls</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 max-w-xl gap-3 items-end">
-          <SettingNumber icon={<Gauge size={14} />} label="Calls / minute" value={callingSettings.callsPerMinute} min={1} max={callingStatus?.serverCaps.callsPerMinute || 3} onChange={(callsPerMinute) => setCallingSettings((current) => ({ ...current, callsPerMinute }))} />
-          <SettingNumber icon={<PhoneCall size={14} />} label="Daily calls" value={callingSettings.maxCallsPerDay} min={1} max={callingStatus?.serverCaps.maxCallsPerDay || 5} onChange={(maxCallsPerDay) => setCallingSettings((current) => ({ ...current, maxCallsPerDay }))} />
-          <button onClick={() => void saveCallingSettings()} disabled={settingsBusy} className="h-9 px-4 rounded-md bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 disabled:opacity-50">
-            {settingsBusy ? 'Saving...' : 'Save limits'}
-          </button>
-        </div>
-      </section>
-
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -753,14 +683,44 @@ export default function AgentPipelinePage() {
             setListenCallSid(null);
           }}
           onCallEnded={(callSid, status) => {
-            setMessage(`Live listen: call ${callSid.slice(0, 8)} ${status}. Waiting for next call.`);
+            setMessage(`Live listen: call ${callSid.slice(0, 8)} ${status}. AI result save ho raha hai.`);
+            void showAiResultForFinishedCall(callSid);
+            setDismissedLiveCallSid(callSid);
+            setListeningEnabled(false);
             setListenCallSid(null);
             setActiveCallSid(null);
             setActiveCallLeadId(null);
             void loadPipeline();
           }}
           onSkipCurrentCall={skipLiveCall}
+          onDisableCalling={disableCallingFromMonitor}
         />
+      )}
+      {aiResultNotice && (
+        <div className="ai-result-notice fixed left-4 right-4 top-4 z-[10000] mx-auto max-w-md overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-2xl sm:left-auto sm:right-6 sm:top-6 sm:mx-0 sm:w-[390px]" role="status" aria-live="polite">
+          <div className="flex items-start gap-3 p-4">
+            <div className="ai-result-icon mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+              <CheckCircle2 size={25} strokeWidth={2.5} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-emerald-700">AI Call Result</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <h3 className="truncate text-sm font-extrabold text-slate-900">{aiResultNotice.leadName}</h3>
+                <span className="rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide" style={{ backgroundColor: `${aiResultNotice.color}18`, color: aiResultNotice.color }}>
+                  {aiResultNotice.label}
+                </span>
+              </div>
+              {aiResultNotice.phone && <p className="mt-1 text-xs font-semibold text-slate-500">{aiResultNotice.phone}</p>}
+              <p className="mt-2 line-clamp-2 text-xs font-medium leading-5 text-slate-600">{aiResultNotice.summary}</p>
+            </div>
+            <button type="button" onClick={() => setAiResultNotice(null)} aria-label="Close AI result" className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
+              <X size={18} />
+            </button>
+          </div>
+          <div className="h-1 bg-emerald-100">
+            <div className="ai-result-progress h-full bg-emerald-500" />
+          </div>
+        </div>
       )}
       {message && <Alert text={message} />}
       {!!bannerText && (
@@ -820,21 +780,6 @@ export default function AgentPipelinePage() {
       )}
       </div>
 
-      {currentCallResultLead && (
-        <CallResultModal
-          lead={currentCallResultLead}
-          outcome={callResultOutcome}
-          followupAt={followupAt}
-          notes={callResultNotes}
-          saving={callResultSaving}
-          pendingCount={callResultQueue.length}
-          onOutcomeChange={setCallResultOutcome}
-          onFollowupAtChange={setFollowupAt}
-          onNotesChange={setCallResultNotes}
-          onSave={() => void saveCallResult()}
-          onClose={() => setCallResultQueue((current) => current.slice(1))}
-        />
-      )}
     </div>
   );
 }
@@ -961,13 +906,19 @@ function PipelineLeadList({
       <div className="min-w-[900px] flex flex-col gap-3">
         {leads.map((lead) => {
           const callInProgress = lead.lead_stage === 'calling' || activeCallLeadId === lead.id;
+          const leadStatus = simpleLeadStatus(lead);
           return (
           <div key={lead.id} className={`grid grid-cols-[1.6fr_48px_0.8fr_0.7fr_1fr_0.9fr] gap-4 items-center min-h-[74px] p-4 border rounded-lg transition-all duration-200 ${callInProgress ? 'bg-red-50 border-red-300 shadow-md' : 'bg-white border-gray-200 hover:shadow-md'}`}>
           <LeadIdentity name={lead.company_name || lead.domain} niche={lead.raw_data?.niche_name || lead.industry_guess} detail={lead.primary_email || lead.domain} />
           <Score value={lead.ai_score || 0} />
           <PhoneValue value={lead.primary_phone || 'No phone'} />
           <div className="min-w-0">
-            <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap" style={{ backgroundColor: `${simpleLeadStatus(lead).color}20`, color: simpleLeadStatus(lead).color }}>{simpleLeadStatus(lead).label}</span>
+            <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wide whitespace-nowrap" style={{ backgroundColor: `${leadStatus.color}20`, color: leadStatus.color }}>{leadStatus.label}</span>
+            {'source' in leadStatus && leadStatus.source && (
+              <div className="mt-1 text-[10px] font-bold uppercase tracking-wide" style={{ color: leadStatus.color }}>
+                {leadStatus.source === 'ai' ? 'AI result' : 'Manual result'}
+              </div>
+            )}
             <div className="text-gray-600 text-xs font-semibold mt-1.5">{formatCallClock(getCallStartedAt(lead))}</div>
             <div className="text-gray-500 text-xs font-medium mt-0.5">{formatDurationSeconds(getCallDurationSeconds(lead, lead.lead_stage === 'calling'))}</div>
           </div>
@@ -1003,104 +954,6 @@ function PipelineLeadList({
         );})}
       </div>
       <Pagination currentPage={currentPage} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={onPageChange} />
-    </div>
-  );
-}
-
-function CallResultModal({
-  lead,
-  outcome,
-  followupAt,
-  notes,
-  saving,
-  pendingCount,
-  onOutcomeChange,
-  onFollowupAtChange,
-  onNotesChange,
-  onSave,
-  onClose,
-}: {
-  lead: Lead;
-  outcome: CallResultOutcome;
-  followupAt: string;
-  notes: string;
-  saving: boolean;
-  pendingCount: number;
-  onOutcomeChange: (outcome: CallResultOutcome) => void;
-  onFollowupAtChange: (value: string) => void;
-  onNotesChange: (value: string) => void;
-  onSave: () => void;
-  onClose: () => void;
-}) {
-  const options: Array<{ value: Exclude<CallResultOutcome, ''>; label: string; helper: string }> = [
-    { value: 'voicemail', label: 'Voicemail', helper: 'Call answering machine par gayi' },
-    { value: 'no_answer', label: 'No Answer', helper: 'Kisi ne call answer nahi ki' },
-    { value: 'followup', label: 'Follow-up', helper: 'Dobara call karni hai' },
-    { value: 'interested', label: 'Interested', helper: 'Lead ne offer mein interest dikhaya' },
-    { value: 'not_interested', label: 'Not Interested', helper: 'Lead ne offer mein interest nahi dikhaya' },
-  ];
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4" role="dialog" aria-modal="true" aria-labelledby="call-result-title">
-      <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-teal-700">Call finished</p>
-            <h2 id="call-result-title" className="mt-1 text-xl font-extrabold text-slate-900">Call ka result kya raha?</h2>
-            <p className="mt-1 text-sm font-medium text-slate-500">{lead.company_name || lead.domain} {lead.primary_phone ? `• ${lead.primary_phone}` : ''}</p>
-          </div>
-          <button type="button" onClick={onClose} disabled={saving} aria-label="Decide later" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {options.map((option) => (
-            <button
-              type="button"
-              key={option.value}
-              onClick={() => onOutcomeChange(option.value)}
-              className={`rounded-xl border p-4 text-left transition ${outcome === option.value ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}
-            >
-              <span className="block text-sm font-extrabold text-slate-900">{option.label}</span>
-              <span className="mt-1 block text-xs font-medium text-slate-500">{option.helper}</span>
-            </button>
-          ))}
-        </div>
-
-        {outcome === 'followup' && (
-          <label className="mt-4 block text-sm font-bold text-slate-700">
-            Follow-up date &amp; time
-            <input
-              type="datetime-local"
-              value={followupAt}
-              onChange={(event) => onFollowupAtChange(event.target.value)}
-              className="mt-2 h-11 w-full rounded-lg border border-slate-300 px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
-            />
-          </label>
-        )}
-
-        <label className="mt-4 block text-sm font-bold text-slate-700">
-          Short note <span className="font-medium text-slate-400">(optional)</span>
-          <textarea
-            value={notes}
-            onChange={(event) => onNotesChange(event.target.value)}
-            rows={3}
-            placeholder="Call ke bare mein short note..."
-            className="mt-2 w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
-          />
-        </label>
-
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <span className="text-xs font-medium text-slate-500">{pendingCount > 1 ? `${pendingCount - 1} aur call results pending hain` : 'Result CRM mein save hoga'}</span>
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} disabled={saving} className="h-10 rounded-lg border border-slate-300 px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Decide later</button>
-            <button type="button" onClick={onSave} disabled={saving || !outcome} className="h-10 rounded-lg bg-teal-600 px-5 text-xs font-bold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-slate-300">
-              {saving ? 'Saving...' : 'Save result'}
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -1171,39 +1024,6 @@ function Score({ value }: { value: number }) {
 
 function PhoneValue({ value }: { value: string }) {
   return <span className="flex items-center gap-2 text-gray-900 text-sm font-bold"><Phone size={14} className="text-teal-600" /> {value}</span>;
-}
-
-function SettingNumber({
-  icon,
-  label,
-  value,
-  min,
-  max,
-  step = 1,
-  onChange,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step?: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="block text-xs font-semibold text-slate-600">
-      <span className="flex items-center gap-1.5">{icon}{label}</span>
-      <input
-        type="number"
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="mt-1 w-full h-9 px-2 border border-slate-300 rounded-md bg-white text-xs text-slate-800"
-      />
-    </label>
-  );
 }
 
 function Alert({ text, danger = false, action = null }: { text: string; danger?: boolean; action?: React.ReactNode }) {
