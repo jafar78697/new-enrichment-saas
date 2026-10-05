@@ -4,7 +4,8 @@ import {
   TEMPLATE_VAR_REGEX,
   isDeclaredHandle,
   getHandleSemantic,
-  NODE_DECLARED_HANDLES
+  NODE_DECLARED_HANDLES,
+  normalizeHandle
 } from './template-registry.js';
 
 export interface ValidationIssue {
@@ -53,7 +54,12 @@ export function validateScriptGraph(script: ScriptDefinition): ValidationResult 
   }
 
   const nodes = script.nodes || [];
-  const edges = script.edges || [];
+  // Normalize edges immediately
+  const nodeTypeMap = new Map(nodes.map(n => [n.id, n.type]));
+  const edges = (script.edges || []).map(e => ({
+    ...e,
+    sourceHandle: normalizeHandle(nodeTypeMap.get(e.source) || 'node', e.sourceHandle)
+  }));
 
   if (!Array.isArray(nodes) || nodes.length === 0) {
     addError('Script must contain at least one node.', 'EMPTY_NODES');
@@ -513,41 +519,62 @@ export function validateScriptGraph(script: ScriptDefinition): ValidationResult 
   );
 
   for (const outcomeNode of meetingActionNodes) {
-    // Traverse backwards from this outcome node to verify date/time collection exists on all reachable incoming paths
+    // Traverse backwards from this outcome node to verify date/time collection exists on ALL reachable incoming paths
     const adjReverse = new Map<string, string[]>();
     for (const edge of edges) {
       if (!adjReverse.has(edge.target)) adjReverse.set(edge.target, []);
       adjReverse.get(edge.target)!.push(edge.source);
     }
 
-    let hasDateCollection = false;
-    const queue = [outcomeNode.id];
-    const visited = new Set<string>([outcomeNode.id]);
+    let allPathsCollect = true;
+    const memo = new Map<string, boolean>();
 
-    while (queue.length > 0) {
-      const currId = queue.shift()!;
+    const checkAllPathsHaveCollection = (currId: string, visited: Set<string>): boolean => {
+      if (memo.has(currId)) return memo.get(currId)!;
+      
       const curr = nodeMap.get(currId);
       if (curr) {
         if (curr.type === 'followup') {
-          hasDateCollection = true;
-          break;
+          memo.set(currId, true);
+          return true;
         }
         if (curr.type === 'meeting_cta' && (curr.data?.collectDate || curr.data?.collectTime || (curr.data?.text || '').toLowerCase().includes('time') || (curr.data?.text || '').toLowerCase().includes('date'))) {
-          hasDateCollection = true;
+          memo.set(currId, true);
+          return true;
+        }
+        if (curr.type === 'start' || curr.type === 'opening') {
+          // Hit the start without finding a collector
+          memo.set(currId, false);
+          return false;
+        }
+      }
+      
+      const preds = adjReverse.get(currId) || [];
+      if (preds.length === 0) {
+        memo.set(currId, false);
+        return false; // Dead end backwards without a collector
+      }
+
+      visited.add(currId);
+      let allIncomingCollect = true;
+      for (const pred of preds) {
+        if (visited.has(pred)) continue; // avoid cycles in check
+        const pathCollects = checkAllPathsHaveCollection(pred, new Set(visited));
+        if (!pathCollects) {
+          allIncomingCollect = false;
           break;
         }
       }
-      for (const pred of adjReverse.get(currId) || []) {
-        if (!visited.has(pred)) {
-          visited.add(pred);
-          queue.push(pred);
-        }
-      }
-    }
+      
+      memo.set(currId, allIncomingCollect);
+      return allIncomingCollect;
+    };
 
-    if (!hasDateCollection) {
+    allPathsCollect = checkAllPathsHaveCollection(outcomeNode.id, new Set<string>());
+
+    if (!allPathsCollect) {
       addError(
-        `Meeting/Follow-up outcome node "${outcomeNode.id}" requires a preceding node that collects appointment date and time (e.g. Follow-up node or Meeting CTA with date/time collection enabled).`,
+        `Meeting/Follow-up outcome node "${outcomeNode.id}" requires a preceding node that collects appointment date and time on ALL incoming paths (e.g. Follow-up node or Meeting CTA with date/time collection enabled).`,
         'MISSING_MEETING_DATE_COLLECTION',
         outcomeNode.id,
         'outcome'

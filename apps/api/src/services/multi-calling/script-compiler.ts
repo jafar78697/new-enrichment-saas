@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { ScriptDefinition, NodeDefinition, EdgeDefinition } from './script-schema.js';
 import { validateScriptGraph } from './script-validator.js';
-import { getHandleLabel } from './template-registry.js';
+import { getHandleLabel, normalizeHandle } from './template-registry.js';
 
 export function compileScript(script: ScriptDefinition): { prompt: string; hash: string } {
   const validation = validateScriptGraph(script);
@@ -42,7 +42,7 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
     }
   };
 
-  const getNodeText = (node: NodeDefinition) => (node.data?.text || node.data?.label || '').toString().trim();
+  const getNodeText = (node: NodeDefinition) => (node.data?.text || '').toString().trim();
 
   let prompt = `You are ${script.settings.agentDisplayName}, a professional AI phone agent.\n`;
   prompt += `Your tone should be ${script.settings.tone || 'professional, helpful, and concise'}.\n`;
@@ -151,7 +151,7 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
         break;
 
       case 'pricing':
-        prompt += `Provide pricing details: "${node.data?.pricingText || text}"\n`;
+        prompt += `Provide pricing details: "${node.data?.text || node.data?.pricingText || text}"\n`;
         break;
 
       case 'send_information':
@@ -160,7 +160,7 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
         break;
 
       case 'additional_instructions':
-        prompt += `Instructions: ${node.data?.instructions || text}\n`;
+        prompt += `Instructions: ${node.data?.text || node.data?.instructions || text}\n`;
         break;
 
       case 'meeting_cta':
@@ -171,7 +171,7 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
         break;
 
       case 'followup':
-        prompt += `Ask for date and time: "${node.data?.askDateText || text}" and "${node.data?.askTimeText || 'preferred time'}".\n`;
+        prompt += `Ask for date and time: "${node.data?.text || node.data?.askDateText || text}" and "${node.data?.askTimeText || 'preferred time'}".\n`;
         prompt += `Confirm: "${node.data?.confirmationText || 'Thank you, confirmed.'}".\n`;
         prompt += `You MUST call the "save_call_note" tool with outcome="followup" with confirmed followup_at (ISO 8601 UTC) and followup_timezone.\n`;
         break;
@@ -195,7 +195,7 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
         break;
 
       case 'goodbye':
-        prompt += `Conclude the conversation politely: "${node.data?.genericText || text || 'Thank you for your time. Have a great day.'}"\n`;
+        prompt += `Conclude the conversation politely: "${node.data?.text || node.data?.genericText || text || 'Thank you for your time. Have a great day.'}"\n`;
         prompt += `You MUST call the "end_call" tool to hang up.\n`;
         break;
     }
@@ -215,11 +215,11 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
     }
   }
 
-  prompt += `\n=== PROTECTED SAFEGUARDS ===\n`;
-  prompt += `If you hear "press 1" or keypad menu options, it is an IVR. Call the end_call tool immediately.\n`;
-  prompt += `If you hear "please leave a message", it is a voicemail. Mark it and hang up.\n`;
-  prompt += `If the user asks not to be called, call the "mark_do_not_call" tool.\n`;
-
+  prompt += `\n=== PROTECTED SAFEGUARDS & INSTRUCTIONS ===\n`;
+  prompt += `1. HUMAN WAIT: If you hear a recording notice ("this call may be recorded") or a brief hold music, wait silently for a human to speak. Do NOT speak over it.\n`;
+  prompt += `2. IVR/VOICEMAIL: If you hear "press 1", keypad menus, or "leave a message", it is an IVR or voicemail. Call end_call immediately.\n`;
+  prompt += `3. DO NOT CALL: If the user asks not to be called, call the "mark_do_not_call" tool.\n`;
+  prompt += `4. ENDING SEQUENCE: When the call finishes, you MUST execute actions in this exact order: FIRST save the result (e.g. save_call_note), SECOND say a polite goodbye, THIRD call the end_call tool.\n`;
   if (prompt.length > 18000) {
     throw new Error(
       `Compiled prompt length (${prompt.length} characters) exceeds the maximum limit of 18,000 characters.`

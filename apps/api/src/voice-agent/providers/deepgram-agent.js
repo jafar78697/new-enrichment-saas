@@ -152,30 +152,7 @@ In the "note" field, write exactly one clear line summarizing what the prospect 
     : '';
   const greetingInstruction = `\n\nIMPORTANT GREETING RULES:\nWhen a real person answers with any normal greeting — "Hello", "Good morning", the company name, "Speaking", "Yes", or "How can I help you?" — respond IMMEDIATELY with your opening question. Do NOT wait or stay silent. Speed is critical — the first 3 seconds after they finish speaking determine whether they hang up.\nIf you hear a keypad menu such as "press 1", "press 2", or "choose an option", say nothing. The server will classify it as IVR and end the call.\nIf you hear "please hold", "stay on the line", "we are connecting you", "this call may be recorded", or "recorded for quality assurance", do NOT end the call. Call wait_for_human and stay silent until a real human speaks.\nIf you hear voicemail instructions such as "leave a message" or "after the tone", say nothing. The server will classify it as voicemail and end the call.\nThe current company is ${companyName || 'the company in the current CRM lead'}. Never use a company name remembered from an earlier call. Do not repeat your opener if you already said it. Never interrupt the prospect. Always listen to their full sentence before replying.`;
   
-  const replaceTemplateVars = (text, data) => {
-    if (!text || typeof text !== 'string') return text;
-    return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, varName) => {
-      const key = varName.trim().toLowerCase();
-      if (key === 'company' || key === 'company_name') return data.company_name || data.company || companyName || 'your company';
-      if (key === 'first_name') return data.first_name || 'there';
-      if (key === 'last_name') return data.last_name || '';
-      if (key === 'name' || key === 'prospect_name') return data.prospect_name || data.name || data.first_name || 'there';
-      if (key === 'niche_name') return data.niche_name || data.industry || 'your industry';
-      if (key === 'agent_name') return data.agent_name || agentConfig?.name || 'our representative';
-      if (key === 'offer_name') return data.offer_name || 'our service';
-      if (key === 'meeting_length') return data.meeting_length || '15 minutes';
-      if (key === 'current_date') return data.current_date || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      if (key === 'title') return data.title || 'team member';
-      if (key === 'industry') return data.industry || data.niche_name || 'your industry';
-      if (key === 'phone') return data.phone || data.primary_phone || '';
-      if (key === 'city') return data.city || '';
-      if (key === 'state') return data.state || '';
-      if (key === 'website') return data.website || data.domain || '';
-      if (key === 'email') return data.email || data.primary_email || '';
-      if (key === 'notes') return data.notes || '';
-      return match;
-    });
-  };
+
 
   const rawBaseContent = compiledScriptPrompt || agentConfig?.prompt || DEFAULT_PROMPT;
   const baseContent = replaceTemplateVars(rawBaseContent, lead || {});

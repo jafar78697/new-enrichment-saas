@@ -361,7 +361,8 @@ async function handleFunctionRequests(event, context) {
             const email = normalizeEmailValue(args.email);
             // Giving a valid address for information/management review is a
             // positive handoff. Never discard it as a rejection.
-            if (email && outcome === 'not_interested') outcome = 'interested';
+            // Removed unconditional override: an email address provided while rejecting
+            // an offer (e.g., admin email) does not mean the outcome is 'interested'.
             const { rows } = await query(
             `WITH session AS (
                UPDATE ai_call_sessions SET outcome = $1, summary = $2 WHERE id = $3

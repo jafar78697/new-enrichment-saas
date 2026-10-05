@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc --noEmit || true",
+    "build": "tsc --noEmit",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "compile": "tsc --noEmit false --skipLibCheck true --outDir dist --rootDir src",

@@ -292,6 +292,7 @@ function BuilderFlow() {
   });
   
   const [loading, setLoading] = useState(!!(scriptId && scriptId !== 'new'));
+  const [draftId, setDraftId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [validating, setValidating] = useState(false);
@@ -371,6 +372,9 @@ function BuilderFlow() {
       setScriptName(res.data.script.name);
       if (res.data.script?.niche_id) {
         setNicheId(res.data.script.niche_id);
+      }
+      if (res.data.version?.id && res.data.version?.status === 'draft') {
+        setDraftId(res.data.version.id);
       }
       
       const def = res.data.version.definition;
@@ -520,7 +524,8 @@ function BuilderFlow() {
         await api.put(`/multi-calling/scripts/${scriptId}`, {
           name: scriptName,
           definition,
-          nicheId: nicheId || null
+          nicheId: nicheId || null,
+          expectedDraftId: draftId
         });
       } else {
         const res = await api.post('/multi-calling/scripts', {
@@ -551,7 +556,8 @@ function BuilderFlow() {
         await api.put(`/multi-calling/scripts/${scriptId}`, {
           name: scriptName,
           definition,
-          nicheId: nicheId || null
+          nicheId: nicheId || null,
+          expectedDraftId: draftId
         });
       } else {
         const res = await api.post('/multi-calling/scripts', {
