@@ -664,6 +664,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
          JOIN enrichment_results er ON er.id = s.lead_id AND er.tenant_id = s.tenant_id
          WHERE s.tenant_id = $1
            AND s.ended_at IS NULL
+           AND s.started_at >= NOW() - INTERVAL '15 minutes'
            AND s.call_state NOT IN ('completed', 'closed', 'stopped', 'error')
        ), dialing_lead AS (
          SELECT id, raw_data->>'active_call_sid' AS active_call_sid, 1 AS priority, last_contacted_at AS sort_at
@@ -875,9 +876,21 @@ export default async function crmRoutes(fastify: FastifyInstance) {
     );
 
     const { rows: activeRows } = await fastify.db.query(
-      `SELECT id, raw_data->>'active_call_sid' AS active_call_sid
-       FROM enrichment_results
-       WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'`,
+      `SELECT DISTINCT ON (active_call_sid) id, active_call_sid
+       FROM (
+         SELECT er.id, s.signalwire_call_sid AS active_call_sid, s.started_at AS sort_at
+         FROM ai_call_sessions s
+         JOIN enrichment_results er ON er.id = s.lead_id AND er.tenant_id = s.tenant_id
+         WHERE s.tenant_id = $1 AND s.ended_at IS NULL
+           AND s.started_at >= NOW() - INTERVAL '2 hours'
+           AND s.call_state NOT IN ('completed', 'closed', 'stopped', 'error')
+         UNION ALL
+         SELECT id, raw_data->>'active_call_sid' AS active_call_sid, last_contacted_at AS sort_at
+         FROM enrichment_results
+         WHERE tenant_id = $1 AND assigned_to_ai = true AND lead_stage = 'calling'
+       ) active
+       WHERE active_call_sid IS NOT NULL
+       ORDER BY active_call_sid, sort_at DESC`,
       [tenantId],
     );
 
@@ -894,16 +907,14 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       }
     }
 
-    if (activeCallSids.length) {
-      await fastify.db.query(
-        `UPDATE ai_call_sessions
-         SET hangup_reason = COALESCE(hangup_reason, 'supervisor-disabled'),
-             call_state = 'ending',
-             ended_at = COALESCE(ended_at, NOW())
-         WHERE tenant_id = $1 AND signalwire_call_sid = ANY($2::text[])`,
-        [tenantId, activeCallSids],
-      );
-    }
+    await fastify.db.query(
+      `UPDATE ai_call_sessions
+       SET hangup_reason = COALESCE(hangup_reason, 'supervisor-disabled'),
+           call_state = 'stopped',
+           ended_at = COALESCE(ended_at, NOW())
+       WHERE tenant_id = $1 AND ended_at IS NULL`,
+      [tenantId],
+    );
 
     await fastify.db.query(
       `UPDATE enrichment_results
@@ -1023,6 +1034,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
        FROM (
          SELECT id::text AS call_key FROM ai_call_sessions
          WHERE tenant_id = $1 AND ended_at IS NULL
+           AND started_at >= NOW() - INTERVAL '15 minutes'
            AND call_state NOT IN ('completed', 'closed', 'stopped', 'error')
          UNION
          SELECT id::text AS call_key FROM enrichment_results
@@ -1073,7 +1085,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         statusCallback: `${publicBaseUrl}/api/voice/webhooks/call-status?contactId=${leadId}`,
         statusCallbackMethod: 'POST',
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-        timeout: 30,
+        timeout: 45,
         record: false,
       });
       callSid = call.sid;
@@ -1201,8 +1213,9 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         `SELECT er.id, COALESCE(s.signalwire_call_sid, er.raw_data->>'active_call_sid') AS active_call_sid
          FROM enrichment_results er
          LEFT JOIN ai_call_sessions s
-           ON s.lead_id = er.id AND s.tenant_id = er.tenant_id
+          ON s.lead_id = er.id AND s.tenant_id = er.tenant_id
           AND s.ended_at IS NULL
+          AND s.started_at >= NOW() - INTERVAL '15 minutes'
           AND s.call_state NOT IN ('completed', 'closed', 'stopped', 'error')
          WHERE er.tenant_id = $1
            AND (s.id IS NOT NULL OR er.lead_stage = 'calling')`,

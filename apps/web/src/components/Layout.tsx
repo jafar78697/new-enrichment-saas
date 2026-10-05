@@ -72,7 +72,7 @@ export default function Layout() {
         }
 
         // AI Calling features
-        if (['/pipeline', '/ai-agent', '/call-system', '/leaderboard'].includes(item.to)) {
+        if (['/pipeline', '/multi-ai-calling', '/ai-agent', '/call-system', '/leaderboard'].includes(item.to)) {
           return assigned.includes('ai_calling');
         }
         

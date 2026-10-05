@@ -135,6 +135,19 @@ async function runWorkerTick() {
           [control.tenant_id],
         );
 
+        // A crashed media stream must not keep the tenant permanently active.
+        // Normal calls have a much shorter configured duration; 15 minutes is
+        // a conservative recovery boundary.
+        await query(
+          `UPDATE ai_call_sessions
+           SET ended_at = COALESCE(ended_at, NOW()),
+               call_state = 'stopped',
+               hangup_reason = COALESCE(hangup_reason, 'stale-session-recovered')
+           WHERE tenant_id = $1 AND ended_at IS NULL
+             AND started_at < NOW() - INTERVAL '15 minutes'`,
+          [control.tenant_id],
+        );
+
         const { rows: activeRows } = await query(
           `SELECT
              EXISTS (
@@ -143,16 +156,12 @@ async function runWorkerTick() {
              ) OR EXISTS (
                SELECT 1 FROM ai_call_sessions
                WHERE tenant_id = $1
-                 AND ended_at IS NULL
+                 AND started_at >= NOW() - INTERVAL '15 minutes'
                  AND call_state NOT IN ('completed', 'closed', 'stopped', 'error')
-             ) AS active,
-             EXISTS (
-               SELECT 1 FROM ai_call_sessions
-               WHERE tenant_id = $1 AND ended_at > NOW() - INTERVAL '10 seconds'
-             ) AS cooling_down`,
+             ) AS active`,
           [control.tenant_id],
         );
-        if (activeRows[0]?.active || activeRows[0]?.cooling_down) continue;
+        if (activeRows[0]?.active) continue;
 
         // P1 FIX: Cleanup zombie "called" or "calling" leads that got stuck
         // (e.g. process crashed or bridge failed to clean up)
@@ -189,6 +198,12 @@ async function runWorkerTick() {
                  WHERE ac.id = enrichment_results.assigned_ai_agent_id
                    AND ac.tenant_id = enrichment_results.tenant_id
                    AND ac.is_active = true AND ac.mode = 'outbound'
+               )
+               AND enrichment_results.ai_calling_lane_id IS NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM ai_call_queue_items q
+                 WHERE q.lead_id = enrichment_results.id
+                   AND q.state IN ('queued', 'claimed', 'dialing', 'ringing', 'streaming', 'active')
                )
              ORDER BY CASE lead_stage WHEN 'followup' THEN 0 ELSE 1 END, created_at ASC
              FOR UPDATE SKIP LOCKED
@@ -242,7 +257,9 @@ async function runWorkerTick() {
           statusCallback: `${PUBLIC_BASE_URL}/api/voice/webhooks/call-status?contactId=${lead.id}`,
           statusCallbackMethod: 'POST',
           statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-          timeout: 30,
+          // Give a business line enough time to ring/transfer before the
+          // carrier returns no-answer. This value applies before connection.
+          timeout: 45,
           record: false,
         });
 
@@ -358,7 +375,10 @@ export async function runOutboundCallerLoop() {
   workerStarted = true;
   const schedule = async () => {
     await runWorkerTick();
-    setTimeout(schedule, 20000);
+    // Poll quickly after a terminal callback so the next sequential call does
+    // not sit idle for up to 20 seconds. The active-call lock still prevents
+    // overlapping calls.
+    setTimeout(schedule, 3000);
   };
   void schedule();
 }

@@ -49,8 +49,11 @@ const envSchema = z.object({
   DEEPGRAM_AGENT_LISTEN_MODEL: z.preprocess(emptyIfPlaceholder, z.string().default('flux-general-en')),
   DEEPGRAM_AGENT_EOT_THRESHOLD: z.coerce.number().min(0.5).max(1).default(0.9),
   DEEPGRAM_AGENT_EOT_TIMEOUT_MS: z.coerce.number().int().min(500).max(60000).default(3000),
-  DEEPGRAM_AGENT_VOICE: z.preprocess(emptyIfPlaceholder, z.string().default('aura-asteria-en')),
+  DEEPGRAM_AGENT_VOICE: z.preprocess(emptyIfPlaceholder, z.string().default('aura-orion-en')),
   DEEPGRAM_AGENT_SPEAK_SPEED: z.coerce.number().min(0.5).max(1.5).default(1.05),
+  // Keep PCMU bit-exact unless a deployment explicitly asks for gain. A gain
+  // pass decodes and re-encodes every sample and cannot repair packet cutting.
+  AI_AGENT_OUTPUT_GAIN: z.coerce.number().min(0.5).max(2).default(1),
   DEEPGRAM_BROWSER_PREVIEW_MAX_SECONDS: z.coerce.number().int().min(60).max(600).default(120),
   DEEPGRAM_BROWSER_PREVIEW_MAX_ACTIVE_PER_USER: z.coerce.number().int().min(1).max(2).default(1),
   AI_MAX_SECONDS_PER_CALL: z.coerce.number().int().min(60).max(600).default(180),

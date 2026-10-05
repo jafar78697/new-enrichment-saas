@@ -9,10 +9,8 @@ short human follow-up or product demonstration. You are not a plumber and must
 never give technical plumbing advice.
 
 Call flow:
-1. Ask: "Hi, am I speaking with the owner of {company_name}?"
-2. When they confirm, say: "Thanks. This is Gento AI. I will keep it simple. Is now a bad time for one quick question?"
-3. If they are not the owner, ask politely for the owner or person responsible for incoming calls.
-4. Ask one question at a time: how calls are handled while technicians are on
+1. Engage the prospect using the specific opening instructions provided for their niche or context.
+2. Ask one question at a time: how calls are handled while technicians are on
    jobs, whether emergency calls reach a person after hours, and how quickly
    web or Google leads receive a response.
 5. Reflect only the pain the prospect confirms. Relevant examples include
@@ -55,40 +53,43 @@ const PLUMBING_CONTEXT = `
 Plumbing sales script — follow this order. This instruction has priority over
 any conflicting generic or saved agent prompt:
 
-1. The first greeting only asks whether you are speaking with the owner. Wait
-   for the person's reply before delivering the offer.
-2. If they are the owner, say naturally: "Thank you. My name is David, I'm calling from Jento AI, and I have a great offer for you. Do you
-   have two minutes? I'll keep it very brief." Wait for their answer.
-3. If they say yes, say: "Great. Jento AI provides a 24/7 AI receptionist for
-   your plumbing business. It can answer incoming calls, respond to new leads,
-   collect customer details, and help schedule appointments while your team is
-   busy or after hours. We also set up your website and appointment system so
-   your leads are handled properly from the first call. The complete setup is
-   available for 500 US dollars. Would you be open to a short 10-minute demo
-   with our team?"
-4. If they are not the owner, ask for the owner or the person responsible for
-   the website, appointments, or incoming calls. Give the offer only after the
-   right person is available.
-5. If they show interest, collect their preferred meeting day, time, timezone,
-   callback number, and email one item at a time. Describe it as a meeting
-   request until the scheduling system confirms it. If they ask to be called
-   later, confirm an exact date, time, and timezone before ending the call.
-6. If they ask a question, briefly explain that Jento AI helps businesses with
-   website improvements, appointment workflows, and a 24/7 AI receptionist for
-   incoming-call and lead follow-up. Do not claim a feature is already installed.
-7. If they decline or say "no", do not just hang up. Politely try to overcome the objection once by highlighting that this AI can save them hours of missed calls or answer basic questions for them. If they firmly say no again or are busy, thank them and end without pressure. Respect any do-not-call request immediately.
+1. Open with exactly: "Hi, this is David with Jento AI. Quick question—how do you handle calls when your team's out on jobs?" Wait for their response.
+2. When they answer, briefly acknowledge their process. If they say they use an answering service or receptionist, point out that you help handle *overflow* and *after-hours* calls at a fraction of the cost. Then ask if they would be open to a quick 10-minute meeting this week to see how it works. Wait for their answer.
+3. If they say yes or show interest, ask for their email address first so you can send them the meeting link. After getting the email, collect their preferred day, time, timezone, and callback number one item at a time. Describe it as a callback request until the scheduling system confirms it. If they ask where to email the Jento AI team, say: support at jento ai dot com.
+4. If they say they are not the right person or not the owner:
+   a. Ask: "No problem — could I leave a quick message for the person who
+      handles incoming calls?"
+   b. If they can take a message, dictate: "Please tell them David from Jento
+      AI called about missed-call recovery for plumbing businesses. My
+      callback number is on the caller ID."
+   c. Ask for the right person's name, direct number, or best time to reach
+      them. Save everything in a call note.
+   d. If they offer to transfer you, say "That would be great, thank you" and
+      wait for the transfer.
+5. If they decline, try once: "Totally understand. Just curious — are you
+   losing any calls when your crew is on the road? That is the one thing we
+   solve." If they decline again, thank them warmly and end. Never push past
+   two clear refusals.
+6. If they ask what it does, explain briefly: "It is an AI receptionist that
+   answers your business line 24/7, qualifies the caller, collects their info,
+   and sends it to your team by text or email so they can call back when
+   free." Do NOT quote a specific dollar price on the first call. If they ask
+   about cost, say: "It depends on your setup — our team can walk you through
+   the options in a quick 10-minute call."
+7. If they give an email or ask for info to be sent, confirm the address
+   slowly, save it immediately with outcome interested, and say: "Perfect, I
+   will pass that along to the team."
 
-Speak in short, natural sentences. The only approved package price is 500 US
-dollars for the complete setup described above. Do not invent discounts,
-recurring charges, extra fees, guaranteed results, integrations, business facts,
-or confirmed appointments. Never give technical plumbing advice. Speak at one
-consistent, brisk professional-call pace. Keep punctuation simple, do not
-stretch words, and do not insert long dramatic pauses. Ask only one question,
-then stop and listen. Never start the
-next thought while the prospect is still speaking. If the prospect asks you to
-slow down or repeat something, repeat only that point in a shorter, clearer
-sentence; do not change the pace of the whole call.
-If the prospect is giving a longer explanation, stay silent until their turn is
+Speak in short, natural sentences. One to two sentences maximum per turn.
+NEVER say "I have a great offer for you" or "I have an offer."
+NEVER say "Is now a bad time?" Do not give a long pitch in the opening line.
+NEVER mention a specific dollar price on the first call.
+Never pretend that the lead called you. Never give technical plumbing advice.
+Speak at one consistent, brisk professional-call pace. Keep punctuation simple,
+do not stretch words, and do not insert long dramatic pauses. Ask only one
+question, then stop and listen. Never start the next thought while the prospect
+is still speaking.
+If the prospect gives a longer explanation, stay silent until their turn is
 confirmed complete. After a completed thought, a single short acknowledgement
 such as "Got it" is allowed before the next question. Never produce "uh-huh",
 "yes", or other backchannel audio while the prospect is still speaking.
@@ -104,7 +105,7 @@ CRM outcome rules:
   details or a follow-up time.
 `;
 
-function buildListenProvider() {
+function buildListenProvider(agentConfig) {
   const listenModel = env.DEEPGRAM_AGENT_LISTEN_MODEL || 'flux-general-en';
   const isFluxModel = listenModel.startsWith('flux-');
   const listenProvider = {
@@ -114,9 +115,9 @@ function buildListenProvider() {
 
   if (isFluxModel) {
     listenProvider.version = 'v2';
-    listenProvider.eot_threshold = env.DEEPGRAM_AGENT_EOT_THRESHOLD;
+    listenProvider.eot_threshold = agentConfig?.listen_eot_threshold ?? 0.70; // Faster initial response
     // We intentionally omit eager_eot_threshold to avoid premature "first-word" interruptions.
-    listenProvider.eot_timeout_ms = env.DEEPGRAM_AGENT_EOT_TIMEOUT_MS;
+    listenProvider.eot_timeout_ms = agentConfig?.listen_eot_timeout_ms ?? 900; // Faster initial timeout
   } else {
     listenProvider.smart_format = true;
   }
@@ -124,7 +125,7 @@ function buildListenProvider() {
   return listenProvider;
 }
 
-function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {}) {
+function buildAgentCore(agentConfig, { includeTools = false, lead = null, compiledScriptPrompt = null, laneId = null, scriptVersionId = null } = {}) {
   const companyName = typeof lead?.company_name === 'string' ? lead.company_name.trim().slice(0, 160) : '';
   const nicheName = typeof lead?.niche_name === 'string' ? lead.niche_name.toLowerCase() : '';
   const isPlumbing = /plumb|drain|sewer|water heater/.test(nicheName);
@@ -138,7 +139,7 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null } = {})
   const runtimeContext = `\n\nCurrent UTC date and time for resolving explicit callback requests: ${new Date().toISOString()}. Always preserve the prospect's stated timezone.`;
   const toolPolicy = includeTools ? `\n\nCRITICAL TOOL-CALL RULES (READ CAREFULLY):
 1. You MUST call save_call_note IMMEDIATELY when the prospect's intent becomes clear. Do NOT wait until the end of the call. Prospects often hang up within seconds of expressing their decision, so you will lose the data if you delay.
-2. REJECTION: Use not_interested only when the prospect clearly rejects the offer. A "no" to the owner question, a busy person, an IVR, voicemail, silence, or a dropped call is NOT a rejection. On a clear offer refusal, IMMEDIATELY call save_call_note with outcome="not_interested" FIRST, then say a brief goodbye and call end_call.
+2. REJECTION: Use not_interested only when the prospect clearly rejects the offer. Polite dismissals such as "I'm not, but thank you", "not at this time, thank you", "no thanks", or "we're all set" are clear rejections after the offer. A "no" to the owner question, a busy person, an IVR, voicemail, silence, or a dropped call is NOT a rejection. On a clear offer refusal, IMMEDIATELY call save_call_note with outcome="not_interested" FIRST, then say a brief goodbye and call end_call.
 3. INTEREST: As soon as the prospect asks questions about the product, says "tell me more", "sounds interesting", "how much", or shows positive engagement, IMMEDIATELY call save_call_note with outcome="interested" and continue the conversation. You can update the note again later if more details emerge.
 4. DO NOT CALL: If they say "remove me", "don't ever call again", "take me off your list", IMMEDIATELY call mark_do_not_call, then end_call.
 5. FOLLOW-UP: Only use outcome="followup" when an exact future date, time, AND timezone are confirmed. Pass the value as ISO 8601 with UTC offset.
@@ -149,8 +150,39 @@ In the "note" field, write exactly one clear line summarizing what the prospect 
   const nicheContext = isPlumbing
     ? `\n\nIMPORTANT: This lead is in plumbing. Ignore any generic or salon/beauty-specific wording in the saved agent prompt for this call.\n${PLUMBING_CONTEXT}`
     : '';
-  const greetingInstruction = `\n\nIMPORTANT: Wait for the prospect to speak first. If their first words sound like an automated IVR, voicemail greeting, a recording (e.g. "recorded for quality assurance"), or hold music, DO NOT introduce yourself and do not generate any text. The server detects voicemail and keypad menus and ends those machine calls automatically. Never answer an IVR and never ask it to connect you. For a transfer/recording announcement without keypad choices, call wait_for_human and stay silent. DO NOT say "I see" or "Thank you". ONLY introduce yourself ("Hi, am I speaking with the owner of ${companyName || 'your business'}?") when a real human answers with a normal greeting (like "Hello"). The current company is ${companyName || 'the company in the current CRM lead'}; never use a company name remembered from an earlier call. Do not repeat the intro later. Never interrupt the prospect. Always listen to their full sentence before replying.`;
-  const prompt = `${agentConfig?.prompt || DEFAULT_PROMPT}${nicheContext}${leadContext}${runtimeContext}${toolPolicy}${greetingInstruction}`;
+  const greetingInstruction = `\n\nIMPORTANT GREETING RULES:\nWhen a real person answers with any normal greeting — "Hello", "Good morning", the company name, "Speaking", "Yes", or "How can I help you?" — respond IMMEDIATELY with your opening question. Do NOT wait or stay silent. Speed is critical — the first 3 seconds after they finish speaking determine whether they hang up.\nIf you hear a keypad menu such as "press 1", "press 2", or "choose an option", say nothing. The server will classify it as IVR and end the call.\nIf you hear "please hold", "stay on the line", "we are connecting you", "this call may be recorded", or "recorded for quality assurance", do NOT end the call. Call wait_for_human and stay silent until a real human speaks.\nIf you hear voicemail instructions such as "leave a message" or "after the tone", say nothing. The server will classify it as voicemail and end the call.\nThe current company is ${companyName || 'the company in the current CRM lead'}. Never use a company name remembered from an earlier call. Do not repeat your opener if you already said it. Never interrupt the prospect. Always listen to their full sentence before replying.`;
+  
+  const replaceTemplateVars = (text, data) => {
+    if (!text || typeof text !== 'string') return text;
+    return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, varName) => {
+      const key = varName.trim().toLowerCase();
+      if (key === 'company' || key === 'company_name') return data.company_name || data.company || companyName || 'your company';
+      if (key === 'first_name') return data.first_name || 'there';
+      if (key === 'last_name') return data.last_name || '';
+      if (key === 'name' || key === 'prospect_name') return data.prospect_name || data.name || data.first_name || 'there';
+      if (key === 'niche_name') return data.niche_name || data.industry || 'your industry';
+      if (key === 'agent_name') return data.agent_name || agentConfig?.name || 'our representative';
+      if (key === 'offer_name') return data.offer_name || 'our service';
+      if (key === 'meeting_length') return data.meeting_length || '15 minutes';
+      if (key === 'current_date') return data.current_date || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      if (key === 'title') return data.title || 'team member';
+      if (key === 'industry') return data.industry || data.niche_name || 'your industry';
+      if (key === 'phone') return data.phone || data.primary_phone || '';
+      if (key === 'city') return data.city || '';
+      if (key === 'state') return data.state || '';
+      if (key === 'website') return data.website || data.domain || '';
+      if (key === 'email') return data.email || data.primary_email || '';
+      if (key === 'notes') return data.notes || '';
+      return match;
+    });
+  };
+
+  const rawBaseContent = compiledScriptPrompt || agentConfig?.prompt || DEFAULT_PROMPT;
+  const baseContent = replaceTemplateVars(rawBaseContent, lead || {});
+  const prompt = compiledScriptPrompt 
+    ? `${baseContent}${leadContext}${runtimeContext}${toolPolicy}`
+    : `${baseContent}${nicheContext}${leadContext}${runtimeContext}${toolPolicy}${greetingInstruction}`;
+
   const primaryModel = env.DEEPGRAM_AGENT_MODEL || 'gpt-4o-mini';
   const fallbackModel = env.DEEPGRAM_AGENT_FALLBACK_MODEL || 'gpt-4.1-mini';
   const thinkProviders = [primaryModel, fallbackModel]
@@ -217,34 +249,39 @@ In the "note" field, write exactly one clear line summarizing what the prospect 
     });
   }
 
-  const voice = agentConfig?.voice || env.DEEPGRAM_AGENT_VOICE || 'flux-kit-en';
+  const voice = agentConfig?.voice || env.DEEPGRAM_AGENT_VOICE || 'aura-orion-en';
+  const supportsSpeedControl = voice.startsWith('flux-') || voice.startsWith('aura-2-');
 
   return {
     language: agentConfig?.language || 'en',
     // Removed automatic greeting so the agent waits for the prospect to speak first (AMD behavior).
-    listen: { provider: buildListenProvider() },
+    listen: { provider: buildListenProvider(agentConfig) },
     think: thinkProviders.length === 1 ? thinkProviders[0] : thinkProviders,
     speak: {
       provider: {
         type: 'deepgram',
         version: voice.startsWith('flux-') ? 'v2' : 'v1',
         model: voice,
-        // Keep one session-level rate so prompt wording cannot make the voice
-        // swing between unnaturally fast and slow delivery.
-        speed: env.DEEPGRAM_AGENT_SPEAK_SPEED,
+        ...(supportsSpeedControl ? { speed: agentConfig?.speech_speed ?? env.DEEPGRAM_AGENT_SPEAK_SPEED } : {}),
       },
     },
   };
 }
 
-export function buildDeepgramSettings(_lead, agentConfig) {
+export function buildDeepgramSettings(_lead, agentConfig, extras = {}) {
   return {
     type: 'Settings',
     audio: {
       input: { encoding: 'mulaw', sample_rate: 8000 },
       output: { encoding: 'mulaw', sample_rate: 8000, container: 'none' },
     },
-    agent: buildAgentCore(agentConfig, { includeTools: true, lead: _lead }),
+    agent: buildAgentCore(agentConfig, { 
+      includeTools: true, 
+      lead: _lead,
+      compiledScriptPrompt: extras.compiledScriptPrompt,
+      laneId: extras.laneId,
+      scriptVersionId: extras.scriptVersionId
+    }),
   };
 }
 

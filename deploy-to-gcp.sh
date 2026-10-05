@@ -90,7 +90,11 @@ const migrations = [
   '026_admin_bulk_provisioning.sql',
   '027_call_destination_cooldown.sql',
   '028_launch_readiness.sql',
-  '029_platform_default_ai_calling.sql'
+  '029_platform_default_ai_calling.sql',
+  '030_multi_ai_calling.sql',
+  '031_multi_calling_agent_config.sql',
+  '032_multi_calling_shared_niche.sql',
+  '033_call_session_agent_snapshot.sql'
 ];
 
 async function main() {
@@ -100,7 +104,15 @@ async function main() {
       const file = path.resolve('src/db/migrations', migration);
       const sql = fs.readFileSync(file, 'utf8');
       console.log(`   applying ${migration}`);
-      await pool.query(sql);
+      try {
+        await pool.query(sql);
+      } catch (e) {
+        if (['42P07', '42710', '42701'].includes(e.code)) {
+          console.log(`   [skip] ${migration} (already applied)`);
+        } else {
+          throw e;
+        }
+      }
     }
   } finally {
     await pool.end();
@@ -136,14 +148,15 @@ pm2 start "npx tsx src/index.ts" \
   --max-restarts 10
 
 pm2 delete ai-outbound-caller 2>/dev/null || true
-pm2 start "node src/workers/outbound-caller-runner.js" \
-  --name ai-outbound-caller \
+pm2 delete ai-multi-lane-caller 2>/dev/null || true
+pm2 start src/workers/multi-lane-outbound-caller.js \
+  --name ai-multi-lane-caller \
   --env production \
   --restart-delay 3000 \
   --max-restarts 20
 
 pm2 delete browser-enrichment 2>/dev/null || true
-pm2 start "node src/calls-module/scripts/browser-enrichment.js" \
+pm2 start src/calls-module/scripts/browser-enrichment.js \
   --name browser-enrichment \
   --env production \
   --restart-delay 5000 \

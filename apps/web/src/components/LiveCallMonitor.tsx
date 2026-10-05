@@ -55,6 +55,7 @@ export default function LiveCallMonitor({
   const announcedTerminalStatusRef = useRef<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const ringbackRef = useRef<{ oscillators: OscillatorNode[], interval: number | null }>({ oscillators: [], interval: null });
+  const isTerminalRef = useRef<boolean>(false);
 
   callSidRef.current = callSid;
   onCallEndedRef.current = onCallEnded;
@@ -187,6 +188,14 @@ export default function LiveCallMonitor({
       socketRef.current.on('call_status', (data: { callSid?: string; status: string }) => {
         const currentCallSid = callSidRef.current;
         if (data.callSid && data.callSid !== currentCallSid) return;
+        
+        const terminalStates = ['completed', 'canceled', 'busy', 'failed', 'no-answer', 'voicemail'];
+        if (isTerminalRef.current && !terminalStates.includes(data.status)) return;
+        
+        if (terminalStates.includes(data.status)) {
+          isTerminalRef.current = true;
+        }
+        
         setCallStatus(data.status);
         if (['voicemail', 'no-answer'].includes(data.status) && announcedTerminalStatusRef.current !== data.status) {
           announcedTerminalStatusRef.current = data.status;
@@ -200,7 +209,7 @@ export default function LiveCallMonitor({
             window.speechSynthesis.speak(announcement);
           }
         }
-        if (['completed', 'canceled', 'busy', 'failed', 'no-answer', 'voicemail'].includes(data.status) && currentCallSid) {
+        if (terminalStates.includes(data.status) && currentCallSid) {
           playerRef.current?.clear();
           onCallEndedRef.current?.(currentCallSid, data.status);
         }
@@ -208,7 +217,13 @@ export default function LiveCallMonitor({
 
       socketRef.current.on('live_audio', (data: { callSid?: string; speaker: string; audio: string }) => {
         if (data.callSid && data.callSid !== callSidRef.current) return;
+        
+        // Ignore audio playback if the call is already marked terminal
+        if (isTerminalRef.current) {
+          return;
+        }
         setCallStatus((current) => current === 'in-progress' ? current : 'in-progress');
+        
         if (data.speaker !== 'ai' && data.speaker !== 'prospect') return;
         if (data.speaker === 'ai') setAiAudioDetected(true);
         if (data.speaker === 'prospect') setProspectAudioDetected(true);
@@ -272,6 +287,7 @@ export default function LiveCallMonitor({
     setAiAudioDetected(false);
     setProspectAudioDetected(false);
     announcedTerminalStatusRef.current = null;
+    isTerminalRef.current = false;
     const socket = socketRef.current;
     const previousCallSid = subscribedCallSidRef.current;
     if (socket && previousCallSid && previousCallSid !== callSid) {
@@ -302,6 +318,8 @@ export default function LiveCallMonitor({
     setError(null);
     try {
       await onSkipCurrentCall(callSid, 'machine_or_bad_call');
+      isTerminalRef.current = true;
+      playerRef.current?.clear();
       setCallStatus('completed');
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Could not skip this call.');
@@ -322,6 +340,8 @@ export default function LiveCallMonitor({
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Failed to end call');
+      isTerminalRef.current = true;
+      playerRef.current?.clear();
       setCallStatus('completed');
     } catch (err: any) {
       setError(err.message || 'Could not end the call.');
@@ -336,6 +356,8 @@ export default function LiveCallMonitor({
     setError(null);
     try {
       await onDisableCalling();
+      isTerminalRef.current = true;
+      playerRef.current?.clear();
       setCallStatus('completed');
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Automatic calling disable nahi ho saki.');
@@ -345,7 +367,7 @@ export default function LiveCallMonitor({
   };
 
   const statusLabel = () => {
-    if (!callSid) return autoFollow ? 'Waiting for next call' : 'No active call';
+    if (!callSid) return activeLeadName ? 'Preparing call' : autoFollow ? 'Waiting for next call' : 'No active call';
     if (!isListening) return 'Live monitor disconnected';
     if (callStatus === 'initiated') return 'Starting call';
     if (callStatus === 'ringing') return 'Phone ringing';
@@ -360,7 +382,9 @@ export default function LiveCallMonitor({
   };
 
   const statusHelp = () => {
-    if (!callSid) return 'Listen Live on hai. Agli call start hote hi yahan uska status aayega.';
+    if (!callSid) return activeLeadName
+      ? `${activeLeadName} ki call prepare ho rahi hai. Number dial hote hi yahan Ringing show hoga.`
+      : 'Listen Live on hai. Agli call start hote hi yahan uska status aayega.';
     if (!isListening) return 'Live connection band hai. Connect Audio & Transcript dabayein.';
     if (['initiated', 'ringing'].includes(callStatus)) return 'Phone abhi baj raha hai. Customer ne abhi call receive nahi ki.';
     if (callStatus === 'answered') return 'Customer ne call receive kar li hai. AI ki greeting connect ho rahi hai.';
@@ -426,7 +450,7 @@ export default function LiveCallMonitor({
           lineHeight: 1.4
         }}>
           <strong style={{ display: 'block', color: '#F8FAFC', marginBottom: 4 }}>
-            {callSid ? activeLeadName || 'Current live call' : 'Waiting for next call'}
+            {callSid ? activeLeadName || 'Current live call' : activeLeadName ? `Preparing: ${activeLeadName}` : 'Waiting for next call'}
           </strong>
           {fromPhone && callSid && (
             <div style={{ color: '#22C55E', fontWeight: 600, fontSize: 13, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -496,7 +520,7 @@ export default function LiveCallMonitor({
             background: '#4B5563', color: 'white', padding: '12px', borderRadius: '8px',
             border: 'none', fontWeight: 'bold', width: '100%'
           }}>
-            Waiting for next call
+            {activeLeadName ? 'Preparing call...' : 'Waiting for next call'}
           </button>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>

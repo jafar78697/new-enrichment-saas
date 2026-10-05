@@ -9,6 +9,7 @@ import { deepgramAgentsApi, type DeepgramAgent, type DeepgramAgentStatus } from 
 import LiveCallMonitor from '../components/LiveCallMonitor';
 import { getCallingBlocker, type CallingBlocker } from '../utils/calling-readiness';
 import { unlockLiveAudio } from '../utils/live-audio';
+import LaneDashboard from './multi-ai/LaneDashboard';
 
 const LEAD_FILTERS = [
   { key: 'new', label: 'New Leads' },
@@ -145,6 +146,7 @@ export default function AgentPipelinePage() {
   const [niches, setNiches] = useState<Niche[]>([]);
   const [agents, setAgents] = useState<DeepgramAgent[]>([]);
   const [agentStatus, setAgentStatus] = useState<DeepgramAgentStatus | null>(null);
+  const [pageMode, setPageMode] = useState<'single' | 'multi'>('single');
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [nicheContacts, setNicheContacts] = useState<Contact[]>([]);
   const [selectedNicheId, setSelectedNicheId] = useState('');
@@ -388,7 +390,8 @@ export default function AgentPipelinePage() {
     // Unlock audio while this button click still has browser user activation.
     void unlockLiveAudio().catch(() => null);
     if (controlBusy) return;
-    if (!automationRunning) {
+    const shouldStopCalling = automationRunning || Boolean(activeCallSid) || callingStatus?.isRunning === true;
+    if (!shouldStopCalling) {
       if (startBlocker) {
         resolveStartBlocker(startBlocker);
         return;
@@ -399,7 +402,7 @@ export default function AgentPipelinePage() {
     setMessage('');
     setError('');
     try {
-      if (automationRunning) {
+      if (shouldStopCalling) {
         const result = await leadsApi.stopCalling();
         setAutomationRunning(false);
         setListeningEnabled(false);
@@ -408,15 +411,24 @@ export default function AgentPipelinePage() {
         setActiveCallLeadId(null);
         setMessage(`Calling stopped${result.stoppedCalls ? `; ${result.stoppedCalls} live call ended` : ''}`);
       } else {
+        // Open and connect the monitor during the user's click, before the
+        // backend can dequeue and dial the first lead. This preserves the
+        // visible order: popup -> preparing -> ringing -> answered.
+        setDismissedLiveCallSid(null);
+        setListenCallSid(null);
+        setListeningEnabled(true);
         const result = await leadsApi.startCalling();
         if (!result.ok) throw new Error(result.message || 'AI outbound calling server policy se band hai.');
         setAutomationRunning(true);
-        setListeningEnabled(true);
         setMessage('Automatic calling started for assigned leads. Live listen enabled.');
       }
       await loadPipeline();
       setLeadFilter('assigned');
     } catch (e: any) {
+      if (!shouldStopCalling) {
+        setListeningEnabled(false);
+        setListenCallSid(null);
+      }
       setError(e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Calling control update nahi ho saka');
     } finally {
       setControlBusy(false);
@@ -522,19 +534,27 @@ export default function AgentPipelinePage() {
     // play the first AI greeting as soon as the popup opens.
     void unlockLiveAudio().catch(() => null);
     setManualCallingId(lead.id);
+    // Render the monitor immediately. SignalWire can begin dialing before the
+    // start-call HTTP response returns, so waiting for callSid made the popup
+    // appear several seconds behind the real call.
+    setActiveCallLeadId(lead.id);
+    setDismissedLiveCallSid(null);
+    setListenCallSid(null);
+    setListeningEnabled(true);
     setError('');
     setMessage('');
     try {
       const result = await leadsApi.startCall(lead.id);
       setActiveCallSid(result.callSid);
-      setActiveCallLeadId(lead.id);
-      setDismissedLiveCallSid(null);
-      setListeningEnabled(true);
       setListenCallSid(result.callSid);
       setLeadFilter('assigned');
       setMessage(`${lead.company_name || lead.domain} ko call start ho gayi hai. Listen Live khul gaya hai.`);
       await loadPipeline();
     } catch (e: any) {
+      setListeningEnabled(false);
+      setListenCallSid(null);
+      setActiveCallSid(null);
+      setActiveCallLeadId(null);
       setError(e?.response?.data?.error || e?.message || 'Call start nahi ho saki');
     } finally {
       setManualCallingId(null);
@@ -563,8 +583,40 @@ export default function AgentPipelinePage() {
     return 'Calling abhi OFF hai. Enable Calling dabao to assigned leads par automatic calls shuru ho jayengi.';
   }, [activeLead, callingStatus]);
 
+  const modeTabs = (
+    <div className="flex gap-2 border-b border-gray-200">
+      {([['single', 'Single Agent'], ['multi', 'Multi-AI Lanes']] as const).map(([key, label]) => (
+        <button
+          key={key}
+          onClick={() => setPageMode(key)}
+          className={`px-4 py-2 text-sm font-semibold -mb-px border-b-2 transition ${
+            pageMode === key ? 'border-teal-600 text-teal-700' : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (pageMode === 'multi') {
+    return (
+      <div className="w-full min-w-0 max-w-[1400px] mx-auto space-y-5 pb-12 font-sans">
+        <h1 className="flex items-center gap-3 text-3xl font-extrabold text-gray-900 m-0">
+          <div className="p-2.5 bg-teal-50 border border-teal-100 rounded-lg shadow-sm">
+            <Bot size={28} className="text-teal-700" />
+          </div>
+          AI Calling
+        </h1>
+        {modeTabs}
+        <LaneDashboard />
+      </div>
+    );
+  }
+
   return (
     <div className="w-full min-w-0 max-w-[1400px] mx-auto space-y-5 pb-12 font-sans">
+      {modeTabs}
       <div className="flex flex-wrap justify-between items-start gap-6 mb-2">
         <div>
           <h1 className="flex items-center gap-3 text-3xl font-extrabold text-gray-900 m-0">
@@ -600,13 +652,13 @@ export default function AgentPipelinePage() {
           </select>
           <button 
             disabled={controlBusy}
-            aria-describedby={!automationRunning && startBlocker ? 'calling-start-reason' : undefined}
-            title={!automationRunning && startBlocker ? startBlocker.message : undefined}
+            aria-describedby={!automationRunning && !activeCallSid && startBlocker ? 'calling-start-reason' : undefined}
+            title={!automationRunning && !activeCallSid && startBlocker ? startBlocker.message : undefined}
             onClick={() => void toggleCalling()} 
-            className={`flex items-center gap-2 h-10 px-4 rounded-md font-bold text-xs text-white shadow-sm transition-colors ${controlBusy ? 'bg-slate-400 cursor-not-allowed' : automationRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'}`}
+            className={`flex items-center gap-2 h-10 px-4 rounded-md font-bold text-xs text-white shadow-sm transition-colors ${controlBusy ? 'bg-slate-400 cursor-not-allowed' : automationRunning || activeCallSid ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'}`}
           >
-            {automationRunning ? <Square size={14} fill="currentColor" /> : <PhoneCall size={15} />}
-            {controlBusy ? 'Please wait...' : automationRunning ? 'Disable Calling' : 'Enable Calling'}
+            {automationRunning || activeCallSid ? <Square size={14} fill="currentColor" /> : <PhoneCall size={15} />}
+            {controlBusy ? 'Please wait...' : automationRunning || activeCallSid ? 'Disable Calling' : 'Enable Calling'}
           </button>
 
           <button onClick={() => navigate('/ai-agent')} className="flex items-center gap-2 h-10 px-4 rounded-lg font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-200 active:scale-95">

@@ -1131,4 +1131,31 @@ router.post(
   })
 );
 
+// ─── SKIP CALL (Mark as Machine) ─────────────────────────────────────────────
+router.post(
+  '/call-skip/:callSid',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    if (!CALLS_ENABLED || !signalwireClient) {
+      throw new AppError('Calling is not configured', 503);
+    }
+
+    const { callSid } = req.params;
+    const reason = req.body.reason || 'machine_or_bad_call';
+
+    try {
+      // Update session first so bridge knows the outcome
+      await pool.query(
+        `UPDATE ai_call_sessions SET hangup_reason = $1 WHERE signalwire_call_sid = $2 OR id = (SELECT id FROM ai_call_sessions WHERE signalwire_stream_sid = $2 LIMIT 1)`,
+        [reason, callSid]
+      );
+      
+      await signalwireClient.calls(callSid).update({ status: 'completed' });
+      res.json({ success: true });
+    } catch (err) {
+      res.json({ success: true });
+    }
+  })
+);
+
 export default router;

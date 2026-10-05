@@ -44,6 +44,8 @@ import walletRoutes from './routes/wallets';
 import manualPaymentRoutes from './routes/manual-payments';
 import googleMapsRoutes from './routes/google-maps';
 import teamAccessRoutes from './routes/team-access';
+import deepgramRoutes from './routes/deepgram';
+import multiCallingRoutes from './routes/multi-calling';
 
 fastify.register(authRoutes);
 fastify.register(phoneNumberRoutes);
@@ -57,11 +59,13 @@ fastify.register(crmRoutes);
 fastify.register(outreachRoutes);
 fastify.register(aiMediaRoutes);
 fastify.register(socialRoutes);
+fastify.register(multiCallingRoutes);
 fastify.register(adminCustomerRoutes);
 fastify.register(walletRoutes);
 fastify.register(manualPaymentRoutes);
 fastify.register(googleMapsRoutes);
 fastify.register(teamAccessRoutes);
+fastify.register(deepgramRoutes);
 
 // Register Plugins
 fastify.register(helmet);
@@ -359,6 +363,11 @@ const start = async () => {
       runOutboundCallerLoop().catch(err => console.error('[startup] Outbound caller error:', err));
     } else {
       fastify.log.info('AI outbound caller disabled. ENABLE_AI_OUTBOUND_CALLER=true and AI_OUTBOUND_ENABLED=true are both required.');
+    }
+    
+    if (process.env.ENABLE_MULTI_AI_CALLING === 'true') {
+      const { startMultiLaneWorker } = await import('./workers/multi-lane-outbound-caller.js');
+      startMultiLaneWorker().catch(err => console.error('[startup] Multi-lane caller error:', err));
     }
 
     // Register expressPlugin for Express middleware support required by both Voice and Calls modules

@@ -57,6 +57,7 @@ router.post(
       tenantId: z.string().optional(),
       record: z.string().optional(),
       AnsweredBy: z.string().optional(),
+      sessionId: z.string().optional(),
     }).parse({ ...req.body, ...req.query });
 
     const toStr = normalizeNorthAmericanPhone(payload.To);
@@ -77,9 +78,17 @@ router.post(
     // operator can hear the greeting and choose the final result in the popup.
 
     let provider = null;
-    let sessionId = null;
+    let sessionId = payload.sessionId || null;
 
-    if (payload.contactId) {
+    if (sessionId) {
+      // Session was pre-created (e.g. multi-lane caller)
+      const { rows } = await query(`SELECT provider FROM ai_call_sessions WHERE id = $1`, [sessionId]);
+      if (rows.length > 0) {
+        provider = rows[0].provider || 'deepgram_voice_agent';
+        // Ensure signalwire_call_sid is recorded so status webhooks work!
+        await query(`UPDATE ai_call_sessions SET signalwire_call_sid = $1 WHERE id = $2`, [payload.CallSid, sessionId]);
+      }
+    } else if (payload.contactId) {
       // 1. Get provider
       const { rows } = await query(
         `SELECT er.ai_agent_provider, er.assigned_ai_agent_id, er.tenant_id,
@@ -207,7 +216,8 @@ router.post(
   '/webhooks/call-status',
   validateTwilioSignature,
   asyncHandler(async (req, res) => {
-    const contactId = typeof req.query.contactId === 'string' ? req.query.contactId : null;
+    let contactId = typeof req.query.contactId === 'string' ? req.query.contactId : null;
+    let sessionAccepted = false;
     console.log('[voice-agent] Call status webhook:', {
       CallSid: req.body.CallSid,
       CallStatus: req.body.CallStatus,
@@ -216,6 +226,9 @@ router.post(
     });
 
     if (contactId && req.body.CallSid) {
+      const terminalNoAnswer = ['busy', 'failed', 'no-answer', 'canceled'].includes(req.body.CallStatus);
+      const terminal = terminalNoAnswer || req.body.CallStatus === 'completed';
+
       await query(
         `UPDATE enrichment_results
          SET raw_data = COALESCE(raw_data, '{}'::jsonb)
@@ -227,13 +240,15 @@ router.post(
                   'call_started_at', COALESCE(raw_data->>'call_started_at', NOW()::text),
                   'call_updated_at', NOW()::text
                 ))
-         WHERE id = $5::uuid`,
+         WHERE id = $5::uuid
+           AND $1 = (SELECT s2.signalwire_call_sid FROM ai_call_sessions s2 WHERE s2.lead_id = enrichment_results.id AND (s2.ended_at IS NULL OR $6 = true) ORDER BY s2.created_at DESC, s2.id DESC LIMIT 1)`,
         [
           req.body.CallSid,
           req.body.CallStatus || null,
           req.body.CallDuration || req.body.Duration || null,
           req.body.AnsweredBy || null,
           contactId,
+          terminal
         ],
       );
     }
@@ -241,7 +256,7 @@ router.post(
     if (req.body.CallSid && req.body.CallStatus) {
       const terminalNoAnswer = ['busy', 'failed', 'no-answer', 'canceled'].includes(req.body.CallStatus);
       const terminal = terminalNoAnswer || req.body.CallStatus === 'completed';
-      await query(
+      const { rows: sessionRows } = await query(
         `UPDATE ai_call_sessions
          SET call_state = $2,
              answered_at = CASE WHEN $2 = 'answered' THEN COALESCE(answered_at, NOW()) ELSE answered_at END,
@@ -252,7 +267,9 @@ router.post(
              ),
              outcome = CASE WHEN $5 THEN COALESCE(outcome, 'no_answer') ELSE outcome END,
              hangup_reason = CASE WHEN $5 THEN COALESCE(hangup_reason, $2) ELSE hangup_reason END
-         WHERE signalwire_call_sid = $1`,
+         WHERE signalwire_call_sid = $1
+           AND (ended_at IS NULL OR $4 = true)
+         RETURNING id, queue_item_id, lead_id, outcome, hangup_reason`,
         [
           req.body.CallSid,
           req.body.CallStatus,
@@ -261,6 +278,25 @@ router.post(
           terminalNoAnswer,
         ],
       );
+
+      if (sessionRows.length > 0) {
+        sessionAccepted = true;
+      }
+
+      // Finalize the queue item for terminal calls that never established a media connection
+      if (terminal && sessionRows.length > 0 && sessionRows[0].queue_item_id) {
+        const session = sessionRows[0];
+        const finalState = ['failed', 'canceled'].includes(req.body.CallStatus) ? 'failed' : 'completed';
+        await query(
+          `UPDATE ai_call_queue_items SET state = $1, last_error = $2 WHERE id = $3 AND state NOT IN ('completed', 'failed', 'cancelled')`,
+          [finalState, session.hangup_reason || null, session.queue_item_id]
+        );
+      }
+      
+      // Use the session lead_id if contactId is missing
+      if (!contactId && sessionRows.length > 0 && sessionRows[0].lead_id) {
+        contactId = sessionRows[0].lead_id;
+      }
     }
 
     if (contactId && ['busy', 'failed', 'no-answer', 'canceled'].includes(req.body.CallStatus)) {
@@ -276,12 +312,14 @@ router.post(
                     'call_duration_seconds', COALESCE(NULLIF($2::text, '')::int, COALESCE((raw_data->>'call_duration_seconds')::int, 0))
                   ),
              lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $3::text)
-         WHERE id = $4::uuid AND lead_stage = 'calling'`,
+         WHERE id = $4::uuid AND lead_stage IN ('calling', 'assigned', 'dialing', 'ringing')
+           AND $5::text = (SELECT s2.signalwire_call_sid FROM ai_call_sessions s2 WHERE s2.lead_id = enrichment_results.id ORDER BY s2.created_at DESC, s2.id DESC LIMIT 1)`,
         [
           req.body.CallStatus,
           req.body.CallDuration || req.body.Duration || null,
           `[AI Call] SignalWire status: ${req.body.CallStatus}${req.body.CallDuration ? ` (${req.body.CallDuration}s)` : ''}.`,
           contactId,
+          req.body.CallSid,
         ],
       );
     }
@@ -289,7 +327,7 @@ router.post(
     if (contactId && req.body.CallStatus === 'completed') {
       await query(
         `UPDATE enrichment_results
-         SET lead_stage = CASE WHEN lead_stage = 'calling' THEN 'called' ELSE lead_stage END,
+         SET lead_stage = CASE WHEN lead_stage IN ('calling', 'assigned', 'dialing', 'ringing') THEN 'called' ELSE lead_stage END,
              raw_data = (COALESCE(raw_data, '{}'::jsonb) - 'active_call_sid')
                || jsonb_build_object(
                     'call_status', 'completed',
@@ -297,11 +335,13 @@ router.post(
                     'call_duration_seconds', COALESCE(NULLIF($1::text, '')::int, COALESCE((raw_data->>'call_duration_seconds')::int, 0))
                   ),
              lead_notes = CONCAT_WS(E'\n', NULLIF(lead_notes, ''), $2::text)
-         WHERE id = $3::uuid AND lead_stage = 'calling'`,
+         WHERE id = $3::uuid AND lead_stage IN ('calling', 'assigned', 'dialing', 'ringing')
+           AND $4::text = (SELECT s2.signalwire_call_sid FROM ai_call_sessions s2 WHERE s2.lead_id = enrichment_results.id ORDER BY s2.created_at DESC, s2.id DESC LIMIT 1)`,
         [
           req.body.CallDuration || req.body.Duration || null,
           `[AI Call] Completed${req.body.CallDuration ? ` (${req.body.CallDuration}s)` : ''}.`,
           contactId,
+          req.body.CallSid,
         ],
       );
     }
@@ -322,19 +362,21 @@ router.post(
                  THEN CONCAT_WS(E'\n', NULLIF(lead_notes, ''), '[AI Call] Recording available.')
                ELSE lead_notes
              END
-         WHERE id = $5::uuid`,
+         WHERE id = $5::uuid
+           AND $6::text = (SELECT s2.signalwire_call_sid FROM ai_call_sessions s2 WHERE s2.lead_id = enrichment_results.id ORDER BY s2.created_at DESC, s2.id DESC LIMIT 1)`,
         [
           req.body.RecordingSid || null,
           req.body.RecordingStatus || null,
           req.body.RecordingUrl ? `${req.body.RecordingUrl}.mp3` : null,
           req.body.RecordingDuration || null,
           contactId,
+          req.body.CallSid,
         ],
       );
     }
 
     // Notify the browser only after the lead record carries the final state.
-    if (req.body.CallStatus && req.body.CallSid) {
+    if (req.body.CallStatus && req.body.CallSid && sessionAccepted) {
       broadcastCallStatus(req.body.CallSid, req.body.CallStatus);
       if (req.body.ParentCallSid) broadcastCallStatus(req.body.ParentCallSid, req.body.CallStatus);
     }

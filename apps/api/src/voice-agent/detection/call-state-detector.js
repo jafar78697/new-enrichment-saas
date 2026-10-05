@@ -25,12 +25,19 @@ export function detectCallStateFromTranscript(transcript, agentConfig = null) {
   const endOnIvr = agentConfig?.end_on_ivr !== false;
   const endOnAiReceptionist = agentConfig?.end_on_ai_receptionist === true;
 
+  // A receptionist offering to take/leave a message is still a live human.
+  // This check must run before voicemail matching, otherwise the words
+  // "leave a message" can incorrectly terminate a real conversation.
+  if (/\b(?:i|we)\s+can\s+(?:take|leave)\s+(?:you\s+)?(?:a\s+)?message\b|\bi\s+can\s+leave\s+(?:them|him|her)\s+(?:a\s+)?message\b/.test(text)) {
+    return { state: CallStates.HUMAN_LIVE, action: 'continue' };
+  }
+
   // Screening is not voicemail: identify yourself and wait for the recipient.
   if (/\b(?:say|state|record|provide)\b.{0,30}\b(?:your name|name and (?:reason|purpose))\b|\b(?:name|reason for calling)\b.{0,50}\b(?:connect|screen|accept)\b/.test(text)) {
     return { state: CallStates.SCREENING, action: 'identify' };
   }
   const conversationalMention = /\b(?:i|i've|i was|we were)\b.{0,35}\b(?:checking|checked|heard|listening to)\b.{0,25}\bvoicemail\b/.test(text);
-  if (!conversationalMention && /\b(?:please\s+)?leave (?:us |me |your |a )?(?:short |brief |voice )?message\b|\b(?:please\s+)?record (?:your|a) message\b|\b(?:after|at|following) the (?:tone|beep|sound)\b|\byou(?:'ve| have) reached (?:the )?(?:voice ?mail|mailbox)\b|\bmailbox (?:is full|has not been set up|belonging to)\b|\bcall has been forwarded to (?:an? )?(?:automated )?voice messaging system\b|\bperson (?:you are|you're) calling (?:is )?(?:not available|unavailable)\b/.test(text)) {
+  if (!conversationalMention && /\b(?:please\s+)?leave (?:us |me |your )?(?:a )?(?:short |brief |quick |voice |detailed )?message\b|\bleave\s+(?:a\s+)?(?:text\s+message|voice\s*mail|voicemail)\b|\byou(?:'ve| have) reached\b.{0,100}\bleave\b.{0,45}\bmessage\b|\b(?:please\s+)?record (?:your|a) message\b|\b(?:after|at|following) the (?:tone|beep|sound)\b|\byou(?:'ve| have) reached (?:the )?(?:voice ?mail|mailbox)\b|\b(?:you have|you've) reached us after (?:our )?(?:normal )?business hours\b|\bmailbox (?:is full|has not been set up|belonging to)\b|\bcall has been forwarded to (?:an? )?(?:automated )?voice messaging system\b|\bperson (?:you are|you're) calling (?:is )?(?:not available|unavailable)\b/.test(text)) {
     return { state: CallStates.VOICEMAIL, action: endOnVoicemail ? 'hangup' : 'leave_message' };
   }
 
@@ -49,8 +56,11 @@ export function detectCallStateFromTranscript(transcript, agentConfig = null) {
     return { state: CallStates.CLOSED_OR_HOURS, action: 'wait' };
   }
 
-  // 5. Transfer / Ad
-  if (/\b(?:please )?(?:hold|stay on the line)\b|\bplease wait while we transfer\b|\brecorded for quality\b|\bis being recorded\b|\bquality assurance\b/.test(text)) {
+  // 5. Transfer / Hold announcement — human is coming, wait silently
+  // "please hold", "hold please", "stay on the line" = transfer in progress
+  // "recorded for quality", "is being recorded" = compliance announcement before human
+  // Bare "hold" alone is NOT matched (humans say "hold on" casually)
+  if (/\bplease\s+hold\b|\bhold\s+please\b|\bstay on the line\b|\bplease wait while we (?:transfer|connect)\b|\brecorded for quality\b|\bis being recorded\b|\bquality (?:assurance|and training)\b|\bmonitored or recorded\b/.test(text)) {
     return { state: CallStates.TRANSFER_OR_AD, action: 'wait' };
   }
 

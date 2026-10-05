@@ -254,20 +254,37 @@ async function loadSessionContext(sessionId) {
        acs.*,
        er.company_name,
        er.industry_guess,
+       er.primary_email,
+       er.primary_phone,
+       er.domain,
+       er.raw_data->>'first_name' AS first_name,
+       er.raw_data->>'last_name' AS last_name,
+       er.raw_data->>'contact_name' AS contact_name,
+       er.raw_data->>'title' AS title,
+       er.raw_data->>'city' AS city,
+       er.raw_data->>'state' AS state,
+       er.raw_data->>'notes' AS notes,
        er.raw_data->>'niche_name' AS niche_name,
        er.raw_data->>'call_origin' AS call_origin,
-       jsonb_build_object(
-         'id', ac.id,
-         'name', ac.name,
-         'voice', ac.voice,
-         'language', ac.language,
-         'prompt', ac.prompt,
-         'greeting', ac.greeting,
-         'max_call_duration_sec', ac.max_call_duration_sec
-       ) AS agent_config
+       sv.compiled_prompt as compiled_script_prompt,
+       COALESCE(acs.agent_config_snapshot, jsonb_build_object(
+         'id', COALESCE(ac.id, ac_lane.id),
+         'name', COALESCE(ac.name, ac_lane.name),
+         'voice', COALESCE(ac.voice, ac_lane.voice),
+         'language', COALESCE(ac.language, ac_lane.language),
+         'prompt', COALESCE(ac.prompt, ac_lane.prompt),
+         'greeting', COALESCE(ac.greeting, ac_lane.greeting),
+         'max_call_duration_sec', COALESCE(ac.max_call_duration_sec, ac_lane.max_call_duration_sec),
+         'speech_speed', COALESCE(ac.speech_speed, ac_lane.speech_speed),
+         'listen_eot_threshold', COALESCE(ac.listen_eot_threshold, ac_lane.listen_eot_threshold),
+         'listen_eot_timeout_ms', COALESCE(ac.listen_eot_timeout_ms, ac_lane.listen_eot_timeout_ms)
+       )) AS agent_config
      FROM ai_call_sessions acs
      LEFT JOIN enrichment_results er ON er.id = acs.lead_id
      LEFT JOIN ai_agent_configs ac ON ac.id = acs.agent_config_id AND ac.tenant_id = acs.tenant_id AND ac.is_active = true
+     LEFT JOIN ai_calling_lanes lane ON lane.id = acs.lane_id
+     LEFT JOIN ai_agent_configs ac_lane ON ac_lane.id = lane.agent_config_id
+     LEFT JOIN ai_calling_script_versions sv ON sv.id = acs.script_version_id
      WHERE acs.id = $1`,
     [sessionId],
   );
@@ -468,11 +485,7 @@ async function handleFunctionRequests(event, context) {
 
 async function handleDeepgramEvent(event, context) {
   if (event.type === 'UserStartedSpeaking') {
-    context.userSpeaking = true;
-    broadcastCallAudioClear(context.callSid);
-    if (context.signalWireWs.readyState === WebSocket.OPEN) {
-      context.signalWireWs.send(JSON.stringify({ event: 'clear', streamSid: context.streamSid }));
-    }
+    /* VAD clear removed to prevent chopping on noise */
     return;
   }
 
@@ -648,9 +661,11 @@ export function attachDeepgramBridge(httpServer) {
       // the AI could call save_call_note. Now bridge cleanup derives outcome from
       // hangup_reason + duration + TRANSCRIPT CONTENT as a reliable fallback.
       if (sessionId) {
+        let session = null;
+        let fallbackOutcome = 'called';
         try {
           const { rows: sessionRows } = await query(
-            `SELECT s.outcome, s.hangup_reason, s.duration_sec, s.first_answer_type, s.call_state,
+            `SELECT s.outcome, s.hangup_reason, s.duration_sec, s.first_answer_type, s.call_state, s.queue_item_id, s.lane_id,
                     jsonb_array_length(COALESCE(transcript, '[]'::jsonb)) AS transcript_events,
                     s.transcript, er.domain AS lead_domain
              FROM ai_call_sessions s
@@ -658,12 +673,13 @@ export function attachDeepgramBridge(httpServer) {
              WHERE s.id = $1`,
             [sessionId],
           );
-          const session = sessionRows[0];
+          session = sessionRows[0];
+          fallbackOutcome = session?.outcome || 'called';
           if (session && !session.outcome) {
             const hr = session.hangup_reason || '';
             const dur = session.duration_sec || durationSec;
             const transcriptEvents = Number(session.transcript_events || 0);
-            let fallbackOutcome = 'called';
+            fallbackOutcome = 'called';
             let fallbackSummary = `Call ended after ${dur}s.`;
             if (transcriptEvents === 0 && !hr) {
               fallbackOutcome = 'no_answer';
@@ -765,11 +781,20 @@ export function attachDeepgramBridge(httpServer) {
                )
            FROM ai_call_sessions s
            WHERE s.id = $1 AND er.id = s.lead_id AND er.tenant_id = s.tenant_id
-             AND er.lead_stage IN ('calling', 'called')
-             AND (er.raw_data->>'call_sid' = s.signalwire_call_sid OR er.raw_data->>'active_call_sid' = s.signalwire_call_sid)`,
+             AND er.lead_stage IN ('calling', 'called', 'no_answer', 'completed', 'interested', 'not_interested', 'followup', 'closed_lost')
+             AND s.id = (SELECT s2.id FROM ai_call_sessions s2 WHERE s2.lead_id = s.lead_id ORDER BY s2.created_at DESC, s2.id DESC LIMIT 1)`,
           [sessionId, durationSec],
         );
+        
+        if (session && session.queue_item_id) {
+          const finalState = ['technical_error', 'bridge-error', 'deepgram-error', 'provider_error'].includes(fallbackOutcome) ? 'failed' : 'completed';
+          await query(
+            `UPDATE ai_call_queue_items SET state = $1, last_error = $2 WHERE id = $3 AND state NOT IN ('completed', 'failed', 'cancelled')`,
+            [finalState, session.hangup_reason || null, session.queue_item_id]
+          );
+        }
         await writeTranscriptFile(sessionId, callSid);
+
       }
     };
 
@@ -814,7 +839,7 @@ export function attachDeepgramBridge(httpServer) {
             return;
           }
           sessionValidated = true;
-          if (activeStreamSids.size >= env.AI_MAX_ACTIVE_CALLS) {
+          if (process.env.ENABLE_MULTI_AI_CALLING !== 'true' && activeStreamSids.size >= env.AI_MAX_ACTIVE_CALLS) {
             await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'active-call-limit' });
             return;
           }
@@ -859,9 +884,30 @@ export function attachDeepgramBridge(httpServer) {
 
           const sendSettings = () => {
             if (settingsSent || deepgramWs?.readyState !== WebSocket.OPEN) return;
+            const leadData = {
+              company_name: session.company_name,
+              company: session.company_name,
+              niche_name: session.niche_name || session.industry_guess,
+              industry: session.industry_guess,
+              first_name: session.first_name || (session.contact_name ? session.contact_name.split(' ')[0] : ''),
+              last_name: session.last_name || (session.contact_name ? session.contact_name.split(' ').slice(1).join(' ') : ''),
+              name: session.contact_name || [session.first_name, session.last_name].filter(Boolean).join(' ') || session.company_name,
+              phone: session.customer_phone_number || session.primary_phone,
+              email: session.primary_email,
+              website: session.domain,
+              city: session.city,
+              state: session.state,
+              title: session.title,
+              notes: session.notes,
+            };
             const settings = buildDeepgramSettings(
-              { company_name: session.company_name, niche_name: session.niche_name || session.industry_guess },
+              leadData,
               agentConfig,
+              {
+                compiledScriptPrompt: session.compiled_script_prompt,
+                laneId: session.lane_id,
+                scriptVersionId: session.script_version_id
+              }
             );
             deepgramWs.send(JSON.stringify(settings));
             settingsSent = true;
@@ -910,6 +956,14 @@ export function attachDeepgramBridge(httpServer) {
               }
               if (signalWireWs.readyState === WebSocket.OPEN) {
                 const payload = data.toString('base64');
+                // Calculate when this audio chunk will finish playing (PCMU is 8000 bytes/sec)
+                const chunkDurationMs = (data.length / 8000) * 1000;
+                const now = Date.now();
+                if (!context.aiAudioExpectedEndTime || now > context.aiAudioExpectedEndTime) {
+                  context.aiAudioExpectedEndTime = now + chunkDurationMs;
+                } else {
+                  context.aiAudioExpectedEndTime += chunkDurationMs;
+                }
                 signalWireWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload } }), (error) => {
                   if (error) {
                     console.error('[deepgram-bridge] AI audio could not be sent to SignalWire:', error.message);
@@ -924,7 +978,7 @@ export function attachDeepgramBridge(httpServer) {
 
             const event = safeJsonParse(data.toString());
             if (!event) return;
-            if (['AgentThinking', 'ConversationText', 'AgentAudioDone', 'Warning', 'Error'].includes(event.type)) {
+            if (["AgentThinking", "ConversationText", "AgentAudioDone", "Warning", "Error", "UserStartedSpeaking"].includes(event.type)) {
               console.log('[deepgram-bridge] Deepgram event:', {
                 callSid,
                 type: event.type,
@@ -975,6 +1029,14 @@ export function attachDeepgramBridge(httpServer) {
             });
           }
           if (callSid) broadcastCallAudio(callSid, 'prospect', message.media.payload);
+          
+          // Mute user audio if the AI is actively speaking on the phone. This prevents
+          // background noise or speakerphone echo from triggering Deepgram's VAD
+          // and abruptly cutting off the AI's sentence.
+          if (context.aiAudioExpectedEndTime && Date.now() < context.aiAudioExpectedEndTime) {
+            return;
+          }
+
           if (deepgramWs?.readyState === WebSocket.OPEN && deepgramReady) {
             deepgramWs.send(audio);
           } else {
