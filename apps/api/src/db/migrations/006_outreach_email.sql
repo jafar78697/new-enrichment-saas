@@ -77,9 +77,9 @@ CREATE TABLE IF NOT EXISTS unified_inbox (
     UNIQUE(tenant_id, msg_id)
 );
 
-CREATE INDEX idx_outreach_accounts_tenant ON outreach_accounts(tenant_id);
-CREATE INDEX idx_outreach_campaigns_tenant ON outreach_campaigns(tenant_id);
-CREATE INDEX idx_outreach_logs_campaign ON outreach_logs(campaign_id);
-CREATE INDEX idx_outreach_logs_lead ON outreach_logs(lead_id);
-CREATE INDEX idx_unified_inbox_tenant ON unified_inbox(tenant_id);
-CREATE INDEX idx_unified_inbox_lead ON unified_inbox(lead_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_accounts_tenant ON outreach_accounts(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_campaigns_tenant ON outreach_campaigns(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_logs_campaign ON outreach_logs(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_logs_lead ON outreach_logs(lead_id);
+CREATE INDEX IF NOT EXISTS idx_unified_inbox_tenant ON unified_inbox(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_unified_inbox_lead ON unified_inbox(lead_id);
