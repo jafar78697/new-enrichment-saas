@@ -66,6 +66,7 @@ pnpm rebuild || true
 
 echo "→ Applying SaaS billing/access migrations..."
 cd /home/jafar-tayyar-siddiqi/enrichment-saas/apps/api
+export MIGRATION_BASELINE_THROUGH="039_manual_ai_closer.sql"
 node run-migration.js
 
 # Tenantless legacy manager sessions use the platform's default AI Calling
