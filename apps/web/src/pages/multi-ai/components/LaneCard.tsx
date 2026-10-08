@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { Play, Pause, AlertCircle, Phone, Volume2, VolumeX, Activity, X, SkipForward, User, Briefcase, List, ThumbsUp, ThumbsDown, Voicemail, Settings, Square } from 'lucide-react';
+import api from '../../../services/api';
 import { useCallMonitor } from '../../../hooks/useCallMonitor';
 
-export default function LaneCard({ lane, handleToggleStatus, openAssignModal }: { lane: any, handleToggleStatus: (id: string, status: string) => void, openAssignModal: (slot: number) => void }) {
+export default function LaneCard({ lane, handleToggleStatus, openAssignModal, onRefresh, isStatusChanging = false }: { isStatusChanging?: boolean, lane: any, handleToggleStatus: (id: string, status: string) => void, openAssignModal: (slot: number) => void, onRefresh: () => Promise<void> }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { status: monitorStatus, transcript, isVolumeOn, toggleVolume } = useCallMonitor(
@@ -14,19 +15,21 @@ export default function LaneCard({ lane, handleToggleStatus, openAssignModal }: 
 
   const [ending, setEnding] = useState(false);
   const [skipping, setSkipping] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   const endLiveCall = async (markAsMachine = false) => {
     if (!lane.active_call_sid || ending || skipping) return;
     if (markAsMachine) setSkipping(true);
     else setEnding(true);
 
+    setActionError('');
     try {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
       const token = localStorage.getItem('enr_token') || localStorage.getItem('call_token');
       
       const endpoint = markAsMachine ? `/api/telephony/call-skip/${lane.active_call_sid}` : `/api/telephony/call-end/${lane.active_call_sid}`;
       
-      await fetch(`${API_URL}${endpoint}`, {
+      const res = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${token}`,
@@ -34,8 +37,13 @@ export default function LaneCard({ lane, handleToggleStatus, openAssignModal }: 
         },
         body: markAsMachine ? JSON.stringify({ reason: 'machine_or_bad_call' }) : undefined
       });
-    } catch (err) {
-      console.error('Failed to end call:', err);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Call action failed (${res.status})`);
+      }
+      await onRefresh();
+    } catch (err: any) {
+      setActionError(err.message || 'Could not end the call. Please retry.');
     } finally {
       setEnding(false);
       setSkipping(false);
@@ -75,7 +83,7 @@ export default function LaneCard({ lane, handleToggleStatus, openAssignModal }: 
             <h3 className="text-base font-semibold text-gray-900 m-0 flex items-center">
               {lane.name || `Lane ${lane.slot_number}`}
               {isLive ? (
-                <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium flex items-center"><Activity className="w-3 h-3 mr-1" /> {lane.active_call_state || 'Connected'}</span>
+                <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium flex items-center"><Activity className="w-3 h-3 mr-1" /> {lane.active_call_state || 'Connecting'}</span>
               ) : (
                 isCampaignOn && <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium flex items-center">Waiting</span>
               )}
@@ -100,18 +108,24 @@ export default function LaneCard({ lane, handleToggleStatus, openAssignModal }: 
             </button>
           )}
 
-          {lane.id && (
+          <button
+            type="button"
+            onClick={() => openAssignModal(lane.slot_number)}
+            className="p-2 rounded-lg transition-colors border bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+            title={`Configure Lane ${lane.slot_number}`}
+            aria-label={`Configure Lane ${lane.slot_number}`}
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+
+          {lane.id && lane.status !== 'empty' && (
             <>
-              <button
-                onClick={() => openAssignModal(lane.slot_number)}
-                className="p-2 rounded-lg transition-colors border bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
-                title="Configure Lane"
-              >
-                <Settings className="w-5 h-5" />
-              </button>
               {lane.status === 'running' ? (
                 <>
                   <button
+                    type="button"
+                    disabled={isStatusChanging}
+                    aria-busy={isStatusChanging}
                     onClick={() => handleToggleStatus(lane.id, lane.status)}
                     className="p-2 rounded-lg transition-colors border bg-yellow-100 text-yellow-700 border-yellow-200 hover:bg-yellow-200"
                     title="Pause After This Call"
@@ -121,18 +135,13 @@ export default function LaneCard({ lane, handleToggleStatus, openAssignModal }: 
                   <button
                     onClick={async () => {
                       setEnding(true);
+                      setActionError('');
                       try {
-                        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-                        const token = localStorage.getItem('enr_token') || localStorage.getItem('call_token');
-                        const res = await fetch(`${API_URL}/api/v1/multi-calling/lanes/${lane.id}/stop`, {
-                          method: 'POST',
-                          headers: { 'Authorization': `Bearer ${token}` }
-                        });
-                        if (!res.ok) {
-                          const errorData = await res.json().catch(() => ({}));
-                          alert(`Failed to stop agent: ${errorData.error || res.statusText}`);
-                        }
-                        await handleToggleStatus(lane.id, lane.status); // Just to refresh state in parent
+                        await api.post(`/multi-calling/lanes/${lane.id}/stop`, {});
+                        await onRefresh();
+                      } catch (err: any) {
+                        setActionError(err.response?.data?.error || err.message || 'Could not stop agent. Please retry.');
+                        await onRefresh();
                       } finally {
                         setEnding(false);
                       }
@@ -146,7 +155,10 @@ export default function LaneCard({ lane, handleToggleStatus, openAssignModal }: 
                 </>
               ) : (
                 <button
-                  onClick={() => handleToggleStatus(lane.id, lane.status)}
+                  type="button"
+                    disabled={isStatusChanging}
+                    aria-busy={isStatusChanging}
+                    onClick={() => handleToggleStatus(lane.id, lane.status)}
                   className="p-2 rounded-lg transition-colors border bg-green-100 text-green-700 border-green-200 hover:bg-green-200"
                   title="Start Lane"
                 >
@@ -158,6 +170,7 @@ export default function LaneCard({ lane, handleToggleStatus, openAssignModal }: 
         </div>
       </div>
 
+      {actionError && <div role="alert" className="mx-4 mt-3 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{actionError}</div>}
       <div className="p-4 flex-1 space-y-4">
         {lane.status === 'empty' ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500 py-8">
@@ -290,10 +303,11 @@ export default function LaneCard({ lane, handleToggleStatus, openAssignModal }: 
                   <List className="w-3 h-3 mr-1.5" /> Queue Status
                 </div>
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-gray-900 font-medium">{lane.queue?.queued || 0} waiting</span>
-                  <span className="text-blue-600 font-medium">{lane.queue?.claimed || 0} active</span>
+                  <span className="text-gray-900 font-medium">{lane.queue?.queued || 0} waiting leads</span>
+                  <span className="text-blue-600 font-medium">{['claimed', 'dialing', 'ringing', 'streaming'].reduce((sum, state) => sum + Number(lane.queue?.[state] || 0), 0)} active calls</span>
                 </div>
                 {/* Upcoming Leads Preview */}
+                <p className="text-xs text-gray-500 mt-2">{lane.niche_lead_count ?? 0} saved leads in this niche</p>
                 {lane.queue_preview && lane.queue_preview.length > 0 && (
                   <div className="mt-1 pt-2 border-t border-gray-200">
                     <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1 block">Next Up</span>

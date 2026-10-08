@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { parsePhoneNumberFromString } from 'libphonenumber-js/min';
 import { Bot, CheckCircle2, Filter, Phone, PhoneCall, RefreshCw, Search, Settings2, Square, UserPlus, X } from 'lucide-react';
 import { leadsApi, type CallingQueueLead, type CallingStatusResponse, type Lead } from '../services/crmApi';
@@ -146,7 +146,15 @@ export default function AgentPipelinePage() {
   const [niches, setNiches] = useState<Niche[]>([]);
   const [agents, setAgents] = useState<DeepgramAgent[]>([]);
   const [agentStatus, setAgentStatus] = useState<DeepgramAgentStatus | null>(null);
-  const [pageMode, setPageMode] = useState<'single' | 'multi'>('single');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pageMode = searchParams.get('mode') === 'multi' ? 'multi' : 'single';
+  function setPageMode(mode: 'single' | 'multi') {
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.set('mode', mode);
+      return next;
+    });
+  }
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [nicheContacts, setNicheContacts] = useState<Contact[]>([]);
   const [selectedNicheId, setSelectedNicheId] = useState('');

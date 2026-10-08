@@ -34,6 +34,7 @@ export default function GoogleMapScraper() {
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [bulkKeywords, setBulkKeywords] = useState('');
+  const [country, setCountry] = useState<'US' | 'CA'>('US');
   const [location, setLocation] = useState('United States');
   
   // Niche selection logic
@@ -96,7 +97,8 @@ export default function GoogleMapScraper() {
     // behave the same in every browser.
     const keywords = bulkKeywords.replace(/\r\n?/g, '\n').split('\n').map(k => k.trim()).filter(k => k);
     if (keywords.length === 0) return;
-    const requestedLocation = location.trim() || 'United States';
+    const countryName = country === 'CA' ? 'Canada' : 'United States';
+    const requestedLocation = location.trim() || countryName;
 
     // Determine the final niche name to send to backend
     let finalNicheName = '';
@@ -136,6 +138,7 @@ export default function GoogleMapScraper() {
         const response = await scraperApi.scrapeGoogleMaps({ 
           keywords: [keyword], 
           location: requestedLocation,
+          country,
           // limit is intentionally removed from payload to scrape maximum possible
           niche_name: finalNicheName !== '' ? finalNicheName : undefined,
           google_cloud_account: googleCloudAccount
@@ -311,7 +314,7 @@ export default function GoogleMapScraper() {
                       required
                       value={bulkKeywords}
                       onChange={(e) => setBulkKeywords(e.target.value)}
-                      placeholder="Beauty Salons in UK&#10;Plumbers in London"
+                      placeholder="Plumbers&#10;Drain cleaning&#10;Emergency plumbers"
                       rows={6}
                       style={{ 
                         width: '100%', 
@@ -328,14 +331,28 @@ export default function GoogleMapScraper() {
 
                   <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <div>
+                      <label htmlFor="maps-country" style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>Country</label>
+                      <select id="maps-country" value={country} disabled={isScraping}
+                        onChange={event => {
+                          const nextCountry = event.target.value as 'US' | 'CA';
+                          setCountry(nextCountry);
+                          setLocation(nextCountry === 'CA' ? 'Canada' : 'United States');
+                        }}
+                        style={{ width: '100%', padding: '10px 14px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', backgroundColor: '#fff' }}>
+                        <option value="US">United States</option>
+                        <option value="CA">Canada</option>
+                      </select>
+                    </div>
+                    <div>
                       <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
-                        US Location <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(US-only - applies to all keywords)</span>
+                        Location <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(applies to all keywords)</span>
                       </label>
                       <input
                         type="text"
                         value={location}
                         onChange={(e) => setLocation(e.target.value)}
-                        placeholder="e.g. Miami, Florida"
+                        disabled={isScraping}
+                        placeholder={country === 'CA' ? 'e.g. Toronto, Ontario' : 'e.g. Miami, Florida'}
                         style={{ width: '100%', padding: '10px 14px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 14, fontFamily: 'inherit' }}
                       />
                     </div>

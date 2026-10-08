@@ -20,6 +20,7 @@ const PUBLIC_BASE_URL = env.PUBLIC_BASE_URL || 'http://localhost:3000';
 let workerStarted = false;
 let workerTickRunning = false;
 let workerConfigWarned = false;
+const MIN_CALL_START_INTERVAL_SECONDS = 30;
 
 const CALLING_TIMEZONES = new Set([
   'America/New_York',
@@ -163,6 +164,21 @@ async function runWorkerTick() {
         );
         if (activeRows[0]?.active) continue;
 
+        // The previous call's elapsed duration counts towards this interval.
+        // Persisted dialing timestamps keep short-call spacing across restarts;
+        // this does not add another 30 seconds after a longer call ends.
+        const { rows: spacingRows } = await query(
+          `SELECT EXISTS (
+             SELECT 1 FROM enrichment_results
+             WHERE tenant_id = $1 AND assigned_to_ai = true
+               AND ai_calling_lane_id IS NULL
+               AND raw_data->>'call_origin' = 'automatic'
+               AND (raw_data->>'call_started_at')::timestamptz > NOW() - ($2 * INTERVAL '1 second')
+           ) AS waiting`,
+          [control.tenant_id, MIN_CALL_START_INTERVAL_SECONDS],
+        );
+        if (spacingRows[0]?.waiting) continue;
+
         // P1 FIX: Cleanup zombie "called" or "calling" leads that got stuck
         // (e.g. process crashed or bridge failed to clean up)
         await query(
@@ -249,6 +265,7 @@ async function runWorkerTick() {
         );
         const callerId = fromPhones[Number(sequenceRows[0]?.attempts || 0) % fromPhones.length];
         
+        const callStartedAt = new Date().toISOString();
         const call = await signalwireClient.calls.create({
           url: webhookUrl,
           to: normalizedPhone,
@@ -275,14 +292,14 @@ async function runWorkerTick() {
                || jsonb_build_object(
                     'active_call_sid', $1::text,
                     'call_origin', 'automatic',
-                    'call_started_at', NOW()::text,
+                    'call_started_at', $4::text,
                     'call_status', 'initiated',
                     'call_duration_seconds', 0,
                     'recording_enabled', false,
                     'from_phone', $3::text
                   )
            WHERE id = $2`,
-          [call.sid, lead.id, callerId],
+          [call.sid, lead.id, callerId, callStartedAt],
         );
         console.log(`[outbound-caller] SignalWire call created for lead ${lead.id}: ${call.sid}.`);
       } catch (err) {

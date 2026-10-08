@@ -40,7 +40,7 @@ export default function ScriptManager() {
       <div className="bg-[#1a1a1a] p-4 flex justify-between items-center border-b border-gray-800">
         <div className="flex items-center space-x-4">
           <button 
-            onClick={() => navigate('/pipeline')}
+            onClick={() => navigate('/pipeline?mode=multi')}
             className="text-gray-400 hover:text-white"
           >
             <ArrowLeft className="w-5 h-5" />

@@ -3,55 +3,116 @@ import re
 with open('apps/web/src/pages/multi-ai/VisualScriptBuilder.tsx', 'r') as f:
     content = f.read()
 
-# 1. Add state
-state_old = """
-  const [loading, setLoading] = useState(!!(scriptId && scriptId !== 'new'));
-"""
-state_new = """
-  const [loading, setLoading] = useState(!!(scriptId && scriptId !== 'new'));
-  const [draftId, setDraftId] = useState<string | null>(null);
-"""
-content = content.replace(state_old.strip(), state_new.strip())
-
-# 2. Update fetchScript
-fetch_old = """
-      if (res.data.script?.niche_id) {
-        setNicheId(res.data.script.niche_id);
-      }
-      
-      const def = res.data.version.definition;
-"""
-fetch_new = """
-      if (res.data.script?.niche_id) {
-        setNicheId(res.data.script.niche_id);
-      }
-      if (res.data.version?.id && res.data.version?.status === 'draft') {
-        setDraftId(res.data.version.id);
-      }
-      
-      const def = res.data.version.definition;
-"""
-content = content.replace(fetch_old.strip(), fetch_new.strip())
-
-# 3. Update saveScript put payload
-put_old = """
-        await api.put(`/multi-calling/scripts/${scriptId}`, {
+handle_save_old = """      } else {
+        const res = await api.post('/multi-calling/scripts', {
           name: scriptName,
           definition,
           nicheId: nicheId || null
         });
-"""
-put_new = """
-        await api.put(`/multi-calling/scripts/${scriptId}`, {
+        resId = res.data.scriptId;
+      }"""
+handle_save_new = """      } else {
+        const res = await api.post('/multi-calling/scripts', {
+          name: scriptName,
+          definition,
+          nicheId: nicheId || null
+        });
+        resId = res.data.scriptId;
+        if (res.data.draftId) setDraftId(res.data.draftId);
+        if (res.data.revision) setDraftRevision(res.data.revision);
+      }"""
+if handle_save_old in content:
+    content = content.replace(handle_save_old, handle_save_new)
+else:
+    print("Warning: handle_save_old not found")
+
+handle_publish_old = """  const handlePublish = async () => {
+    setPublishing(true);
+    try {
+      const definition = getScriptDefinition();
+      let resId = scriptId;
+      if (scriptId && scriptId !== 'new') {
+        const updateRes = await api.put(`/multi-calling/scripts/${scriptId}`, {
           name: scriptName,
           definition,
           nicheId: nicheId || null,
-          expectedDraftId: draftId
+          expectedDraftId: draftId,
+          expectedRevision: draftRevision
         });
-"""
-content = content.replace(put_old.strip(), put_new.strip())
+        if (updateRes.data?.draftId) {
+          setDraftId(updateRes.data.draftId);
+        }
+        if (updateRes.data?.revision) {
+          setDraftRevision(updateRes.data.revision);
+        }
+      } else {
+        const res = await api.post('/multi-calling/scripts', {
+          name: scriptName,
+          definition,
+          nicheId: nicheId || null
+        });
+        resId = res.data.scriptId;
+        if (res.data.draftId) setDraftId(res.data.draftId);
+        if (res.data.revision) setDraftRevision(res.data.revision);
+      }
+
+      const publishRes = await api.post(`/multi-calling/scripts/${resId}/publish`, {
+        expectedDraftId: draftId,
+        expectedRevision: draftRevision
+      });"""
+
+handle_publish_new = """  const handlePublish = async () => {
+    setPublishing(true);
+    try {
+      const definition = getScriptDefinition();
+      let resId = scriptId;
+      let currentDraftId = draftId;
+      let currentRevision = draftRevision;
+      
+      if (scriptId && scriptId !== 'new') {
+        const updateRes = await api.put(`/multi-calling/scripts/${scriptId}`, {
+          name: scriptName,
+          definition,
+          nicheId: nicheId || null,
+          expectedDraftId: currentDraftId,
+          expectedRevision: currentRevision
+        });
+        if (updateRes.data?.draftId) {
+          currentDraftId = updateRes.data.draftId;
+          setDraftId(currentDraftId);
+        }
+        if (updateRes.data?.revision) {
+          currentRevision = updateRes.data.revision;
+          setDraftRevision(currentRevision);
+        }
+      } else {
+        const res = await api.post('/multi-calling/scripts', {
+          name: scriptName,
+          definition,
+          nicheId: nicheId || null
+        });
+        resId = res.data.scriptId;
+        if (res.data.draftId) {
+          currentDraftId = res.data.draftId;
+          setDraftId(currentDraftId);
+        }
+        if (res.data.revision) {
+          currentRevision = res.data.revision;
+          setDraftRevision(currentRevision);
+        }
+      }
+
+      const publishRes = await api.post(`/multi-calling/scripts/${resId}/publish`, {
+        expectedDraftId: currentDraftId,
+        expectedRevision: currentRevision
+      });"""
+
+if handle_publish_old in content:
+    content = content.replace(handle_publish_old, handle_publish_new)
+else:
+    print("Warning: handle_publish_old not found")
 
 with open('apps/web/src/pages/multi-ai/VisualScriptBuilder.tsx', 'w') as f:
     f.write(content)
 
-print("Frontend TSX patched.")
+print("VisualScriptBuilder publish logic patched")

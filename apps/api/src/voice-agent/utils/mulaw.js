@@ -40,7 +40,16 @@ export function applyMulawGain(audio, gain = 1) {
 
   const output = Buffer.allocUnsafe(input.length);
   for (let i = 0; i < input.length; i += 1) {
-    output[i] = encodeMulawSample(decodeMulawByte(input[i]) * normalizedGain);
+    let sample = decodeMulawByte(input[i]) * normalizedGain;
+    // A smooth knee keeps boosted peaks within G.711's decoded range rather
+    // than hard-clipping them. Frame duration and sample rate stay identical.
+    const magnitude = Math.abs(sample);
+    const knee = 28000;
+    const headroom = 32124 - knee;
+    if (magnitude > knee) {
+      sample = Math.sign(sample) * (knee + headroom * Math.tanh((magnitude - knee) / headroom));
+    }
+    output[i] = encodeMulawSample(sample);
   }
   return output;
 }

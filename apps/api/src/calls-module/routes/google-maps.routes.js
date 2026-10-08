@@ -1,36 +1,25 @@
 import { Router } from 'express';
 import { query } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
+import { resolveMapsCountry, mapsSearchLocation, normalizeMapsPhone, isMapsPlaceInCountry } from '../../utils/maps-country.js';
+
+import { syncNicheContacts } from '../../services/multi-calling/contact-sync.js';
 
 const router = Router();
 
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
-const DEFAULT_US_LOCATION = 'United States';
-
-function normalizeUSPhone(raw) {
-  const digits = String(raw || '').replace(/\D/g, '');
-  if (/^[2-9]\d{9}$/.test(digits)) return `+1${digits}`;
-  if (/^1[2-9]\d{9}$/.test(digits)) return `+${digits}`;
-  return null;
-}
-
-function isUSPlace(place) {
-  const country = place.addressComponents?.find((component) => component.types?.includes('country'));
-  if (country?.shortText) return country.shortText === 'US';
-  return /(?:USA|United States)$/i.test(place.formattedAddress || '');
-}
-
 // POST /api/google-maps/scrape
 router.post(
   '/scrape',
   requireAuth,
   async (req, res) => {
     try {
-      const { keywords, location, niche_name, google_cloud_account } = req.body;
-      const requestedLocation = String(location || '').trim() || DEFAULT_US_LOCATION;
+      const { keywords, location, country, niche_name, google_cloud_account } = req.body;
+      const selectedCountry = resolveMapsCountry(country);
+      const requestedLocation = mapsSearchLocation(location, selectedCountry);
       const limit = 1000; // A high arbitrary limit to let it fetch all available pages (Google max is usually ~60-120 per search anyway)
 
-      console.log('[google-maps] Route called with:', JSON.stringify({ keywords, location: requestedLocation, niche_name, google_cloud_account }));
+      console.log('[google-maps] Route called with:', JSON.stringify({ keywords, country: selectedCountry, location: requestedLocation, niche_name, google_cloud_account }));
 
       if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
         return res.status(400).json({ error: 'At least one keyword is required in keywords array.' });
@@ -100,7 +89,8 @@ router.post(
           const textQuery = `${keyword} in ${requestedLocation}`;
           const body = {
             textQuery: textQuery,
-            pageSize: 20
+            pageSize: 20,
+            regionCode: selectedCountry
           };
 
           if (pageToken) {
@@ -113,7 +103,7 @@ router.post(
             headers: {
               'Content-Type': 'application/json',
               'X-Goog-Api-Key': apiKey,
-              'X-Goog-FieldMask': 'places.id,places.displayName,places.nationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.formattedAddress,places.addressComponents,nextPageToken'
+              'X-Goog-FieldMask': 'places.id,places.displayName,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.formattedAddress,places.addressComponents,nextPageToken'
             },
             body: JSON.stringify(body)
           });
@@ -131,8 +121,8 @@ router.post(
           }
 
           const leads = data.places.flatMap((place) => {
-            const phone = normalizeUSPhone(place.nationalPhoneNumber);
-            if (!phone || !isUSPlace(place)) return [];
+            const phone = normalizeMapsPhone(place.internationalPhoneNumber || place.nationalPhoneNumber);
+            if (!phone || !isMapsPlaceInCountry(place, selectedCountry)) return [];
 
             return [{
               id: place.id,
@@ -142,6 +132,7 @@ router.post(
               rating: place.rating || 0,
               reviews: place.userRatingCount || 0,
               address: place.formattedAddress || '',
+              country: selectedCountry,
               socialLinks: [],
               status: niche_id ? 'enriched' : 'scraped',
               niche_id: niche_id || null
@@ -210,11 +201,13 @@ router.post(
         }
       }
 
+      if (req.tenantId && niche_id) await syncNicheContacts(req.tenantId, niche_id);
+
       console.log(`[google-maps] Done! Total leads: ${allLeads.length}`);
       return res.json({ success: true, leads: allLeads });
     } catch (err) {
       console.error('[google-maps] Error:', err);
-      return res.status(500).json({ error: 'Internal Server Error' });
+      return res.status(err.statusCode || 500).json({ error: err.statusCode === 400 ? err.message : 'Internal Server Error' });
     }
   }
 );

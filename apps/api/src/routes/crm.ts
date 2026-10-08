@@ -148,6 +148,18 @@ export default async function crmRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', requireModule('enrichment', 'ai_calling'));
   // Ensure assigned_to_ai exists (runs once on boot)
   try {
+    // Existing columns need no ALTER: even ADD IF NOT EXISTS takes an exclusive lock.
+    const schema = await fastify.db.query(`SELECT COUNT(*)::int AS present
+      FROM information_schema.columns WHERE table_schema = 'public' AND (
+        (table_name = 'enrichment_results' AND column_name IN
+          ('assigned_to_ai', 'raw_data', 'ai_voice_consent', 'ai_voice_consent_at', 'ai_voice_consent_source', 'do_not_call')) OR
+        (table_name = 'contacts' AND column_name IN
+          ('ai_voice_consent', 'ai_voice_consent_at', 'ai_voice_consent_source', 'do_not_call')) OR
+        (table_name = 'ai_calling_controls' AND column_name IN
+          ('calls_per_minute', 'max_calls_per_day', 'max_minutes_per_day', 'max_cost_usd_per_day',
+           'calling_timezone', 'calling_window_start_hour', 'calling_window_end_hour'))
+      )`);
+    if (schema.rows[0].present !== 17) {
     await fastify.db.query(`
       ALTER TABLE enrichment_results
         ADD COLUMN IF NOT EXISTS assigned_to_ai BOOLEAN DEFAULT false,
@@ -188,6 +200,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
         ADD COLUMN IF NOT EXISTS calling_window_start_hour INT NOT NULL DEFAULT 9,
         ADD COLUMN IF NOT EXISTS calling_window_end_hour INT NOT NULL DEFAULT 17
     `);
+    }
     await fastify.db.query(`UPDATE enrichment_results SET lead_stage = 'assigned' WHERE assigned_to_ai = true AND lead_stage IN ('new', 'enriched');`);
   } catch (err) {
     console.error('Failed to alter enrichment_results for assigned_to_ai:', err);

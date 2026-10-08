@@ -13,6 +13,7 @@ dotenv.config();
 const fastify = Fastify({
   logger: true
 });
+fastify.decorate('voiceAgentReady', false);
 
 // Load Keys from environment
 const PRIVATE_KEY = process.env.JWT_PRIVATE_KEY || '';
@@ -315,13 +316,16 @@ async function mountVoiceAgent() {
     const { createVoiceAgentApp } = await import('./voice-agent/mount.js');
 
     // @ts-ignore — express type
-    fastify.use(createVoiceAgentApp());
+    const voiceApp = createVoiceAgentApp();
+    fastify.use(voiceApp);
     fastify.log.info('voice-agent Express routes mounted at /api/voice/*');
 
     // Attach Deepgram <-> SignalWire WebSocket Bridge
     try {
       const { attachDeepgramBridge } = await import('./voice-agent/orchestrator/deepgram-signalwire-bridge.js');
       attachDeepgramBridge(fastify.server);
+      voiceApp.locals.mediaBridgeReady = true;
+      (fastify as any).voiceAgentReady = true;
       fastify.log.info('voice-agent Deepgram-SignalWire bridge attached at /api/voice/signalwire/deepgram-stream');
     } catch (bridgeErr: any) {
       fastify.log.warn({ err: bridgeErr }, 'voice-agent Deepgram bridge init failed');

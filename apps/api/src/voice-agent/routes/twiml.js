@@ -7,6 +7,7 @@ import { validateTwilioSignature } from '../middleware/twilio-signature.js';
 import { wsUrl } from '../utils/http.js';
 import { broadcastCallStatus } from '../websocket/call-monitor.js';
 import { query } from '../../calls-module/db/index.js';
+import { finalizeUnstreamedCall } from '../services/unstreamed-call-result.js';
 import { normalizeNorthAmericanPhone } from '../../utils/us-phone.js';
 
 const router = Router();
@@ -16,7 +17,9 @@ function connectDeepgramStream(response, req, sessionId) {
     url: wsUrl(req, '/api/voice/signalwire/deepgram-stream'),
     track: 'inbound_track',
     codec: 'PCMU@8000h',
-    realtime: true,
+    // Preserve TTS bursts in the provider playback buffer. Realtime mode
+    // manages packet delay/bursts and is unsuitable for unpaced TTS chunks.
+    realtime: false,
   });
   // SignalWire does not accept query parameters in a Stream URL. The nested
   // Parameter is delivered as start.customParameters on the WebSocket.
@@ -261,6 +264,7 @@ router.post(
          SET call_state = $2,
              answered_at = CASE WHEN $2 = 'answered' THEN COALESCE(answered_at, NOW()) ELSE answered_at END,
              ended_at = CASE WHEN $4 THEN COALESCE(ended_at, NOW()) ELSE ended_at END,
+             provider_terminated_at = CASE WHEN $4 THEN COALESCE(provider_terminated_at, NOW()) ELSE provider_terminated_at END,
              duration_sec = GREATEST(
                COALESCE(duration_sec, 0),
                COALESCE(NULLIF($3::text, '')::int, 0)
@@ -269,7 +273,7 @@ router.post(
              hangup_reason = CASE WHEN $5 THEN COALESCE(hangup_reason, $2) ELSE hangup_reason END
          WHERE signalwire_call_sid = $1
            AND (ended_at IS NULL OR $4 = true)
-         RETURNING id, queue_item_id, lead_id, outcome, hangup_reason`,
+         RETURNING id, queue_item_id, lead_id, outcome, hangup_reason, signalwire_stream_sid`,
         [
           req.body.CallSid,
           req.body.CallStatus,
@@ -283,16 +287,15 @@ router.post(
         sessionAccepted = true;
       }
 
-      // Finalize the queue item for terminal calls that never established a media connection
-      if (terminal && sessionRows.length > 0 && sessionRows[0].queue_item_id) {
-        const session = sessionRows[0];
-        const finalState = ['failed', 'canceled'].includes(req.body.CallStatus) ? 'failed' : 'completed';
-        await query(
-          `UPDATE ai_call_queue_items SET state = $1, last_error = $2 WHERE id = $3 AND state NOT IN ('completed', 'failed', 'cancelled')`,
-          [finalState, session.hangup_reason || null, session.queue_item_id]
-        );
+      // No stream means there will be no bridge finalizer; finalize here.
+      if (terminal && sessionRows[0] && !sessionRows[0].signalwire_stream_sid) {
+        await finalizeUnstreamedCall({
+          sessionId: sessionRows[0].id,
+          status: req.body.CallStatus,
+          durationSec: Number(req.body.CallDuration || req.body.Duration || 0),
+        });
       }
-      
+
       // Use the session lead_id if contactId is missing
       if (!contactId && sessionRows.length > 0 && sessionRows[0].lead_id) {
         contactId = sessionRows[0].lead_id;

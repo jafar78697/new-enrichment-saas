@@ -21,7 +21,7 @@ router.get('/summary', asyncHandler(async (req, res) => {
        COALESCE(SUM(cost_estimate_usd), 0)::numeric AS inbound_estimated_cost,
        COUNT(*) FILTER (WHERE call_state = 'error')::int AS failed_calls
      FROM ai_call_sessions
-     WHERE tenant_id = $1 AND started_at >= date_trunc('day', NOW())`,
+     WHERE tenant_id = $1 AND COALESCE(created_at, started_at) >= date_trunc('day', NOW())`,
     [tenantId],
   );
   const { rows: previewRows } = await query(

@@ -38,7 +38,7 @@ import DeepgramAgents from './pages/DeepgramAgents';
 import AgentPipeline from './pages/AgentPipeline';
 import LaneDashboard from './pages/multi-ai/LaneDashboard';
 import ScriptManager from './pages/multi-ai/ScriptManager';
-import VisualScriptBuilder from './pages/multi-ai/VisualScriptBuilder';
+import JsonScriptEditor from './pages/multi-ai/JsonScriptEditor';
 
 import PrivacyPage from './pages/Privacy';
 import ImageAltTextGeneratorPage from './pages/ImageAltTextGenerator';
@@ -90,8 +90,8 @@ export default function App() {
           <Route path="pipeline" element={<AgentPipeline />} />
           <Route path="multi-ai-calling" element={<LaneDashboard />} />
           <Route path="multi-ai-calling/scripts" element={<ScriptManager />} />
-          <Route path="multi-ai-calling/builder/new" element={<VisualScriptBuilder />} />
-          <Route path="multi-ai-calling/builder/:scriptId" element={<VisualScriptBuilder />} />
+          <Route path="multi-ai-calling/builder/new" element={<JsonScriptEditor />} />
+          <Route path="multi-ai-calling/builder/:scriptId" element={<JsonScriptEditor />} />
           <Route path="ai-agent" element={<DeepgramAgents />} />
         </Route>
         <Route path="/forgot-password" element={<ForgotPassword />} />

@@ -3,24 +3,33 @@ import re
 with open('apps/api/src/services/multi-calling/template-registry.ts', 'r') as f:
     content = f.read()
 
-# Implement normalizeHandle
-normalize_handle = """
-export function normalizeHandle(nodeType: string, handleId?: string | null): string {
-  if (!handleId || handleId === 'default') return 'default';
-  const declared = NODE_DECLARED_HANDLES[nodeType] || [];
-  const direct = declared.find(h => h.id === handleId);
-  if (direct) return direct.id;
+aliases_old = """export const HANDLE_ALIASES: Record<string, string[]> = {
+  confirmed: ['interested', 'yes', 'speaking', 'owner'],
+  not_owner: ['wrong_person', 'gatekeeper', 'negative', 'not_interested'], // allow not_interested as legacy input
+  refusal: ['not_interested', 'no', 'declined', 'hangup'],
+  qualified: ['interested', 'yes', 'passed'],
+  unqualified: ['not_interested', 'no', 'failed', 'negative'],
+  accepted: ['interested', 'yes', 'booked'],
+  declined: ['not_interested', 'no', 'refusal'],
+  resolved: ['interested', 'yes', 'handled'],
+  unresolved: ['not_interested', 'no', 'refusal']
+};"""
 
-  for (const h of declared) {
-    const aliases = HANDLE_ALIASES[h.id];
-    if (aliases && aliases.includes(handleId)) return h.id;
-  }
-  return handleId;
-}
-"""
+aliases_new = """export const HANDLE_ALIASES: Record<string, string[]> = {
+  confirmed: ['interested', 'yes', 'speaking', 'owner'],
+  not_owner: ['wrong_person', 'gatekeeper'],
+  refusal: ['not_interested', 'no', 'declined', 'hangup', 'negative'],
+  qualified: ['interested', 'yes', 'passed'],
+  unqualified: ['not_interested', 'no', 'failed', 'negative'],
+  accepted: ['interested', 'yes', 'booked'],
+  declined: ['not_interested', 'no', 'refusal'],
+  resolved: ['interested', 'yes', 'handled'],
+  unresolved: ['not_interested', 'no', 'refusal']
+};"""
 
-content = content + normalize_handle
+content = content.replace(aliases_old, aliases_new)
 
 with open('apps/api/src/services/multi-calling/template-registry.ts', 'w') as f:
     f.write(content)
-print("normalizeHandle added")
+
+print("HANDLE_ALIASES fixed in template-registry.ts")

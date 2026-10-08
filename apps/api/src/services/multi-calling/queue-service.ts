@@ -1,3 +1,5 @@
+// @ts-ignore shared contact synchronization runtime
+import { syncNicheContacts } from './contact-sync.js';
 import { getPool } from '../../calls-module/db/index.js';
 import { parsePhoneNumberFromString } from 'libphonenumber-js/min';
 
@@ -11,6 +13,7 @@ export function normalizeNorthAmericanPhone(phone: string | null | undefined): s
 }
 
 export async function populateLaneQueue(tenantId: string, laneId: string, nicheId: number, agentConfigId: string) {
+  const synced = await syncNicheContacts(tenantId, nicheId);
   const pool = getPool();
   
   // 1. Backfill niche_id from raw_data if missing (for legacy data)
@@ -45,7 +48,6 @@ export async function populateLaneQueue(tenantId: string, laneId: string, nicheI
           AND q.state IN ('queued', 'claimed', 'dialing', 'ringing', 'streaming')
       )
     ORDER BY CASE WHEN er.lead_stage = 'followup' THEN 0 ELSE 1 END, er.created_at ASC
-    LIMIT 3
     ON CONFLICT (tenant_id, lead_id) WHERE state IN ('queued', 'claimed', 'dialing', 'ringing', 'streaming')
     DO NOTHING
     RETURNING id;
@@ -68,5 +70,5 @@ export async function populateLaneQueue(tenantId: string, laneId: string, nicheI
     );
   }
   
-  return result.rowCount || 0;
+  return synced.queued + (result.rowCount || 0);
 }

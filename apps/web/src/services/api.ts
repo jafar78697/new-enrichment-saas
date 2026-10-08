@@ -173,7 +173,7 @@ export const aiMediaApi = {
 };
 
 export const scraperApi = {
-  scrapeGoogleMaps: async (payload: { keywords: string[]; location?: string; limit?: number; niche_name?: string; google_cloud_account?: string }) => {
+  scrapeGoogleMaps: async (payload: { keywords: string[]; location?: string; country?: 'US' | 'CA'; limit?: number; niche_name?: string; google_cloud_account?: string }) => {
     // Use the calls-module API (Express, /api/*) instead of enrichment API (/v1/*)
     const BASE = import.meta.env.VITE_API_URL || '';
     const token = localStorage.getItem('call_token');

@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-
+import { replaceTemplateVars } from '../../services/multi-calling/template-runtime.js';
 const DEFAULT_PROMPT = `
 You are a warm, concise outbound business-development assistant for Gento AI.
 You speak with plumbing company owners, office managers, dispatchers, and CSRs
@@ -105,6 +105,15 @@ CRM outcome rules:
   details or a follow-up time.
 `;
 
+// PostgreSQL NUMERIC values arrive as strings. Deepgram Settings requires
+// JSON numbers; normalize at the wire boundary for configs and snapshots alike.
+function boundedNumber(value, fallback, min, max, integer = false) {
+  const parsed = value === null || value === undefined || value === '' ? NaN : Number(value);
+  const candidate = Number.isFinite(parsed) ? parsed : fallback;
+  const bounded = Math.min(max, Math.max(min, candidate));
+  return integer ? Math.round(bounded) : bounded;
+}
+
 function buildListenProvider(agentConfig) {
   const listenModel = env.DEEPGRAM_AGENT_LISTEN_MODEL || 'flux-general-en';
   const isFluxModel = listenModel.startsWith('flux-');
@@ -115,9 +124,9 @@ function buildListenProvider(agentConfig) {
 
   if (isFluxModel) {
     listenProvider.version = 'v2';
-    listenProvider.eot_threshold = agentConfig?.listen_eot_threshold ?? 0.70; // Faster initial response
+    listenProvider.eot_threshold = boundedNumber(agentConfig?.listen_eot_threshold, 0.70, 0.5, 1); // Faster initial response
     // We intentionally omit eager_eot_threshold to avoid premature "first-word" interruptions.
-    listenProvider.eot_timeout_ms = agentConfig?.listen_eot_timeout_ms ?? 900; // Faster initial timeout
+    listenProvider.eot_timeout_ms = boundedNumber(agentConfig?.listen_eot_timeout_ms, 900, 500, 60000, true); // Faster initial timeout
   } else {
     listenProvider.smart_format = true;
   }
@@ -139,13 +148,13 @@ function buildAgentCore(agentConfig, { includeTools = false, lead = null, compil
   const runtimeContext = `\n\nCurrent UTC date and time for resolving explicit callback requests: ${new Date().toISOString()}. Always preserve the prospect's stated timezone.`;
   const toolPolicy = includeTools ? `\n\nCRITICAL TOOL-CALL RULES (READ CAREFULLY):
 1. You MUST call save_call_note IMMEDIATELY when the prospect's intent becomes clear. Do NOT wait until the end of the call. Prospects often hang up within seconds of expressing their decision, so you will lose the data if you delay.
-2. REJECTION: Use not_interested only when the prospect clearly rejects the offer. Polite dismissals such as "I'm not, but thank you", "not at this time, thank you", "no thanks", or "we're all set" are clear rejections after the offer. A "no" to the owner question, a busy person, an IVR, voicemail, silence, or a dropped call is NOT a rejection. On a clear offer refusal, IMMEDIATELY call save_call_note with outcome="not_interested" FIRST, then say a brief goodbye and call end_call.
+2. REJECTION: Use not_interested only when the prospect clearly rejects the offer. Polite dismissals such as "I'm not, but thank you", "not at this time, thank you", "no thanks", or "we're all set" are clear rejections after the offer. A "no" to the owner question, a busy person, an IVR, voicemail, silence, or a dropped call is NOT a rejection. "I\'m sorry", "hello?", "pardon?", "who is this?", "where are you calling from?", "you are breaking up", and "I can\'t hear you" are clarification or audio-repair requests, NEVER rejection. Answer or repeat the short introduction and wait for their reply. Do not say goodbye or save not_interested for these requests. On a clear offer refusal, IMMEDIATELY call save_call_note with outcome="not_interested" FIRST, then say a brief goodbye and call end_call.
 3. INTEREST: As soon as the prospect asks questions about the product, says "tell me more", "sounds interesting", "how much", or shows positive engagement, IMMEDIATELY call save_call_note with outcome="interested" and continue the conversation. You can update the note again later if more details emerge.
 4. DO NOT CALL: If they say "remove me", "don't ever call again", "take me off your list", IMMEDIATELY call mark_do_not_call, then end_call.
 5. FOLLOW-UP: Only use outcome="followup" when an exact future date, time, AND timezone are confirmed. Pass the value as ISO 8601 with UTC offset.
 6. NEVER invent missing contact details or a follow-up time. Never treat a temporary bad time as an opt-out.
 7. If the call is going well and you are about to say goodbye, call save_call_note BEFORE your goodbye sentence.
-8. EMAIL HANDOFF: If a real person gives an email address or asks for details to be sent there, repeat the address slowly for confirmation, then IMMEDIATELY call save_call_note with outcome="interested" and the confirmed email. Say only that the address is saved for the team to follow up. Never claim that you personally sent an email.
+8. EMAIL HANDOFF: Only when a real person explicitly requests information by email and has not rejected the offer or opted out, repeat the address slowly for confirmation, then IMMEDIATELY call save_call_note with outcome="interested" and the confirmed email. Say only that the address is saved for the team to follow up. A bare email address is contact data, not interest or outreach permission. Preserve explicit rejection/opt-out. Never claim that you personally sent an email.
 In the "note" field, write exactly one clear line summarizing what the prospect said and what to do next.` : '';
   const nicheContext = isPlumbing
     ? `\n\nIMPORTANT: This lead is in plumbing. Ignore any generic or salon/beauty-specific wording in the saved agent prompt for this call.\n${PLUMBING_CONTEXT}`
@@ -154,11 +163,15 @@ In the "note" field, write exactly one clear line summarizing what the prospect 
   
 
 
+  const conversationRepairPolicy = `\n\nCONVERSATION REPAIR RULES (override a script's premature goodbye):
+If a person says "I'm sorry", "hello?", "pardon?", "who is this?", "where are you calling from?", "you're breaking up", or "I can't hear you", they have NOT refused. Do not say goodbye or save not_interested. For a hearing problem, apologize briefly, repeat only the agent name and organization from the assigned script, then ask: "Can you hear me now?" Wait for their answer, then continue the current step. Repeating the short introduction is allowed specifically for clarification; do not repeat the entire pitch. Answer their question directly. Only a clear refusal or opt-out permits the rejection path. If two repair attempts still fail, politely explain that the connection is unclear and end without claiming a refusal.\n`;
+
   const rawBaseContent = compiledScriptPrompt || agentConfig?.prompt || DEFAULT_PROMPT;
   const baseContent = replaceTemplateVars(rawBaseContent, lead || {});
   const prompt = compiledScriptPrompt 
-    ? `${baseContent}${leadContext}${runtimeContext}${toolPolicy}`
-    : `${baseContent}${nicheContext}${leadContext}${runtimeContext}${toolPolicy}${greetingInstruction}`;
+    ? `${baseContent}${leadContext}${runtimeContext}${toolPolicy}${greetingInstruction}${conversationRepairPolicy}`
+    : `${baseContent}${nicheContext}${leadContext}${runtimeContext}${toolPolicy}${greetingInstruction}${conversationRepairPolicy}`;
+  if (prompt.length > 24000) throw new Error('Resolved voice prompt exceeds 24,000 characters. Shorten the script or lead notes.');
 
   const primaryModel = env.DEEPGRAM_AGENT_MODEL || 'gpt-4o-mini';
   const fallbackModel = env.DEEPGRAM_AGENT_FALLBACK_MODEL || 'gpt-4.1-mini';
@@ -239,7 +252,7 @@ In the "note" field, write exactly one clear line summarizing what the prospect 
         type: 'deepgram',
         version: voice.startsWith('flux-') ? 'v2' : 'v1',
         model: voice,
-        ...(supportsSpeedControl ? { speed: agentConfig?.speech_speed ?? env.DEEPGRAM_AGENT_SPEAK_SPEED } : {}),
+        ...(supportsSpeedControl ? { speed: boundedNumber(agentConfig?.speech_speed, env.DEEPGRAM_AGENT_SPEAK_SPEED, 0.5, 1.5) } : {}),
       },
     },
   };

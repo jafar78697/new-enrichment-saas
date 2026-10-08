@@ -5,12 +5,18 @@ import { RestClient } from '@signalwire/compatibility-api';
 import { env } from '../config/env.js';
 import { buildDeepgramSettings } from '../providers/deepgram-agent.js';
 import { query } from '../../calls-module/db/index.js';
+import { saveCallResult } from '../services/call-result-service.js';
+import { isAudioClarification } from '../services/conversation-repair.js';
+import { scheduleFirstReply, armFirstAudioDeadline, clearFirstAudioRecovery, markFirstAudioForwarded } from '../services/first-audio-recovery.js';
+import { replaceTemplateVars } from '../../services/multi-calling/template-runtime.js';
+import { applyMulawGain } from '../utils/mulaw.js';
 import { broadcastCallAudio, broadcastCallTranscript, broadcastCallAudioClear, broadcastCallStatus } from '../websocket/call-monitor.js';
 import { detectCallStateFromTranscript, detectCallStateFromTranscriptML, CallStates } from '../detection/call-state-detector.js';
 import { createVoiceAgentWebSocketServer } from '../websocket/upgrade-router.js';
 
-const MAX_PENDING_AUDIO_FRAMES = 100;
+const MAX_PENDING_AUDIO_FRAMES = 400;
 const activeStreamSids = new Set();
+const activeStreamLanes = new Map();
 
 function safeJsonParse(raw, fallback = null) {
   try {
@@ -39,7 +45,7 @@ function createSignalWireClient() {
 
 function isTerminalDetection(detection) {
   return detection?.action === 'hangup'
-    && [CallStates.VOICEMAIL, CallStates.IVR_OR_MENU, CallStates.CLOSED_OR_HOURS].includes(detection?.state);
+    && [CallStates.VOICEMAIL, CallStates.IVR_OR_MENU, CallStates.AI_RECEPTIONIST_OR_BOT, CallStates.CLOSED_OR_HOURS].includes(detection?.state);
 }
 
 function normalizeEmailValue(rawValue) {
@@ -118,17 +124,6 @@ function classifyFromTranscript(transcript, durationSec) {
     return { outcome: 'no_answer', summary: `No prospect speech detected (${durationSec}s). Likely immediate hangup or silence.` };
   }
 
-  const voicemailPatterns = [
-    /\b(?:leave|record)\s+(?:a\s+)?message\b/,
-    /\b(?:after|at)\s+the\s+(?:tone|beep)\b/,
-    /\b(?:mailbox|voice\s*mail)\s+(?:is\s+)?(?:full|not\s+set\s+up|unavailable)\b/,
-    /\b(?:your\s+call\s+has\s+been\s+forwarded|person\s+you\s+are\s+trying\s+to\s+reach)\b/,
-  ];
-  const ivrPatterns = [
-    /\b(?:press|dial)\s+(?:the\s+)?(?:[0-9]|zero|one|two|three|four|five|six|seven|eight|nine)\b/,
-    /\b(?:listen\s+carefully|menu\s+options|for\s+(?:sales|service|support|billing))\b/,
-    /\b(?:recorded|monitored)\s+for\s+(?:quality|training)\b/,
-  ];
   const dncPatterns = [
     /\b(?:do\s*not\s*call|don'?t\s*(?:ever\s*)?call\s*(?:again|back|me)|remove\s*(?:me|my\s*number)|stop\s*calling)\b/,
     /\b(?:take\s*(?:me|us|my\s*number)\s*off\s*(?:your|the)\s*(?:list|system))\b/,
@@ -165,8 +160,9 @@ function classifyFromTranscript(transcript, durationSec) {
   ];
 
   const hasDNC = dncPatterns.some((pattern) => pattern.test(allUserText));
-  const hasVoicemail = voicemailPatterns.some((pattern) => pattern.test(allUserText));
-  const hasIvr = ivrPatterns.some((pattern) => pattern.test(allUserText));
+  const terminalMachine = userTexts.map(text => detectCallStateFromTranscript(text)).find(isTerminalDetection);
+  const hasVoicemail = terminalMachine?.state === CallStates.VOICEMAIL;
+  const hasIvr = [CallStates.IVR_OR_MENU, CallStates.AI_RECEPTIONIST_OR_BOT].includes(terminalMachine?.state);
   const hasCallback = callbackPatterns.some((pattern) => pattern.test(allUserText));
   const hasGatekeeper = gatekeeperPatterns.some((pattern) => pattern.test(allUserText));
   const hasWrongNumber = wrongNumberPatterns.some((pattern) => pattern.test(allUserText));
@@ -181,7 +177,7 @@ function classifyFromTranscript(transcript, durationSec) {
   if (hasCallback) return { outcome: 'followup', summary: `Prospect was unavailable or requested another call (${durationSec}s). Exact follow-up time was not captured by the live tool.` };
   // The target decision-maker was not reached.
   if (hasGatekeeper && !hasInterest) return { outcome: 'no_answer', summary: `Gatekeeper or receptionist answered (${durationSec}s). Decision-maker was not reached.` };
-  if (hasRejection && !hasInterest) return { outcome: 'not_interested', summary: `Prospect clearly declined the offer (${durationSec}s).` };
+  if (hasRejection) return { outcome: 'not_interested', summary: `Prospect clearly declined the offer (${durationSec}s).` };
   if (hasInterest) return { outcome: 'interested', summary: `Prospect showed clear interest (${durationSec}s). Live tool did not capture the remaining details.` };
 
   // Apply short-call fallback only after checking explicit intent.
@@ -210,32 +206,146 @@ async function updateSession(sessionId, sql, params) {
   }
 }
 
-async function closePhoneCall({ callSid, signalWireWs, sessionId, reason }) {
-  await updateSession(
-    sessionId,
-    `UPDATE ai_call_sessions
-     SET hangup_reason = COALESCE($1, hangup_reason),
-         call_state = 'ending',
-         ended_at = COALESCE(ended_at, NOW())
-     WHERE id = $2`,
-    [reason || 'agent-ended'],
-  );
+const terminalProviderStates = new Set(['completed', 'busy', 'failed', 'no-answer', 'canceled']);
+const hangupRequests = new Map();
 
-  if (callSid) {
-    const client = createSignalWireClient();
-    if (client) {
-      try {
-        await client.calls(callSid).update({ status: 'completed' });
-        return;
-      } catch (error) {
-        console.error('[deepgram-bridge] SignalWire hangup failed:', error.message);
-      }
+async function confirmProviderTermination(callSid, sessionId) {
+  const row = (await query('SELECT provider_terminated_at, call_state FROM ai_call_sessions WHERE id = $1', [sessionId])).rows[0];
+  if (row?.provider_terminated_at) return true;
+  const client = createSignalWireClient();
+  if (!client || !callSid) throw new Error('Cannot verify provider termination without call configuration.');
+  let providerCall = await client.calls(callSid).fetch();
+  if (!terminalProviderStates.has(providerCall.status)) {
+    try {
+      providerCall = await client.calls(callSid).update({ status: 'completed' });
+    } catch (error) {
+      // The remote side or a concurrent cleanup can end the call between our
+      // fetch and update. Confirm its actual status before treating this as failure.
+      providerCall = await client.calls(callSid).fetch();
+      if (!terminalProviderStates.has(providerCall.status)) throw error;
+    }
+    for (const waitMs of [150, 300, 600]) {
+      if (terminalProviderStates.has(providerCall.status)) break;
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      providerCall = await client.calls(callSid).fetch();
     }
   }
+  if (!terminalProviderStates.has(providerCall.status)) throw new Error('Provider has not confirmed call termination.');
+  await query('UPDATE ai_call_sessions SET provider_terminated_at = COALESCE(provider_terminated_at, NOW()) WHERE id = $1', [sessionId]);
+  return true;
+}
 
-  if (signalWireWs.readyState === WebSocket.OPEN) {
-    signalWireWs.close(1000, reason || 'agent-ended');
+// Shared recovery path for a cleanup interrupted by provider timing or process
+// restart. It never hangs up a call: the provider termination must be confirmed.
+export async function finalizeEndedCall(sessionId) {
+  const row = (await query(`SELECT signalwire_call_sid, duration_sec, ended_at,
+    provider_terminated_at, result_finalized_at FROM ai_call_sessions WHERE id = $1`, [sessionId])).rows[0];
+  if (!row || !row.ended_at || !row.provider_terminated_at) return false;
+  if (row.result_finalized_at) return true;
+  const callSid = row.signalwire_call_sid;
+  const durationSec = Number(row.duration_sec || 0);
+  // Use the original transcript classifier and preserve tool-recorded results.
+  if (sessionId) {
+    let session = null;
+    let fallbackOutcome = 'called';
+    try {
+      const { rows: sessionRows } = await query(
+        `SELECT s.outcome, s.hangup_reason, s.duration_sec, s.first_answer_type, s.call_state, s.queue_item_id, s.lane_id, s.summary,
+                jsonb_array_length(COALESCE(transcript, '[]'::jsonb)) AS transcript_events,
+                s.transcript, er.domain AS lead_domain
+         FROM ai_call_sessions s
+         LEFT JOIN enrichment_results er ON er.id = s.lead_id AND er.tenant_id = s.tenant_id
+         WHERE s.id = $1`,
+        [sessionId],
+      );
+      session = sessionRows[0];
+      fallbackOutcome = session?.outcome || 'called';
+      if (session && !session.outcome) {
+        const hr = session.hangup_reason || '';
+        const dur = session.duration_sec || durationSec;
+        const transcriptEvents = Number(session.transcript_events || 0);
+        fallbackOutcome = 'called';
+        let fallbackSummary = `Call ended after ${dur}s.`;
+        if (transcriptEvents === 0 && !hr) {
+          fallbackOutcome = 'no_answer';
+          fallbackSummary = `No speech transcript was captured (${dur}s). No live conversation confirmed.`;
+        } else if (['VOICEMAIL'].includes(hr)) {
+          fallbackOutcome = 'voicemail';
+          fallbackSummary = `Voicemail detected (${dur}s). No human reached.`;
+        } else if (['IVR_OR_MENU', 'AI_RECEPTIONIST_OR_BOT'].includes(hr)) {
+          fallbackOutcome = 'no_answer';
+          fallbackSummary = `${hr === 'IVR_OR_MENU' ? 'IVR/phone menu' : 'AI receptionist'} detected (${dur}s). Could not reach human.`;
+        } else if (['CLOSED_OR_HOURS'].includes(hr)) {
+          fallbackOutcome = 'no_answer';
+          fallbackSummary = `Business hours message detected (${dur}s). Call outside operating hours.`;
+        } else if (['deepgram-error', 'deepgram-disconnected', 'bridge-error', 'first-audio-timeout', 'deepgram-setup-timeout'].includes(hr)) {
+          fallbackOutcome = 'technical_error';
+          fallbackSummary = `Technical error: ${hr} (${dur}s). Call failed due to system issue.`;
+        } else {
+          // Analyze every transcript, including short calls. The classifier
+          // checks explicit intent before applying its short-call fallback,
+          // so a quick "no thanks" is not mislabeled as no_answer.
+          const transcriptResult = classifyFromTranscript(session.transcript, dur);
+          fallbackOutcome = transcriptResult.outcome;
+          fallbackSummary = transcriptResult.summary;
+        }
+        session.summary = fallbackSummary;
+        await query(
+          `UPDATE ai_call_sessions
+           SET outcome = COALESCE(outcome, $1),
+               summary = COALESCE(summary, $2)
+           WHERE id = $3 AND outcome IS NULL`,
+          [fallbackOutcome, fallbackSummary, sessionId],
+        );
+        console.log(`[deepgram-bridge] Fallback outcome written: ${fallbackOutcome} — ${fallbackSummary}`);
+      }
+
+      const capturedEmail = extractEmailFromTranscript(session?.transcript);
+      const result = await saveCallResult({
+        sessionId, outcome: fallbackOutcome, note: session?.summary || '',
+        email: capturedEmail, source: 'ai', fallback: true, durationSec,
+      });
+      fallbackOutcome = result.outcome;
+    } catch (fallbackErr) {
+      console.error('[deepgram-bridge] Fallback outcome write failed:', fallbackErr.message);
+      await query(`UPDATE ai_calling_lanes SET status = 'error', last_error = $1 WHERE id = (SELECT lane_id FROM ai_call_sessions WHERE id = $2)`, [fallbackErr.message, sessionId]);
+      throw fallbackErr;
+    }
+
+    if (session && session.queue_item_id) {
+      const finalState = ['technical_error', 'bridge-error', 'deepgram-error', 'provider_error'].includes(fallbackOutcome) ? 'failed' : 'completed';
+      await query(
+        `UPDATE ai_call_queue_items SET state = $1, last_error = $2 WHERE id = $3 AND state NOT IN ('completed', 'failed', 'cancelled')`,
+        [finalState, session.hangup_reason || null, session.queue_item_id]
+      );
+    }
+    await writeTranscriptFile(sessionId, callSid);
+    await query('UPDATE ai_call_sessions SET result_finalized_at = COALESCE(result_finalized_at, NOW()), last_error = NULL WHERE id = $1', [sessionId]);
+
   }
+  return true;
+}
+
+async function closePhoneCall({ callSid, signalWireWs, sessionId, reason, lastError }) {
+  const key = sessionId || callSid;
+  if (hangupRequests.has(key)) return hangupRequests.get(key);
+  const request = (async () => {
+    await updateSession(sessionId, `UPDATE ai_call_sessions SET
+      hangup_reason = COALESCE(hangup_reason, $1), last_error = COALESCE($2, last_error),
+      call_state = 'ending' WHERE id = $3 AND ended_at IS NULL`,
+    [reason || 'agent-ended', lastError || null]);
+    try {
+      await confirmProviderTermination(callSid, sessionId);
+      if (signalWireWs?.readyState === WebSocket.OPEN) signalWireWs.close(1000, 'call-ended');
+      return true;
+    } catch (error) {
+      await updateSession(sessionId, 'UPDATE ai_call_sessions SET last_error = $1 WHERE id = $2', [error.message]);
+      console.error('[deepgram-bridge] Provider termination not confirmed:', error.message);
+      return false;
+    }
+  })();
+  hangupRequests.set(key, request);
+  try { return await request; } finally { hangupRequests.delete(key); }
 }
 
 function extractConversationText(event) {
@@ -252,6 +362,8 @@ async function loadSessionContext(sessionId) {
   const { rows } = await query(
     `SELECT
        acs.*,
+       lane.slot_number AS verified_lane_slot,
+       sv.definition AS script_definition,
        er.company_name,
        er.industry_guess,
        er.primary_email,
@@ -266,7 +378,7 @@ async function loadSessionContext(sessionId) {
        er.raw_data->>'notes' AS notes,
        er.raw_data->>'niche_name' AS niche_name,
        er.raw_data->>'call_origin' AS call_origin,
-       sv.compiled_prompt as compiled_script_prompt,
+       COALESCE(acs.compiled_script_prompt, sv.compiled_prompt) as compiled_script_prompt,
        COALESCE(acs.agent_config_snapshot, jsonb_build_object(
          'id', COALESCE(ac.id, ac_lane.id),
          'name', COALESCE(ac.name, ac_lane.name),
@@ -334,6 +446,9 @@ async function handleFunctionRequests(event, context) {
     if (['save_call_note', 'mark_do_not_call'].includes(name) && context.sessionId) {
       if (context.aiAudioGated) {
         content = JSON.stringify({ ok: false, error: 'You are currently muted and waiting for a real human. Do not save notes or outcomes for automated messages.' });
+      } else if (name === 'save_call_note' && args.outcome === 'not_interested' && isAudioClarification(context.lastProspectTurn)) {
+        console.warn('[deepgram-bridge] Rejected unsupported refusal after an audio clarification:', { callSid: context.callSid });
+        content = JSON.stringify({ ok: false, error: 'The prospect requested clarification or could not hear you; they did not refuse. Briefly identify yourself, ask if they can hear you, and continue listening. Do not say goodbye or mark not_interested.' });
       } else {
         try {
           const optOut = name === 'mark_do_not_call';
@@ -347,7 +462,7 @@ async function handleFunctionRequests(event, context) {
           const requestedFollowupAt = outcome === 'followup' ? String(args.followup_at || '').trim() : '';
           const parsedFollowupAt = requestedFollowupAt ? new Date(requestedFollowupAt) : null;
           const followupAt = parsedFollowupAt && Number.isFinite(parsedFollowupAt.getTime())
-            && parsedFollowupAt.getTime() >= Date.now() + 5 * 60 * 1000
+            && parsedFollowupAt.getTime() >= Date.now() + 1000
             ? parsedFollowupAt.toISOString()
             : null;
           if (outcome === 'followup' && (!followupAt || !followupTimezone)) {
@@ -359,83 +474,11 @@ async function handleFunctionRequests(event, context) {
             const contactName = String(args.contact_name || '').trim().slice(0, 160) || null;
             const callbackPhone = String(args.callback_phone || '').trim().slice(0, 40) || null;
             const email = normalizeEmailValue(args.email);
-            // Giving a valid address for information/management review is a
-            // positive handoff. Never discard it as a rejection.
-            // Removed unconditional override: an email address provided while rejecting
-            // an offer (e.g., admin email) does not mean the outcome is 'interested'.
-            const { rows } = await query(
-            `WITH session AS (
-               UPDATE ai_call_sessions SET outcome = $1, summary = $2 WHERE id = $3
-               RETURNING lead_id, tenant_id
-             ), lead AS (
-               UPDATE enrichment_results er
-               SET lead_stage = CASE
-                     WHEN $1 = 'interested' THEN 'interested'
-                     WHEN $1 = 'followup' THEN 'followup'
-                     WHEN $1 IN ('not_interested', 'do_not_call') THEN 'closed_lost'
-                     ELSE er.lead_stage
-                   END,
-                   next_followup_at = CASE
-                     WHEN $1 = 'followup' THEN $5::timestamptz
-                     WHEN $1 IN ('not_interested', 'do_not_call') THEN NULL
-                     ELSE er.next_followup_at
-                   END,
-                   last_contacted_at = NOW(),
-                   ai_summary = $2,
-                   primary_email = COALESCE($9::text, NULLIF(er.primary_email, '')),
-                   ai_updated_at = NOW(),
-                   lead_notes = CONCAT_WS(E'\\n', NULLIF(er.lead_notes, ''), $2),
-                   do_not_call = er.do_not_call OR $4,
-                   ai_voice_consent = er.ai_voice_consent AND NOT $4,
-                   raw_data = COALESCE(er.raw_data, '{}'::jsonb)
-                     || jsonb_strip_nulls(jsonb_build_object(
-                          'ai_outcome', $1::text,
-                          'ai_outcome_source', 'live_tool',
-                          'followup_at', $5::text,
-                          'followup_timezone', NULLIF($6::text, ''),
-                          'contact_name', $7::text,
-                          'callback_phone', $8::text,
-                          'email', $9::text
-                        ))
-               FROM session s WHERE er.id = s.lead_id AND er.tenant_id = s.tenant_id
-               RETURNING er.id, er.tenant_id, COALESCE(er.company_name, er.domain, 'Lead') AS display_name,
-                         er.raw_data->>'source_contact_id' AS contact_id
-             ), followup_task AS (
-               INSERT INTO tasks (tenant_id, lead_id, title, description, task_type, due_at, status, priority)
-               SELECT l.tenant_id, l.id,
-                      CASE WHEN $9::text IS NOT NULL THEN 'Email follow-up: ' || l.display_name ELSE 'AI follow-up: ' || l.display_name END,
-                      $2, 'followup',
-                      CASE WHEN $1 = 'followup' THEN $5::timestamptz ELSE NOW() END,
-                      'open', 'high'
-               FROM lead l
-               WHERE (($1 = 'followup' AND $5::timestamptz IS NOT NULL) OR $9::text IS NOT NULL)
-                 AND NOT EXISTS (
-                   SELECT 1 FROM tasks t
-                   WHERE t.lead_id = l.id AND t.task_type = 'followup' AND t.status = 'open'
-                     AND (
-                       ($1 = 'followup' AND t.due_at = $5::timestamptz)
-                       OR ($9::text IS NOT NULL AND t.title = 'Email follow-up: ' || l.display_name)
-                     )
-                 )
-               RETURNING id
-             ), contact_update AS (
-               UPDATE contacts SET do_not_call = true, ai_voice_consent = false
-               WHERE $4 AND id::text IN (SELECT contact_id FROM lead)
-               RETURNING id
-             )
-             SELECT
-               EXISTS(SELECT 1 FROM lead) AS saved,
-               EXISTS(SELECT 1 FROM followup_task) AS followup_task_created`,
-              [outcome, note, context.sessionId, optOut, followupAt, followupTimezone, contactName, callbackPhone, email],
-            );
-            content = JSON.stringify({
-              ok: rows[0]?.saved === true,
-              saved: rows[0]?.saved === true,
-              outcome,
-              followup_at: followupAt,
-              followup_timezone: followupTimezone || null,
-              followup_task_created: rows[0]?.followup_task_created === true,
+            const result = await saveCallResult({
+              sessionId: context.sessionId, outcome, note, email, contactName, callbackPhone,
+              followupAt, followupTimezone,
             });
+            content = JSON.stringify(result);
           }
         } catch (error) {
           console.error('[deepgram-bridge] CRM tool failed:', error.message);
@@ -446,6 +489,8 @@ async function handleFunctionRequests(event, context) {
       if (context.aiAudioGated) {
         shouldEndCall = false;
         content = JSON.stringify({ ok: false, error: 'You are currently muted and waiting for a human. Do not end the call.' });
+      } else if (isAudioClarification(context.lastProspectTurn) && context.audioRepairTurns < 2) {
+        content = JSON.stringify({ ok: false, error: 'Do not end after the first hello, apology, or hearing problem. Repeat your short introduction, check whether they can hear you, and wait for their reply.' });
       } else {
         shouldEndCall = true;
         content = JSON.stringify({ ok: true, ending: true });
@@ -484,15 +529,44 @@ async function handleFunctionRequests(event, context) {
   }
 }
 
+
 async function handleDeepgramEvent(event, context) {
+  if (context.closing) return;
+  if (event.type === 'AgentThinking') {
+    context.agentResponsePending = true;
+    context.lastAgentActivityAt = Date.now();
+  }
+  if (event.type === 'InjectionRefused') {
+    console.log('[deepgram-bridge] First-reply injection refused during an active turn:', {callSid: context.callSid});
+    scheduleFirstReply(context);
+    return;
+  }
   if (event.type === 'UserStartedSpeaking') {
-    /* VAD clear removed to prevent chopping on noise */
+    if (context.firstReplyTimer) clearTimeout(context.firstReplyTimer);
+    context.firstReplyTimer = null;
+    context.prospectSpeaking = true;
+    // Keep noise-driven VAD separate from packet playback and human detection.
     return;
   }
 
   if (event.type === 'ConversationText') {
     const transcript = extractConversationText(event);
     if (!transcript) return;
+
+    // Track the latest confirmed prospect utterance.
+    // A hallucinated rejection note must not override a clarification request.
+    if (transcript.role === 'user') {
+      // Each user ConversationText is a confirmed utterance. A new human
+      // greeting after hold must not inherit the earlier hold announcement.
+      context.lastProspectTurn = transcript.text;
+      context.prospectSpeaking = false;
+      if (context.agentHasSpoken && isAudioClarification(transcript.text)) context.audioRepairTurns += 1;
+    }
+    if (transcript.role === 'assistant') {
+      context.agentResponsePending = true;
+      context.lastAgentActivityAt = Date.now();
+    }
+    context.lastConversationRole = transcript.role;
 
     // ConversationText for the user is emitted at a confirmed end of turn.
     // Until this point, no AI audio is released to the phone or live monitor.
@@ -505,17 +579,23 @@ async function handleDeepgramEvent(event, context) {
 
     // P2 FIX: Remove 10-second detection lock so we analyze continuously
     if (transcript.role === 'user') {
-      const detection = await detectCallStateFromTranscriptML(transcript.text, context.agentConfig);
+      const detection = await detectCallStateFromTranscriptML(context.lastProspectTurn || transcript.text, context.agentConfig);
 
       // Enforce audio gate: block AI audio while an automated menu/announcement
       // is speaking. Flush any speculative greeting that Deepgram queued.
       context.aiAudioGated = detection?.action === 'wait' || isTerminalDetection(detection);
+      if (context.aiAudioGated) clearFirstAudioRecovery(context);
       if (context.aiAudioGated && context.signalWireWs.readyState === WebSocket.OPEN) {
+        // Marks acknowledged after a clear do not prove completed playback.
+        context.pendingPlaybackMarks.clear();
         context.signalWireWs.send(JSON.stringify({ event: 'clear', streamSid: context.streamSid }));
         broadcastCallAudioClear(context.callSid);
       }
 
       if (detection?.state === CallStates.HUMAN_LIVE) {
+        context.humanConfirmed = true;
+        armFirstAudioDeadline(context);
+        scheduleFirstReply(context);
         clearIvrTimeout(context);
         context.dtmfAttempts = 0;
       } else if (detection?.state === CallStates.IVR_OR_MENU) {
@@ -549,7 +629,10 @@ async function handleDeepgramEvent(event, context) {
            FROM ai_call_sessions s
            WHERE s.id = $4
              AND er.id = s.lead_id
-             AND er.tenant_id = s.tenant_id`,
+             AND er.tenant_id = s.tenant_id
+             AND s.id = (SELECT s2.id FROM ai_call_sessions s2
+               WHERE s2.lead_id = s.lead_id AND s2.tenant_id = s.tenant_id
+               ORDER BY s2.created_at DESC, s2.id DESC LIMIT 1)`,
           [
             terminalStatus,
             detection.state,
@@ -565,6 +648,17 @@ async function handleDeepgramEvent(event, context) {
           reason: detection.state,
         });
       }
+    }
+    return;
+  }
+
+  if (event.type === 'AgentAudioDone') {
+    context.agentResponsePending = false;
+    if (!context.firstReplySeen) scheduleFirstReply(context);
+    if (context.signalWireWs.readyState === WebSocket.OPEN && !context.aiAudioGated) {
+      const name = `ai-turn-${++context.playbackMarkSequence}`;
+      context.pendingPlaybackMarks.add(name);
+      context.signalWireWs.send(JSON.stringify({ event: 'mark', streamSid: context.streamSid, mark: { name } }));
     }
     return;
   }
@@ -591,6 +685,7 @@ async function handleDeepgramEvent(event, context) {
       'UPDATE ai_call_sessions SET last_error = $1, call_state = $2 WHERE id = $3',
       [message, event.type === 'Error' ? 'error' : 'warning'],
     );
+    if (event.type === 'Warning' && /INJECT_AGENT_MESSAGE_DURING_USER_SPEECH/.test(String(event.code || '') + ' ' + message)) scheduleFirstReply(context);
     if (event.type === 'Error') {
       await closePhoneCall({
         callSid: context.callSid,
@@ -617,6 +712,7 @@ export function attachDeepgramBridge(httpServer) {
     let agentConfig = null;
     let callTimer = null;
     let keepAliveTimer = null;
+    let setupTimer = null;
     let streamRegistered = false;
     let agentStartedAt = null;
     let cleanupStarted = false;
@@ -628,20 +724,39 @@ export function attachDeepgramBridge(httpServer) {
       signalWireWs, streamSid, callSid, sessionId, deepgramWs, agentConfig,
       detectionLocked: false, aiAudioGated: false, dtmfAttempts: 0,
       lastDtmfAt: 0, ivrTimeout: null, userSpeaking: false,
+      lastProspectTurn: '', lastConversationRole: null, audioRepairTurns: 0, agentHasSpoken: false,
+      openingText: null, firstReplySeen: false, firstReplyAttempts: 0, firstReplyTimer: null,
+      firstAudioTimer: null, humanConfirmed: false, prospectSpeaking: false,
+      agentResponsePending: false, lastAgentActivityAt: 0, closing: false,
+      endSilentCall: () => closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'first-audio-timeout', lastError: 'No AI audio reached the phone after confirmed human greeting and bounded recovery' }),
+      playbackMarkSequence: 0, pendingPlaybackMarks: new Set(),
     };
 
     const cleanup = async (state = 'stopped') => {
       if (cleanupStarted) return;
       cleanupStarted = true;
+      context.closing = true;
+      clearFirstAudioRecovery(context);
+      if (setupTimer) clearTimeout(setupTimer);
       if (callTimer) clearTimeout(callTimer);
       if (keepAliveTimer) clearInterval(keepAliveTimer);
       clearIvrTimeout(context);
       callTimer = null;
       keepAliveTimer = null;
-      if (streamRegistered && callSid) activeStreamSids.delete(callSid);
+      if (streamRegistered && callSid) { activeStreamSids.delete(callSid); activeStreamLanes.delete(callSid); }
       streamRegistered = false;
       if (deepgramWs) deepgramWs.terminate();
       if (!sessionValidated) return;
+      try {
+        await confirmProviderTermination(callSid, sessionId);
+      } catch (error) {
+        await query(`UPDATE ai_call_sessions SET call_state = 'ending', last_error = $1 WHERE id = $2`, [error.message, sessionId]);
+        await query(`UPDATE ai_calling_lanes SET status = 'error', last_error = $1
+          WHERE id = (SELECT lane_id FROM ai_call_sessions WHERE id = $2)`, [error.message, sessionId]);
+        console.error('[deepgram-bridge] Lane held until provider teardown is confirmed:', error.message);
+        cleanupStarted = false;
+        return;
+      }
       const durationSec = agentStartedAt
         ? Math.max(0, Math.round((Date.now() - agentStartedAt) / 1000))
         : 0;
@@ -652,151 +767,24 @@ export function attachDeepgramBridge(httpServer) {
          SET ended_at = COALESCE(ended_at, NOW()),
              duration_sec = GREATEST(COALESCE(duration_sec, 0), $1),
              cost_estimate_usd = GREATEST(COALESCE(cost_estimate_usd, 0), $2),
-             call_state = CASE WHEN call_state IN ('ending', 'error') THEN call_state ELSE $3 END
+             call_state = CASE WHEN hangup_reason IN ('bridge-error', 'deepgram-error', 'deepgram-disconnected', 'first-audio-timeout', 'deepgram-setup-timeout') THEN 'failed' ELSE CASE WHEN $3::text IN ('closed', 'stopped') THEN 'completed' ELSE $3::text END END
          WHERE id = $4`,
         [durationSec, estimatedCost, state],
       );
 
-      // P0 FIX: Always write a fallback outcome+summary when the AI tool didn't fire.
-      // Previously 97% of calls had NULL outcome because the prospect hung up before
-      // the AI could call save_call_note. Now bridge cleanup derives outcome from
-      // hangup_reason + duration + TRANSCRIPT CONTENT as a reliable fallback.
-      if (sessionId) {
-        let session = null;
-        let fallbackOutcome = 'called';
-        try {
-          const { rows: sessionRows } = await query(
-            `SELECT s.outcome, s.hangup_reason, s.duration_sec, s.first_answer_type, s.call_state, s.queue_item_id, s.lane_id,
-                    jsonb_array_length(COALESCE(transcript, '[]'::jsonb)) AS transcript_events,
-                    s.transcript, er.domain AS lead_domain
-             FROM ai_call_sessions s
-             LEFT JOIN enrichment_results er ON er.id = s.lead_id AND er.tenant_id = s.tenant_id
-             WHERE s.id = $1`,
-            [sessionId],
-          );
-          session = sessionRows[0];
-          fallbackOutcome = session?.outcome || 'called';
-          if (session && !session.outcome) {
-            const hr = session.hangup_reason || '';
-            const dur = session.duration_sec || durationSec;
-            const transcriptEvents = Number(session.transcript_events || 0);
-            fallbackOutcome = 'called';
-            let fallbackSummary = `Call ended after ${dur}s.`;
-            if (transcriptEvents === 0 && !hr) {
-              fallbackOutcome = 'no_answer';
-              fallbackSummary = `No speech transcript was captured (${dur}s). No live conversation confirmed.`;
-            } else if (['VOICEMAIL'].includes(hr)) {
-              fallbackOutcome = 'voicemail';
-              fallbackSummary = `Voicemail detected (${dur}s). No human reached.`;
-            } else if (['IVR_OR_MENU', 'AI_RECEPTIONIST_OR_BOT'].includes(hr)) {
-              fallbackOutcome = 'no_answer';
-              fallbackSummary = `${hr === 'IVR_OR_MENU' ? 'IVR/phone menu' : 'AI receptionist'} detected (${dur}s). Could not reach human.`;
-            } else if (['CLOSED_OR_HOURS'].includes(hr)) {
-              fallbackOutcome = 'no_answer';
-              fallbackSummary = `Business hours message detected (${dur}s). Call outside operating hours.`;
-            } else if (['deepgram-error', 'deepgram-disconnected', 'bridge-error'].includes(hr)) {
-              fallbackOutcome = 'technical_error';
-              fallbackSummary = `Technical error: ${hr} (${dur}s). Call failed due to system issue.`;
-            } else {
-              // Analyze every transcript, including short calls. The classifier
-              // checks explicit intent before applying its short-call fallback,
-              // so a quick "no thanks" is not mislabeled as no_answer.
-              const transcriptResult = classifyFromTranscript(session.transcript, dur);
-              fallbackOutcome = transcriptResult.outcome;
-              fallbackSummary = transcriptResult.summary;
-            }
-            await query(
-              `UPDATE ai_call_sessions
-               SET outcome = COALESCE(outcome, $1),
-                   summary = COALESCE(summary, $2)
-               WHERE id = $3 AND outcome IS NULL`,
-              [fallbackOutcome, fallbackSummary, sessionId],
-            );
-            console.log(`[deepgram-bridge] Fallback outcome written: ${fallbackOutcome} — ${fallbackSummary}`);
-          }
-
-          const capturedEmail = reconcileEmailWithLeadDomain(
-            extractEmailFromTranscript(session?.transcript),
-            session?.lead_domain,
-          );
-          if (capturedEmail) {
-            await query(
-              `WITH updated_session AS (
-                 UPDATE ai_call_sessions
-                 SET outcome = CASE WHEN outcome IN ('not_interested', 'called') OR outcome IS NULL THEN 'interested' ELSE outcome END,
-                     summary = CASE
-                       WHEN outcome IN ('not_interested', 'called') OR outcome IS NULL
-                         THEN 'Prospect provided an email for information or management follow-up.'
-                       ELSE summary
-                     END
-                 WHERE id = $1
-                 RETURNING lead_id, tenant_id
-               ), updated_lead AS (
-                 UPDATE enrichment_results er
-                 SET primary_email = $2,
-                     raw_data = COALESCE(er.raw_data, '{}'::jsonb)
-                       || jsonb_build_object('email', $2::text, 'email_source', 'ai_transcript'),
-                     ai_updated_at = NOW()
-                 FROM updated_session s
-                 WHERE er.id = s.lead_id AND er.tenant_id = s.tenant_id
-                 RETURNING er.id, er.tenant_id, COALESCE(er.company_name, er.domain, 'Lead') AS display_name
-               ), email_task AS (
-                 INSERT INTO tasks (tenant_id, lead_id, title, description, task_type, due_at, status, priority)
-                 SELECT l.tenant_id, l.id, 'Email follow-up: ' || l.display_name,
-                        'Prospect provided ' || $2::text || ' for information or management follow-up.',
-                        'followup', NOW(), 'open', 'high'
-                 FROM updated_lead l
-                 WHERE NOT EXISTS (
-                   SELECT 1 FROM tasks t
-                   WHERE t.lead_id = l.id AND t.task_type = 'followup' AND t.status = 'open'
-                     AND t.title = 'Email follow-up: ' || l.display_name
-                 )
-                 RETURNING id
-               )
-               SELECT EXISTS(SELECT 1 FROM updated_lead) AS saved`,
-              [sessionId, capturedEmail],
-            );
-            console.log(`[deepgram-bridge] Prospect email captured from transcript for session ${sessionId}.`);
-          }
-        } catch (fallbackErr) {
-          console.error('[deepgram-bridge] Fallback outcome write failed:', fallbackErr.message);
-        }
-
-        await query(
-          `UPDATE enrichment_results er
-           SET lead_stage = CASE
-                 WHEN s.outcome IN ('do_not_call', 'not_interested') THEN 'closed_lost'
-                 WHEN s.outcome = 'interested' THEN 'interested'
-                 WHEN s.outcome = 'followup' THEN 'followup'
-                 WHEN s.outcome IN ('voicemail', 'no_answer', 'technical_error') THEN 'no_answer'
-                 WHEN s.hangup_reason IN ('VOICEMAIL', 'IVR_OR_MENU', 'AI_RECEPTIONIST_OR_BOT', 'CLOSED_OR_HOURS', 'deepgram-error', 'deepgram-disconnected', 'bridge-error') THEN 'no_answer'
-                 ELSE 'called' END,
-               ai_summary = COALESCE(s.summary, er.ai_summary),
-               do_not_call = COALESCE(er.do_not_call, false) OR s.outcome = 'do_not_call',
-               ai_voice_consent = COALESCE(er.ai_voice_consent, false) AND s.outcome <> 'do_not_call',
-               raw_data = (COALESCE(er.raw_data, '{}'::jsonb) - 'active_call_sid') || jsonb_build_object(
-                 'call_duration_seconds', $2::int,
-                 'call_ended_at', NOW()::text,
-                 'ai_outcome', COALESCE(s.outcome, 'called'),
-                 'ai_outcome_source', 'ai'
-               )
-           FROM ai_call_sessions s
-           WHERE s.id = $1 AND er.id = s.lead_id AND er.tenant_id = s.tenant_id
-             AND er.lead_stage IN ('calling', 'called', 'no_answer', 'completed', 'interested', 'not_interested', 'followup', 'closed_lost')
-             AND s.id = (SELECT s2.id FROM ai_call_sessions s2 WHERE s2.lead_id = s.lead_id ORDER BY s2.created_at DESC, s2.id DESC LIMIT 1)`,
-          [sessionId, durationSec],
-        );
-        
-        if (session && session.queue_item_id) {
-          const finalState = ['technical_error', 'bridge-error', 'deepgram-error', 'provider_error'].includes(fallbackOutcome) ? 'failed' : 'completed';
-          await query(
-            `UPDATE ai_call_queue_items SET state = $1, last_error = $2 WHERE id = $3 AND state NOT IN ('completed', 'failed', 'cancelled')`,
-            [finalState, session.hangup_reason || null, session.queue_item_id]
-          );
-        }
-        await writeTranscriptFile(sessionId, callSid);
-
-      }
+      // Only new completed audio-failure calls trip this check; a manual
+      // resume after repair is allowed to make a fresh verification call.
+      await query(`UPDATE ai_calling_lanes l SET status = 'error',
+        last_error = 'Two consecutive AI audio failures; check the voice connection before resuming'
+        WHERE l.id = (SELECT lane_id FROM ai_call_sessions WHERE id = $1
+          AND hangup_reason IN ('first-audio-timeout', 'deepgram-setup-timeout')) AND l.status = 'running'
+          AND $1 = (SELECT id FROM ai_call_sessions WHERE lane_id = l.id ORDER BY created_at DESC, id DESC LIMIT 1)
+          AND (SELECT COUNT(*) FROM (
+            SELECT hangup_reason FROM ai_call_sessions WHERE lane_id = l.id
+              AND signalwire_call_sid IS NOT NULL AND ended_at IS NOT NULL
+            ORDER BY created_at DESC, id DESC LIMIT 2
+          ) recent WHERE hangup_reason IN ('first-audio-timeout', 'deepgram-setup-timeout')) = 2`, [sessionId]);
+      await finalizeEndedCall(sessionId);
     };
 
     signalWireWs.on('message', async (raw) => {
@@ -840,12 +828,16 @@ export function attachDeepgramBridge(httpServer) {
             return;
           }
           sessionValidated = true;
-          if (process.env.ENABLE_MULTI_AI_CALLING !== 'true' && activeStreamSids.size >= env.AI_MAX_ACTIVE_CALLS) {
+          const isLaneCall = Boolean(session.lane_id && session.verified_lane_slot >= 1 && session.verified_lane_slot <= 4);
+          const laneOccupied = isLaneCall && [...activeStreamLanes.values()].includes(session.lane_id);
+          const singleActive = [...activeStreamLanes.values()].filter(laneId => !laneId).length;
+          if (laneOccupied || (!isLaneCall && singleActive >= env.AI_MAX_ACTIVE_CALLS)) {
             await closePhoneCall({ callSid, signalWireWs, sessionId, reason: 'active-call-limit' });
             return;
           }
           // Reserve before the next await so simultaneous streams cannot exceed the cap.
           activeStreamSids.add(callSid);
+          activeStreamLanes.set(callSid, isLaneCall ? session.lane_id : null);
           streamRegistered = true;
           if (!session.agent_config?.id) {
             console.error('[deepgram-bridge] No active agent configuration for session; closing stream.');
@@ -878,6 +870,10 @@ export function attachDeepgramBridge(httpServer) {
             });
           }, maxSeconds * 1000);
 
+          setupTimer = setTimeout(() => {
+            if (!cleanupStarted && !deepgramReady) closePhoneCall({ callSid, signalWireWs, sessionId,
+              reason: 'deepgram-setup-timeout', lastError: 'Deepgram settings were not acknowledged within 15 seconds' }).catch(() => null);
+          }, 15000);
           deepgramWs = new WebSocket('wss://agent.deepgram.com/v1/agent/converse', {
             headers: { Authorization: `Token ${env.DEEPGRAM_API_KEY}` },
           });
@@ -900,39 +896,58 @@ export function attachDeepgramBridge(httpServer) {
               state: session.state,
               title: session.title,
               notes: session.notes,
+              agent_name: agentConfig?.name || 'our representative',
+              offer_name: agentConfig?.offer_name || 'our service',
+              meeting_length: agentConfig?.meeting_length || '15 minutes'
             };
-            const settings = buildDeepgramSettings(
-              leadData,
-              agentConfig,
-              {
-                compiledScriptPrompt: session.compiled_script_prompt,
-                laneId: session.lane_id,
-                scriptVersionId: session.script_version_id
+            try {
+              const settings = buildDeepgramSettings(
+                leadData,
+                agentConfig,
+                {
+                  compiledScriptPrompt: session.compiled_script_prompt,
+                  laneId: session.lane_id,
+                  scriptVersionId: session.script_version_id
+                }
+              );
+              const openingNode = session.script_definition?.nodes?.find(node => node.type === 'opening');
+              const opening = openingNode?.data?.text || (!session.compiled_script_prompt ? agentConfig.greeting : null);
+              if (typeof opening === 'string' && opening.trim()) context.openingText = replaceTemplateVars(opening, leadData).replaceAll('{company_name}', session.company_name || 'your business');
+              deepgramWs.send(JSON.stringify(settings));
+              settingsSent = true;
+              
+              const listenProvider = settings.agent?.listen?.provider || {};
+              const speakProvider = settings.agent?.speak?.provider || {};
+              console.log('[deepgram-bridge] Deepgram settings sent:', {
+                callSid,
+                sessionId,
+                voice: speakProvider.model,
+                speakSpeed: speakProvider.speed,
+                listenModel: listenProvider.model,
+                eotThreshold: listenProvider.eot_threshold,
+                eotTimeoutMs: listenProvider.eot_timeout_ms,
+              });
+            } catch (err) {
+              console.error('[deepgram-bridge] Failed to build or send settings:', err);
+              closePhoneCall({ 
+                callSid, 
+                signalWireWs, 
+                sessionId, 
+                reason: 'bridge-error',
+                lastError: err.message || 'Failed to initialize settings'
+              }).catch(() => null);
+              
+              if (deepgramWs.readyState === WebSocket.OPEN) {
+                deepgramWs.close();
               }
-            );
-            deepgramWs.send(JSON.stringify(settings));
-            settingsSent = true;
-            const listenProvider = settings.agent?.listen?.provider || {};
-            const speakProvider = settings.agent?.speak?.provider || {};
-            console.log('[deepgram-bridge] Deepgram settings sent:', {
-              callSid,
-              sessionId,
-              voice: speakProvider.model,
-              speakSpeed: speakProvider.speed,
-              listenModel: listenProvider.model,
-              eotThreshold: listenProvider.eot_threshold,
-              eotTimeoutMs: listenProvider.eot_timeout_ms,
-            });
+              return false;
+            }
+            return true;
           };
 
-          // Deepgram expects Settings as soon as its WebSocket is ready. Waiting
-          // only for a Welcome event can leave a live phone call with no greeting.
+          // Follow the provider handshake: Welcome -> Settings -> SettingsApplied.
           deepgramWs.on('open', () => {
             console.log('[deepgram-bridge] Deepgram WebSocket connected:', { callSid, sessionId });
-            sendSettings();
-            keepAliveTimer = setInterval(() => {
-              if (deepgramWs.readyState === WebSocket.OPEN) deepgramWs.send(JSON.stringify({ type: 'KeepAlive' }));
-            }, 15000);
           });
 
           deepgramWs.on('unexpected-response', (_request, response) => {
@@ -942,7 +957,7 @@ export function attachDeepgramBridge(httpServer) {
 
           deepgramWs.on('message', async (data, isBinary) => {
             try {
-            if (cleanupStarted) return;
+            if (cleanupStarted || context.closing) return;
             if (isBinary) {
               deepgramAudioFrames += 1;
               if (deepgramAudioFrames === 1) {
@@ -956,7 +971,9 @@ export function attachDeepgramBridge(httpServer) {
                 return;
               }
               if (signalWireWs.readyState === WebSocket.OPEN) {
-                const payload = data.toString('base64');
+                // Use the same boosted samples for the customer and live monitor.
+                const outputAudio = applyMulawGain(data, env.AI_AGENT_OUTPUT_GAIN);
+                const payload = outputAudio.toString('base64');
                 // Calculate when this audio chunk will finish playing (PCMU is 8000 bytes/sec)
                 const chunkDurationMs = (data.length / 8000) * 1000;
                 const now = Date.now();
@@ -968,8 +985,10 @@ export function attachDeepgramBridge(httpServer) {
                 signalWireWs.send(JSON.stringify({ event: 'media', streamSid, media: { payload } }), (error) => {
                   if (error) {
                     console.error('[deepgram-bridge] AI audio could not be sent to SignalWire:', error.message);
-                  } else if (deepgramAudioFrames === 1) {
-                    console.log('[deepgram-bridge] First AI audio frame sent to SignalWire:', { callSid, streamSid });
+                  } else {
+                    const firstForwarded = !context.firstReplySeen;
+                    markFirstAudioForwarded(context);
+                    if (firstForwarded) console.log('[deepgram-bridge] First AI audio frame sent to SignalWire:', { callSid, streamSid, outputGain: env.AI_AGENT_OUTPUT_GAIN });
                   }
                 });
                 if (callSid) broadcastCallAudio(callSid, 'ai', payload);
@@ -994,6 +1013,11 @@ export function attachDeepgramBridge(httpServer) {
             if (event.type === 'SettingsApplied') {
               console.log('[deepgram-bridge] Deepgram settings applied:', { callSid, sessionId, pendingFrames: pendingAudioFrames.length });
               deepgramReady = true;
+              if (setupTimer) clearTimeout(setupTimer);
+              setupTimer = null;
+              if (!keepAliveTimer) keepAliveTimer = setInterval(() => {
+                if (!cleanupStarted && deepgramWs.readyState === WebSocket.OPEN) deepgramWs.send(JSON.stringify({ type: 'KeepAlive' }));
+              }, 15000);
               for (const frame of pendingAudioFrames) {
                 if (deepgramWs.readyState === WebSocket.OPEN) deepgramWs.send(frame);
               }
@@ -1031,18 +1055,21 @@ export function attachDeepgramBridge(httpServer) {
           }
           if (callSid) broadcastCallAudio(callSid, 'prospect', message.media.payload);
           
-          // Mute user audio if the AI is actively speaking on the phone. This prevents
-          // background noise or speakerphone echo from triggering Deepgram's VAD
-          // and abruptly cutting off the AI's sentence.
-          if (context.aiAudioExpectedEndTime && Date.now() < context.aiAudioExpectedEndTime) {
-            return;
-          }
-
+          // Keep both directions live. Never discard a prospect's words merely
+          // because our TTS has queued audio; that loses greetings and repairs.
           if (deepgramWs?.readyState === WebSocket.OPEN && deepgramReady) {
             deepgramWs.send(audio);
           } else {
             if (pendingAudioFrames.length >= MAX_PENDING_AUDIO_FRAMES) pendingAudioFrames.shift();
             pendingAudioFrames.push(audio);
+          }
+          return;
+        }
+
+        if (message.event === 'mark') {
+          const name = message.mark?.name;
+          if (context.pendingPlaybackMarks.delete(name)) {
+            console.log('[deepgram-bridge] SignalWire acknowledged AI audio playback:', { callSid, mark: name });
           }
           return;
         }

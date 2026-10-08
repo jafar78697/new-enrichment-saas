@@ -1,24 +1,12 @@
 import { FastifyInstance } from 'fastify';
 import { WalletService } from '../services/wallet.service';
+// @ts-ignore — shared country handling for the two Maps runtimes
+import { resolveMapsCountry, mapsSearchLocation, normalizeMapsPhone, isMapsPlaceInCountry } from '../utils/maps-country.js';
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
-const DEFAULT_US_LOCATION = 'United States';
 const MAX_KEYWORDS_PER_BATCH = 10;
 const MAX_LEADS_PER_KEYWORD = 60;
 const DEMO_KEYWORD_LIMIT = 2;
-
-function normalizeUSPhone(raw: unknown): string | null {
-  const digits = String(raw || '').replace(/\D/g, '');
-  if (/^[2-9]\d{9}$/.test(digits)) return `+1${digits}`;
-  if (/^1[2-9]\d{9}$/.test(digits)) return `+${digits}`;
-  return null;
-}
-
-function isUSPlace(place: any): boolean {
-  const country = place.addressComponents?.find((component: any) => component.types?.includes('country'));
-  if (country?.shortText) return country.shortText === 'US';
-  return /(?:USA|United States)$/i.test(place.formattedAddress || '');
-}
 
 export default async function googleMapsRoutes(fastify: FastifyInstance) {
   fastify.post('/v1/google-maps/scrape', {
@@ -34,10 +22,12 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
       const {
         keywords: submittedKeywords,
         location,
+        country,
         limit,
         limitPerKeyword
-      } = request.body as { keywords?: unknown; location?: string; limit?: number; limitPerKeyword?: number };
-      const requestedLocation = String(location || '').trim() || DEFAULT_US_LOCATION;
+      } = request.body as { keywords?: unknown; location?: string; country?: string; limit?: number; limitPerKeyword?: number };
+      const selectedCountry = resolveMapsCountry(country);
+      const requestedLocation = mapsSearchLocation(location, selectedCountry);
       const { tenantId, userId, workspaceId } = request.tenant;
       const keywordLookup = new Map<string, string>();
       if (Array.isArray(submittedKeywords)) {
@@ -50,7 +40,7 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
       const resultsPerKeyword = MAX_LEADS_PER_KEYWORD;
       const maxResults = keywords.length * resultsPerKeyword;
       
-      fastify.log.info(`google-maps route called with: ${JSON.stringify({ keywords, location: requestedLocation, resultsPerKeyword, maxResults })}`);
+      fastify.log.info(`google-maps route called with: ${JSON.stringify({ keywords, country: selectedCountry, location: requestedLocation, resultsPerKeyword, maxResults })}`);
       if (keywords.length === 0) {
         throw new Error('At least one keyword is required in keywords array.');
       }
@@ -193,7 +183,7 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
         let cachedLeads: any[] = [];
         try {
           const { rows } = await cacheClient.query(
-            `SELECT name, phone, website, address, place_id
+            `SELECT name, phone, website, address, place_id, raw_data
              FROM global_lead_cache
              WHERE search_query = $1
              LIMIT $2`,
@@ -207,6 +197,11 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
         }
 
         for (const lead of cachedLeads) {
+          const cachedPlace = { ...(lead.raw_data || {}), formattedAddress: lead.address || lead.raw_data?.formattedAddress };
+          if (!isMapsPlaceInCountry(cachedPlace, selectedCountry)) continue;
+          const phone = normalizeMapsPhone(lead.phone);
+          if (!phone) continue;
+          lead.phone = phone;
           if (seenPhones.has(lead.phone)) continue;
           seenPhones.add(lead.phone);
           allLeads.push(lead);
@@ -222,7 +217,7 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
 
         while (leadsForKeyword < resultsPerKeyword && allLeads.length < actualMaxResults) {
           const textQuery = `${keyword} in ${requestedLocation}`;
-          const body: any = { textQuery, pageSize: 20 };
+          const body: any = { textQuery, pageSize: 20, regionCode: selectedCountry };
           if (pageToken) body.pageToken = pageToken;
 
           const makeRequest = async (key: string) => {
@@ -231,7 +226,7 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
               headers: {
                 'Content-Type': 'application/json',
                 'X-Goog-Api-Key': key,
-                'X-Goog-FieldMask': 'places.id,places.displayName,places.nationalPhoneNumber,places.websiteUri,places.formattedAddress,places.rating,places.userRatingCount,places.primaryType,nextPageToken'
+                'X-Goog-FieldMask': 'places.id,places.displayName,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.formattedAddress,places.rating,places.userRatingCount,places.primaryType,places.addressComponents,nextPageToken'
               },
               body: JSON.stringify(body)
             });
@@ -263,14 +258,15 @@ export default async function googleMapsRoutes(fastify: FastifyInstance) {
           if (!data.places || data.places.length === 0) break;
 
           const leads = data.places.flatMap((place: any) => {
-            const phone = normalizeUSPhone(place.nationalPhoneNumber);
-            if (!phone || !isUSPlace(place)) return [];
+            const phone = normalizeMapsPhone(place.internationalPhoneNumber || place.nationalPhoneNumber);
+            if (!phone || !isMapsPlaceInCountry(place, selectedCountry)) return [];
 
             return [{
               name: place.displayName?.text || 'Unknown',
               phone,
               website: place.websiteUri || null,
               address: place.formattedAddress || '',
+              country: selectedCountry,
               place_id: place.id || null,
               category: place.primaryType || null,
               raw_data: place

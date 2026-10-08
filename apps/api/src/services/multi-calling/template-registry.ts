@@ -1,26 +1,4 @@
-export const ALLOWED_TEMPLATE_VARS = [
-  'company_name',
-  'company',
-  'first_name',
-  'last_name',
-  'name',
-  'prospect_name',
-  'niche_name',
-  'agent_name',
-  'offer_name',
-  'meeting_length',
-  'current_date',
-  'title',
-  'industry',
-  'phone',
-  'city',
-  'state',
-  'website',
-  'email',
-  'notes'
-] as const;
-
-export const TEMPLATE_VAR_REGEX = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
+export { ALLOWED_TEMPLATE_VARS, TEMPLATE_VAR_REGEX, extractTemplateVars, replaceTemplateVars } from './template-runtime.js';
 
 export interface NodeHandleDefinition {
   id: string;
@@ -85,8 +63,8 @@ export const NODE_DECLARED_HANDLES: Record<string, NodeHandleDefinition[]> = {
 // Aliases for compatibility
 export const HANDLE_ALIASES: Record<string, string[]> = {
   confirmed: ['interested', 'yes', 'speaking', 'owner'],
-  not_owner: ['wrong_person', 'gatekeeper', 'negative', 'not_interested'], // allow not_interested as legacy input
-  refusal: ['not_interested', 'no', 'declined', 'hangup'],
+  not_owner: ['wrong_person', 'gatekeeper'],
+  refusal: ['not_interested', 'no', 'declined', 'hangup', 'negative'],
   qualified: ['interested', 'yes', 'passed'],
   unqualified: ['not_interested', 'no', 'failed', 'negative'],
   accepted: ['interested', 'yes', 'booked'],
@@ -157,64 +135,6 @@ export function getHandleLabel(nodeType: string, handleId?: string | null): stri
   }
 
   return `Branch (${handleId})`;
-}
-
-export function extractTemplateVars(text: string): string[] {
-  if (!text || typeof text !== 'string') return [];
-  const matches: string[] = [];
-  const regex = new RegExp(TEMPLATE_VAR_REGEX.source, 'g');
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) {
-    matches.push(match[1].trim());
-  }
-  return matches;
-}
-
-export function replaceTemplateVars(text: string, context: Record<string, any>): string {
-  if (!text || typeof text !== 'string') return text;
-  return text.replace(TEMPLATE_VAR_REGEX, (fullMatch, rawVarName) => {
-    const key = rawVarName.trim().toLowerCase();
-    switch (key) {
-      case 'company_name':
-      case 'company':
-        return context.company_name || context.company || context.business_name || 'your company';
-      case 'first_name':
-        return context.first_name || 'there';
-      case 'last_name':
-        return context.last_name || '';
-      case 'name':
-      case 'prospect_name':
-        return context.prospect_name || context.name || context.first_name || 'there';
-      case 'niche_name':
-        return context.niche_name || context.industry || 'your industry';
-      case 'agent_name':
-        return context.agent_name || context.agentDisplayName || 'our representative';
-      case 'offer_name':
-        return context.offer_name || 'our service';
-      case 'meeting_length':
-        return context.meeting_length || '15 minutes';
-      case 'current_date':
-        return context.current_date || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      case 'title':
-        return context.title || 'team member';
-      case 'industry':
-        return context.industry || context.niche_name || 'your industry';
-      case 'phone':
-        return context.phone || context.primary_phone || '';
-      case 'city':
-        return context.city || '';
-      case 'state':
-        return context.state || '';
-      case 'website':
-        return context.website || context.domain || '';
-      case 'email':
-        return context.email || context.primary_email || '';
-      case 'notes':
-        return context.notes || '';
-      default:
-        return fullMatch;
-    }
-  });
 }
 
 export function normalizeHandle(nodeType: string, handleId?: string | null): string {

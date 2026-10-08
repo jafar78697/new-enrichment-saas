@@ -17,8 +17,14 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
     nodeMap.set(n.id, n);
   }
 
+  // Normalize all handles to resolve legacy ambiguities
+  const normalizedEdges = (script.edges || []).map(e => ({
+    ...e,
+    sourceHandle: normalizeHandle(nodeMap.get(e.source)?.type || 'node', e.sourceHandle)
+  }));
+
   const adjList = new Map<string, EdgeDefinition[]>();
-  for (const edge of script.edges) {
+  for (const edge of normalizedEdges) {
     if (!adjList.has(edge.source)) adjList.set(edge.source, []);
     adjList.get(edge.source)!.push(edge);
   }
@@ -48,13 +54,14 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
   prompt += `Your tone should be ${script.settings.tone || 'professional, helpful, and concise'}.\n`;
   prompt += `CRITICAL POLICIES:\n`;
   prompt += `- Speak in short turns. No more than ${script.settings.maxSentencesPerTurn} sentences at a time.\n`;
+  prompt += `- Do not attempt to overcome the same objection more than ${script.settings.maxObjectionAttempts} time(s). If they still refuse, respect their decision and end.\n`;
   prompt += `- Do not interrupt a human speaking. Listen completely before speaking.\n`;
   prompt += `- If asked to hold or transferred to voicemail/IVR, follow system safeguards.\n\n`;
 
   // --- SECTION 1: ROUTING MAP ---
   prompt += `=== CONVERSATION ROUTING & BRANCH MAP ===\n`;
   for (const node of script.nodes) {
-    if (node.type === 'start' || node.type === 'end') continue;
+    if (node.type === 'start') continue;
     const outgoing = adjList.get(node.id) || [];
     const title = getNodeTitle(node);
     prompt += `Step [${title}] (ID: ${node.id}):\n`;
@@ -76,7 +83,7 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
   // Compute topological sort of nodes so steps appear in natural conversational order
   const inDegree = new Map<string, number>();
   for (const n of script.nodes) inDegree.set(n.id, 0);
-  for (const edge of script.edges) {
+  for (const edge of normalizedEdges) {
     inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1);
   }
 
@@ -110,7 +117,7 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
   // Render node dialogue and transitions
   for (const nodeId of sortedNodeIds) {
     const node = nodeMap.get(nodeId);
-    if (!node || node.type === 'start' || node.type === 'end') continue;
+    if (!node || node.type === 'start') continue;
 
     const title = getNodeTitle(node);
     const text = getNodeText(node);
@@ -173,18 +180,18 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
       case 'followup':
         prompt += `Ask for date and time: "${node.data?.text || node.data?.askDateText || text}" and "${node.data?.askTimeText || 'preferred time'}".\n`;
         prompt += `Confirm: "${node.data?.confirmationText || 'Thank you, confirmed.'}".\n`;
-        prompt += `You MUST call the "save_call_note" tool with outcome="followup" with confirmed followup_at (ISO 8601 UTC) and followup_timezone.\n`;
+        prompt += `You MUST call the "save_call_note" tool with outcome="followup" with confirmed followup_at (ISO 8601 UTC) and followup_timezone. Wait for a successful saved response before confirming the booking or following the next edge.\n`;
         break;
 
       case 'outcome_action':
         const rawOutcome = (node.data?.outcome || 'called').toLowerCase();
         let toolCallInstruction = '';
         if (rawOutcome === 'dnc' || rawOutcome === 'do_not_call') {
-          toolCallInstruction = `You MUST call the "mark_do_not_call" tool with reason="${node.data?.note || 'Prospect requested do not call'}" and then call "end_call".`;
+          toolCallInstruction = `You MUST call the "mark_do_not_call" tool with reason="${node.data?.note || 'Prospect requested do not call'}".`;
         } else if (rawOutcome === 'meeting_booked' || rawOutcome === 'followup') {
           toolCallInstruction = `You MUST confirm an exact future date, time, and timezone with the prospect, then call the "save_call_note" tool with outcome="followup", followup_at="<confirmed ISO date/time>", followup_timezone="<confirmed timezone>", and note="${node.data?.note || 'Meeting / Follow-up scheduled'}".`;
         } else if (rawOutcome === 'not_interested') {
-          toolCallInstruction = `You MUST call the "save_call_note" tool with outcome="not_interested" and note="${node.data?.note || 'Prospect not interested'}", then call "end_call".`;
+          toolCallInstruction = `You MUST call the "save_call_note" tool with outcome="not_interested" and note="${node.data?.note || 'Prospect not interested'}".`;
         } else if (rawOutcome === 'interested') {
           toolCallInstruction = `You MUST call the "save_call_note" tool with outcome="interested" and note="${node.data?.note || 'Prospect expressed interest'}".`;
         } else {
@@ -197,6 +204,10 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
       case 'goodbye':
         prompt += `Conclude the conversation politely: "${node.data?.text || node.data?.genericText || text || 'Thank you for your time. Have a great day.'}"\n`;
         prompt += `You MUST call the "end_call" tool to hang up.\n`;
+        break;
+
+      case 'end':
+        prompt += `You MUST call the "end_call" tool to hang up and terminate the call immediately.\n`;
         break;
     }
 
@@ -219,7 +230,7 @@ export function compileScript(script: ScriptDefinition): { prompt: string; hash:
   prompt += `1. HUMAN WAIT: If you hear a recording notice ("this call may be recorded") or a brief hold music, wait silently for a human to speak. Do NOT speak over it.\n`;
   prompt += `2. IVR/VOICEMAIL: If you hear "press 1", keypad menus, or "leave a message", it is an IVR or voicemail. Call end_call immediately.\n`;
   prompt += `3. DO NOT CALL: If the user asks not to be called, call the "mark_do_not_call" tool.\n`;
-  prompt += `4. ENDING SEQUENCE: When the call finishes, you MUST execute actions in this exact order: FIRST save the result (e.g. save_call_note), SECOND say a polite goodbye, THIRD call the end_call tool.\n`;
+  prompt += `4. ENDING SEQUENCE: When the call finishes, you MUST execute actions in this exact order: FIRST save the factual result and wait for the tool response. Only if saved=true may you say it was saved or booked. SECOND say a brief goodbye, THIRD call end_call. For IVR or voicemail, end silently without a sales result.\n`;
   if (prompt.length > 18000) {
     throw new Error(
       `Compiled prompt length (${prompt.length} characters) exceeds the maximum limit of 18,000 characters.`

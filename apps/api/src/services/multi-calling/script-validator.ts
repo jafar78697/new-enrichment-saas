@@ -239,7 +239,7 @@ export function validateScriptGraph(script: ScriptDefinition): ValidationResult 
     if (node.type === 'start' || node.type === 'end') continue;
 
     const data = node.data || {};
-    const textContent = (data.text || data.label || '').toString().trim();
+    const textContent = (data.text || '').toString().trim();
 
     if (textContent) {
       checkTemplateVariables(textContent, node.id, 'text');
@@ -494,7 +494,7 @@ export function validateScriptGraph(script: ScriptDefinition): ValidationResult 
         const currId = queue.shift()!;
         const currNode = nodeMap.get(currId);
         if (currNode) {
-          if (currNode.type === 'offer' || currNode.type === 'meeting_cta' || currNode.type === 'pricing') {
+          if (currNode.type === 'offer' || currNode.type === 'meeting_cta' || currNode.type === 'pricing' || currNode.type === 'send_information' || currNode.type === 'followup' || (currNode.type === 'outcome_action' && ['interested', 'meeting_booked', 'followup'].includes(currNode.data?.outcome || ''))) {
             addError(
               `Refusal branch from "${srcNode.id}" (${srcNode.type}) cannot route into "${currNode.id}" (${currNode.type}). Refusal paths must lead to Not Interested outcome or Goodbye.`,
               'REFUSAL_ROUTED_TO_PITCH',
@@ -520,53 +520,64 @@ export function validateScriptGraph(script: ScriptDefinition): ValidationResult 
 
   for (const outcomeNode of meetingActionNodes) {
     // Traverse backwards from this outcome node to verify date/time collection exists on ALL reachable incoming paths
-    const adjReverse = new Map<string, string[]>();
+    const adjReverseEdges = new Map<string, EdgeDefinition[]>();
     for (const edge of edges) {
-      if (!adjReverse.has(edge.target)) adjReverse.set(edge.target, []);
-      adjReverse.get(edge.target)!.push(edge.source);
+      if (!adjReverseEdges.has(edge.target)) adjReverseEdges.set(edge.target, []);
+      adjReverseEdges.get(edge.target)!.push(edge);
     }
 
     let allPathsCollect = true;
     const memo = new Map<string, boolean>();
 
-    const checkAllPathsHaveCollection = (currId: string, visited: Set<string>): boolean => {
-      if (memo.has(currId)) return memo.get(currId)!;
+    const checkAllPathsHaveCollection = (currId: string, visited: Set<string>, incomingEdge?: EdgeDefinition): boolean => {
+      const memoKey = currId + (incomingEdge ? '-' + incomingEdge.id : '');
+      if (memo.has(memoKey)) return memo.get(memoKey)!;
       
       const curr = nodeMap.get(currId);
       if (curr) {
-        if (curr.type === 'followup') {
-          memo.set(currId, true);
-          return true;
+        let isCollector = false;
+        if (curr.type === 'followup') isCollector = true;
+        if (curr.type === 'meeting_cta' && curr.data?.collectDate && curr.data?.collectTime && incomingEdge?.sourceHandle === 'accepted') isCollector = true;
+        
+        if (isCollector) {
+          if (incomingEdge) {
+            const semantic = getHandleSemantic(curr.type, incomingEdge.sourceHandle);
+            if (semantic === 'negative' || semantic === 'refusal' || incomingEdge.sourceHandle === 'declined') {
+               // A declined edge from a collector does NOT carry the collected date/time.
+               isCollector = false;
+            }
+          }
+          if (isCollector) {
+            memo.set(memoKey, true);
+            return true;
+          }
         }
-        if (curr.type === 'meeting_cta' && (curr.data?.collectDate || curr.data?.collectTime || (curr.data?.text || '').toLowerCase().includes('time') || (curr.data?.text || '').toLowerCase().includes('date'))) {
-          memo.set(currId, true);
-          return true;
-        }
+        
         if (curr.type === 'start' || curr.type === 'opening') {
           // Hit the start without finding a collector
-          memo.set(currId, false);
+          memo.set(memoKey, false);
           return false;
         }
       }
       
-      const preds = adjReverse.get(currId) || [];
-      if (preds.length === 0) {
-        memo.set(currId, false);
+      const predEdges = adjReverseEdges.get(currId) || [];
+      if (predEdges.length === 0) {
+        memo.set(memoKey, false);
         return false; // Dead end backwards without a collector
       }
 
       visited.add(currId);
       let allIncomingCollect = true;
-      for (const pred of preds) {
-        if (visited.has(pred)) continue; // avoid cycles in check
-        const pathCollects = checkAllPathsHaveCollection(pred, new Set(visited));
+      for (const predEdge of predEdges) {
+        if (visited.has(predEdge.source)) continue; // avoid cycles in check
+        const pathCollects = checkAllPathsHaveCollection(predEdge.source, new Set(visited), predEdge);
         if (!pathCollects) {
           allIncomingCollect = false;
           break;
         }
       }
       
-      memo.set(currId, allIncomingCollect);
+      memo.set(memoKey, allIncomingCollect);
       return allIncomingCollect;
     };
 

@@ -27,9 +27,9 @@ export const AllowedOutcomes = z.enum([
 ]);
 
 export const EdgeSchema = z.object({
-  id: z.string().min(1),
-  source: z.string().min(1),
-  target: z.string().min(1),
+  id: z.string().min(1).max(128),
+  source: z.string().min(1).max(128),
+  target: z.string().min(1).max(128),
   sourceHandle: z.string().optional().nullable(),
   targetHandle: z.string().optional().nullable(),
   kind: z.enum(['default', 'condition']).default('default')
@@ -52,18 +52,18 @@ export const NodeDataSchema = z.object({
   note: z.string().max(2000).optional().nullable(),
   questions: z.array(z.object({
     id: z.string().optional(),
-    text: z.string().min(1).max(1000)
-  })).optional().nullable(),
+    text: z.string().max(1000)
+  })).max(30).optional().nullable(),
   cases: z.array(z.object({
-    intent: z.string().min(1).max(500),
-    response: z.string().min(1).max(2000)
-  })).optional().nullable(),
+    intent: z.string().max(500),
+    response: z.string().max(2000)
+  })).max(30).optional().nullable(),
   hasError: z.boolean().optional(),
   errorMessage: z.string().optional().nullable()
 }).passthrough();
 
 export const BaseNodeSchema = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(128),
   type: NodeTypes,
   locked: z.boolean().optional(),
   position: z.object({
@@ -76,6 +76,8 @@ export const BaseNodeSchema = z.object({
 export const ScriptSettingsSchema = z.object({
   agentDisplayName: z.string().min(1).max(100),
   tone: z.string().max(200).optional(),
+  offerName: z.string().max(200).optional(),
+  meetingDuration: z.string().max(50).optional(),
   maxSentencesPerTurn: z.number().int().min(1).max(5).default(2),
   maxObjectionAttempts: z.number().int().min(1).max(3).default(1)
 });
@@ -85,8 +87,8 @@ export const ScriptSchema = z.object({
   name: z.string().min(1).max(100),
   nicheId: z.number().int().optional().nullable(),
   settings: ScriptSettingsSchema,
-  nodes: z.array(BaseNodeSchema),
-  edges: z.array(EdgeSchema)
+  nodes: z.array(BaseNodeSchema).max(32),
+  edges: z.array(EdgeSchema).max(128)
 });
 
 export type ScriptDefinition = z.infer<typeof ScriptSchema>;

@@ -109,3 +109,113 @@ Drain cleaning service in Princeton TX
 Water heater repair in Princeton TX
 Residential plumber in Princeton TX
 ```
+
+## Canada — batch CA-2026-10-07-01
+
+Issued: 7 October 2026. Country: Canada. Niches: Plumbing, HVAC, Electrical, Auto Repair. 20 keyword/location combinations per niche; 80 total.
+
+Status: generated and provided to the user. Actual scraping, enrichment and calling are NOT confirmed by this entry.
+
+Future keyword requests: compare against both the USA section above and the Canada batches below. Reuse only when requested; otherwise provide fresh keyword/location combinations and add a new dated batch. Do not label a keyword as scraped/called without job or call evidence.
+
+Scraper input: Country = Canada; Location = Canada because these keywords already contain their city and province. Paste one niche's list at a time and assign its matching niche. City selection is a prospecting suggestion, not a verified low-competition ranking.
+
+### Plumbing — 20 keywords
+
+```text
+Emergency plumber in Hamilton, Ontario, Canada
+Drain cleaning service in Hamilton, Ontario, Canada
+Residential plumber in Hamilton, Ontario, Canada
+Sewer repair service in Hamilton, Ontario, Canada
+Emergency plumber in Kitchener, Ontario, Canada
+Drain cleaning service in Kitchener, Ontario, Canada
+Residential plumber in Kitchener, Ontario, Canada
+Sewer repair service in Kitchener, Ontario, Canada
+Emergency plumber in London, Ontario, Canada
+Drain cleaning service in London, Ontario, Canada
+Residential plumber in London, Ontario, Canada
+Sewer repair service in London, Ontario, Canada
+Emergency plumber in Calgary, Alberta, Canada
+Drain cleaning service in Calgary, Alberta, Canada
+Residential plumber in Calgary, Alberta, Canada
+Sewer repair service in Calgary, Alberta, Canada
+Emergency plumber in Edmonton, Alberta, Canada
+Drain cleaning service in Edmonton, Alberta, Canada
+Residential plumber in Edmonton, Alberta, Canada
+Sewer repair service in Edmonton, Alberta, Canada
+```
+
+### HVAC — 20 keywords
+
+```text
+Furnace repair in Hamilton, Ontario, Canada
+Heating contractor in Hamilton, Ontario, Canada
+HVAC contractor in Hamilton, Ontario, Canada
+Furnace maintenance in Hamilton, Ontario, Canada
+Furnace repair in Kitchener, Ontario, Canada
+Heating contractor in Kitchener, Ontario, Canada
+HVAC contractor in Kitchener, Ontario, Canada
+Furnace maintenance in Kitchener, Ontario, Canada
+Furnace repair in London, Ontario, Canada
+Heating contractor in London, Ontario, Canada
+HVAC contractor in London, Ontario, Canada
+Furnace maintenance in London, Ontario, Canada
+Furnace repair in Calgary, Alberta, Canada
+Heating contractor in Calgary, Alberta, Canada
+HVAC contractor in Calgary, Alberta, Canada
+Furnace maintenance in Calgary, Alberta, Canada
+Furnace repair in Edmonton, Alberta, Canada
+Heating contractor in Edmonton, Alberta, Canada
+HVAC contractor in Edmonton, Alberta, Canada
+Furnace maintenance in Edmonton, Alberta, Canada
+```
+
+### Electrical — 20 keywords
+
+```text
+Residential electrician in Hamilton, Ontario, Canada
+Electrical repair service in Hamilton, Ontario, Canada
+Electrical panel upgrade in Hamilton, Ontario, Canada
+EV charger installation in Hamilton, Ontario, Canada
+Residential electrician in Kitchener, Ontario, Canada
+Electrical repair service in Kitchener, Ontario, Canada
+Electrical panel upgrade in Kitchener, Ontario, Canada
+EV charger installation in Kitchener, Ontario, Canada
+Residential electrician in London, Ontario, Canada
+Electrical repair service in London, Ontario, Canada
+Electrical panel upgrade in London, Ontario, Canada
+EV charger installation in London, Ontario, Canada
+Residential electrician in Calgary, Alberta, Canada
+Electrical repair service in Calgary, Alberta, Canada
+Electrical panel upgrade in Calgary, Alberta, Canada
+EV charger installation in Calgary, Alberta, Canada
+Residential electrician in Edmonton, Alberta, Canada
+Electrical repair service in Edmonton, Alberta, Canada
+Electrical panel upgrade in Edmonton, Alberta, Canada
+EV charger installation in Edmonton, Alberta, Canada
+```
+
+### Auto Repair — 20 keywords
+
+```text
+Auto repair shop in Hamilton, Ontario, Canada
+Brake repair shop in Hamilton, Ontario, Canada
+Tire shop in Hamilton, Ontario, Canada
+Car maintenance service in Hamilton, Ontario, Canada
+Auto repair shop in Kitchener, Ontario, Canada
+Brake repair shop in Kitchener, Ontario, Canada
+Tire shop in Kitchener, Ontario, Canada
+Car maintenance service in Kitchener, Ontario, Canada
+Auto repair shop in London, Ontario, Canada
+Brake repair shop in London, Ontario, Canada
+Tire shop in London, Ontario, Canada
+Car maintenance service in London, Ontario, Canada
+Auto repair shop in Calgary, Alberta, Canada
+Brake repair shop in Calgary, Alberta, Canada
+Tire shop in Calgary, Alberta, Canada
+Car maintenance service in Calgary, Alberta, Canada
+Auto repair shop in Edmonton, Alberta, Canada
+Brake repair shop in Edmonton, Alberta, Canada
+Tire shop in Edmonton, Alberta, Canada
+Car maintenance service in Edmonton, Alberta, Canada
+```

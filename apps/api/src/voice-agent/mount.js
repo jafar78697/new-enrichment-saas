@@ -7,6 +7,7 @@ import morgan from 'morgan';
 import twimlRoutes from './routes/twiml.js';
 import voiceAgentsRoutes from './routes/voice-agents.js';
 import analyticsRoutes from './routes/analytics.js';
+import simpleAgentRoutes from './routes/simple-agent.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { requireAuth, requireManager, softAuth } from '../calls-module/middleware/auth.js';
 import { VOICE_AGENT_ENABLED } from './config/env.js';
@@ -23,7 +24,8 @@ export function createVoiceAgentApp() {
 
   // Health probe
   app.get('/api/voice-health', (_req, res) => res.json({
-    ok: true,
+    ok: !!app.locals.mediaBridgeReady,
+    mediaBridgeReady: !!app.locals.mediaBridgeReady,
     module: 'voice-agent',
     enabled: VOICE_AGENT_ENABLED,
   }));
@@ -33,6 +35,7 @@ export function createVoiceAgentApp() {
 
   // All management routes require auth
   app.use('/api/voice', softAuth);
+  app.use('/api/voice/simple-agent', requireAuth, simpleAgentRoutes);
   app.use('/api/voice/agents', requireAuth, requireManager, voiceAgentsRoutes);
   app.use('/api/voice/analytics', requireAuth, requireManager, analyticsRoutes);
 

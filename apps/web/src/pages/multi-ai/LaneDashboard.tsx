@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../../services/api';
 import { Settings, Play, Pause, AlertCircle, Phone, Edit, Activity, List } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { deepgramAgentsApi, type DeepgramAgent } from '../../services/deepgramAgentsApi';
-import { nichesApi, type Niche } from '../../services/nichesApi';
 import LaneCard from './components/LaneCard';
+import AllLanesTimer from './components/AllLanesTimer';
 import { CallHistory } from './CallHistory';
 
 
@@ -13,15 +12,17 @@ export default function LaneDashboard() {
   const [lanes, setLanes] = useState<any[]>([]);
   const [integrationsStatus, setIntegrationsStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const statusChanges = useRef(new Set<string>());
+  const [changingLanes, setChangingLanes] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
 
   // Modal data
-  const [agents, setAgents] = useState<DeepgramAgent[]>([]);
+  const [agents, setAgents] = useState<{ id: string; name: string; voice?: string }[]>([]);
   const [numbers, setNumbers] = useState<any[]>([]);
-  const [niches, setNiches] = useState<Niche[]>([]);
+  const [niches, setNiches] = useState<{ id: number; name: string }[]>([]);
   const [scripts, setScripts] = useState<any[]>([]);
 
   // Form state
@@ -31,6 +32,12 @@ export default function LaneDashboard() {
   const [formNumber2, setFormNumber2] = useState('');
   const [formNicheId, setFormNicheId] = useState('');
   const [formSubmitting, setFormSubmitting] = useState(false);
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [optionsLoaded, setOptionsLoaded] = useState(false);
+  const [modalError, setModalError] = useState('');
+  const [savedChoice, setSavedChoice] = useState<any>(null);
+  const optionsRequest = useRef(0);
+
 
   useEffect(() => {
     loadLanes();
@@ -67,57 +74,65 @@ export default function LaneDashboard() {
   }
 
   async function handleToggleStatus(laneId: string, currentStatus: string) {
+    if (statusChanges.current.has(laneId)) return;
+    statusChanges.current.add(laneId);
+    setChangingLanes([...statusChanges.current]);
     const action = currentStatus === 'running' ? 'pause' : 'start';
     try {
       await api.post(`/multi-calling/lanes/${laneId}/${action}`, {});
-      loadLanes();
+      await loadLanes(true);
     } catch (err) {
       console.error(err);
-      alert('Failed to change lane status');
+      setErrorMsg((err as any).response?.data?.error || 'Failed to change lane status');
+    } finally {
+      statusChanges.current.delete(laneId);
+      setChangingLanes([...statusChanges.current]);
     }
   }
 
   async function openAssignModal(slot: number, lane?: any) {
-    setSelectedSlot(slot);
+    const requestId = ++optionsRequest.current;
+    setSelectedSlot(slot);setSavedChoice(lane || null);
     setFormAgentId(lane?.agent_config_id || '');
     setFormScriptId(lane?.active_script_version_id || '');
-    
-    // Numbers: position 0 is Number1, position 1 is Number2
-    const num1 = lane?.numbers?.find((n: any) => n.position === 0)?.phone_number_id || '';
-    const num2 = lane?.numbers?.find((n: any) => n.position === 1)?.phone_number_id || '';
-    
-    setFormNumber1(num1);
-    setFormNumber2(num2);
+    setFormNumber1(lane?.numbers?.find((n: any) => n.position === 0)?.phone_number_id || '');
+    setFormNumber2(lane?.numbers?.find((n: any) => n.position === 1)?.phone_number_id || '');
     setFormNicheId(lane?.niche_id?.toString() || '');
-    setIsModalOpen(true);
-
+    // Show the existing assignment immediately while fetching fresh choices.
+    setAgents(lane?.agent_config_id ? [{ id: lane.agent_config_id, name: lane.agent_name, voice: lane.voice_id }] : []);
+    setScripts(lane?.active_script_version_id ? [{ id: lane.active_script_version_id, name: lane.script_name, published_version_id: lane.active_script_version_id }] : []);
+    setNumbers((lane?.numbers || []).map((n: any) => ({ id: n.phone_number_id, phone_number: n.phone_number })));
+    setNiches(lane?.niche_id ? [{ id: lane.niche_id, name: lane.niche_name }] : []);
+    setModalError(''); setOptionsLoaded(false); setOptionsLoading(true); setIsModalOpen(true);
     try {
-      if (agents.length === 0) {
-        const agRes = await deepgramAgentsApi.list();
-        setAgents(agRes.agents || []);
-      }
-      // Fetch numbers - don't filter out numbers assigned to the current lane
-      const numRes = await api.get('/multi-calling/available-numbers');
-      const currentLaneId = lane?.id;
-      setNumbers((numRes.data.numbers || []).filter((n: any) => !n.lane_id || n.lane_id === currentLaneId));
-
-      if (niches.length === 0) {
-        const nRes = await nichesApi.list();
-        setNiches(nRes.niches || []);
-      }
-      if (scripts.length === 0) {
-        const sRes = await api.get('/multi-calling/scripts');
-        // Only show scripts that have a published version
-        setScripts((sRes.data.scripts || []).filter((s: any) => s.published_version_id != null));
-      }
-    } catch (e) {
-      console.error('Failed to load dropdown data', e);
+      const response = await api.get('/multi-calling/assignment-options', { params: lane?.id ? { laneId: lane.id } : {} });
+      if (requestId !== optionsRequest.current) return;
+      setAgents(response.data.agents || []);
+      setNumbers(response.data.numbers || []);
+      setScripts(response.data.scripts || []);
+      setNiches(response.data.niches || []);
+      setOptionsLoaded(true);
+    } catch (err: any) {
+      if (requestId === optionsRequest.current) setModalError(err.response?.data?.error || 'Could not load lane settings. Click Retry to load the options again.');
+    } finally {
+      if (requestId === optionsRequest.current) setOptionsLoading(false);
     }
   }
 
+  function closeAssignModal() {
+    optionsRequest.current++;
+    setIsModalOpen(false);
+  }
+
+  const canAssign = optionsLoaded && !optionsLoading && !formSubmitting
+    && agents.some(a => a.id === formAgentId)
+    && scripts.some(s => s.published_version_id === formScriptId)
+    && numbers.some(n => n.id === formNumber1) && numbers.some(n => n.id === formNumber2)
+    && formNumber1 !== formNumber2 && niches.some(n => String(n.id) === formNicheId);
+
   async function handleAssignSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedSlot) return;
+    if (!selectedSlot || !canAssign) return;
     if (formNumber1 === formNumber2) {
       return alert('Please select two distinct phone numbers.');
     }
@@ -131,17 +146,17 @@ export default function LaneDashboard() {
         nicheId: formNicheId || null,
         name: `Lane ${selectedSlot}`,
       });
-      setIsModalOpen(false);
-      loadLanes();
+      closeAssignModal();
+      await loadLanes(true);
     } catch (err: any) {
       console.error(err);
-      alert(err.response?.data?.message || err.response?.data?.error || 'Failed to assign lane.');
+      setModalError(err.response?.data?.message || err.response?.data?.error || 'Failed to assign lane.');
     } finally {
       setFormSubmitting(false);
     }
   }
 
-  if (loading) return <div className="p-8 text-center text-gray-500">Loading lanes...</div>;
+  if (loading && lanes.length === 0) return <div className="p-8 text-center text-gray-500">Loading lanes...</div>;
 
   return (
     <div className="w-full space-y-5">
@@ -168,9 +183,11 @@ export default function LaneDashboard() {
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center"
         >
           <Edit className="w-4 h-4 mr-2" />
-          Script Builder
+          Script Writer
         </button>
       </div>
+
+      <AllLanesTimer onRefresh={() => loadLanes(true)} />
 
       {/* Integration & Campaign Summary Panels */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -192,7 +209,7 @@ export default function LaneDashboard() {
             {integrationsStatus?.deepgram ? (
               <div className="mt-2 text-xs text-gray-600 space-y-1">
                 <div className="flex justify-between"><span>Status:</span> <span className={integrationsStatus.deepgram.verified ? 'text-green-600 font-medium' : (integrationsStatus.deepgram.configured ? 'text-amber-500 font-medium' : 'text-red-500 font-medium')}>{integrationsStatus.deepgram.verified ? 'Verified' : (integrationsStatus.deepgram.configured ? 'Invalid Token' : 'Missing')}</span></div>
-                <div className="flex justify-between"><span>Connection:</span> <span className="text-gray-500">Live Streaming API</span></div>
+                <div className="flex justify-between"><span>Connection:</span> <span className={integrationsStatus.deepgram.runtimeReady ? "text-green-600" : "text-red-600"}>{integrationsStatus.deepgram.runtimeReady ? "Voice service ready" : "Voice service unavailable"}</span></div>
               </div>
             ) : <div className="mt-2 text-xs text-gray-400">Loading...</div>}
           </div>
@@ -214,7 +231,9 @@ export default function LaneDashboard() {
           <LaneCard
             key={lane.slot_number}
             lane={lane}
+            isStatusChanging={changingLanes.includes(lane.id)}
             handleToggleStatus={handleToggleStatus}
+            onRefresh={() => loadLanes(true)}
             openAssignModal={(slot) => openAssignModal(slot, lane.id ? lane : undefined)}
           />
         ))}
@@ -225,23 +244,28 @@ export default function LaneDashboard() {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
               <h3 className="text-lg font-bold text-gray-900 m-0">Assign Lane {selectedSlot}</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 p-1">
+              <button onClick={closeAssignModal} className="text-gray-400 hover:text-gray-600 p-1">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             
             <form onSubmit={handleAssignSubmit} className="p-6 space-y-5">
+              {optionsLoading && <p role="status" className="text-sm text-blue-700">Loading scripts, voice profiles and phone numbers…</p>}
+              {modalError && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700"><p>{modalError}</p><button type="button" disabled={formSubmitting || optionsLoading} onClick={() => openAssignModal(selectedSlot!, savedChoice || undefined)} className="underline mt-2 font-medium">Retry loading options</button></div>}
+              <fieldset disabled={optionsLoading || formSubmitting || !optionsLoaded} className="space-y-5">
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Target Niche (Optional)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Target Niche</label>
                 <select
+                  required
                   value={formNicheId}
                   onChange={e => setFormNicheId(e.target.value)}
                   className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white px-3 py-2 border text-sm"
                 >
-                  <option value="">All available leads</option>
+                  <option value="" disabled>Select niche...</option>
                   {niches.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
                 </select>
-                <p className="mt-1 text-xs text-gray-500">If selected, this lane will only call leads matching this niche.</p>
+                <p className="mt-1 text-xs text-gray-500">This lane calls leads from the selected niche.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -254,7 +278,8 @@ export default function LaneDashboard() {
                     className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white px-3 py-2 border text-sm"
                   >
                     <option value="" disabled>Select a published script...</option>
-                    {scripts.map(s => <option key={s.id} value={s.published_version_id}>{s.name}</option>)}
+                    {formScriptId && !scripts.some(s => s.published_version_id === formScriptId) && <option value={formScriptId} disabled>{savedChoice?.script_name || 'Current script'} — unavailable; choose a published script</option>}
+                    {scripts.map(s => <option key={s.id} value={s.published_version_id}>{s.name}{s.version ? ' (v' + s.version + ')' : ''}</option>)}
                   </select>
                 </div>
                 <div>
@@ -266,7 +291,8 @@ export default function LaneDashboard() {
                     className="w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white px-3 py-2 border text-sm"
                   >
                     <option value="" disabled>Select a voice config...</option>
-                    {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    {formAgentId && !agents.some(a => a.id === formAgentId) && <option value={formAgentId} disabled>{savedChoice?.agent_name || 'Current profile'} — unavailable</option>}
+                    {agents.map(a => <option key={a.id} value={a.id}>{a.name}{a.voice ? ' — ' + a.voice : ''}</option>)}
                   </select>
                 </div>
               </div>
@@ -297,15 +323,19 @@ export default function LaneDashboard() {
                   </select>
                 </div>
               </div>
+              {optionsLoaded && !scripts.length && <p className="text-sm text-amber-700">No published scripts. Open <Link to="/multi-ai-calling/scripts" className="underline">Script Writer</Link> and Save &amp; Publish your script first.</p>}
+              {optionsLoaded && !agents.length && <p className="text-sm text-amber-700">No active voice profiles are available in this workspace.</p>}
+              {optionsLoaded && numbers.length < 2 && <p className="text-sm text-amber-700">At least two active numbers must be available for this lane.</p>}
               <p className="text-xs text-gray-500 mt-1 flex items-center">
                 <AlertCircle className="w-3 h-3 mr-1 inline" /> 
-                Two unique numbers are required for rotation to prevent carrier blocking.
+                Two distinct numbers are required for A/B rotation.
               </p>
 
+              </fieldset>
               <div className="pt-4 border-t border-gray-100 flex justify-end gap-3 mt-6">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeAssignModal}
                   className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
                   disabled={formSubmitting}
                 >
@@ -314,7 +344,7 @@ export default function LaneDashboard() {
                 <button
                   type="submit"
                   className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center"
-                  disabled={formSubmitting}
+                  disabled={!canAssign}
                 >
                   {formSubmitting ? 'Assigning...' : 'Assign Configuration'}
                 </button>
@@ -325,7 +355,7 @@ export default function LaneDashboard() {
       )}
 
       {/* Analytics and History Tab */}
-      <CallHistory />
+      <CallHistory lanes={lanes} />
     </div>
   );
 }

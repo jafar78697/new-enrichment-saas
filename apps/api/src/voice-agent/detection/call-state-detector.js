@@ -23,7 +23,15 @@ export function detectCallStateFromTranscript(transcript, agentConfig = null) {
   // menu is a terminal machine result; continuing wastes a caller ID and can
   // make the agent speak over recordings.
   const endOnIvr = agentConfig?.end_on_ivr !== false;
-  const endOnAiReceptionist = agentConfig?.end_on_ai_receptionist === true;
+
+  // Explicit self-identification by the remote speaker is terminal. Run this
+  // before message-taking/hold rules because bots often offer both.
+  // Questions about AI and a human merely mentioning AI do not match.
+  const aiIdentity = /\b(?:ai(?:[\s-]+powered)?|a\s*\.?\s*i\.?|artificial intelligence|virtual|automated|digital)\s+(?:phone\s+|voice\s+)?(?:assistant|receptionist|representative|agent|bot)\b/;
+  const selfIntroduction = /\b(?:i am|i'm)\s+(?:an?\s+|your\s+)?(?:ai(?:[\s-]+powered)?|a\s*\.?\s*i\.?|artificial intelligence|virtual|automated|digital)\s+(?:phone\s+|voice\s+)?(?:assistant|receptionist|representative|agent|bot)\b|\b(?:my name is|this is|i am|i'm)\s+[a-z]+(?:\s+[a-z]+){0,2}\s*[,.-]?\s+(?:an?\s+|your\s+)(?:ai(?:[\s-]+powered)?|artificial intelligence|virtual|automated|digital)\s+(?:phone\s+|voice\s+)?(?:assistant|receptionist|representative|agent|bot)\b/;
+  if (aiIdentity.test(text) && (selfIntroduction.test(text) || /\byou(?:'re| are)\s+(?:speaking|talking)\s+(?:with|to)\s+(?:an?\s+|your\s+)?(?:ai(?:[\s-]+powered)?|artificial intelligence|virtual|automated|digital)\s+(?:phone\s+|voice\s+)?(?:assistant|receptionist|representative|agent|bot)\b/.test(text))) {
+    return { state: CallStates.AI_RECEPTIONIST_OR_BOT, action: 'hangup' };
+  }
 
   // A receptionist offering to take/leave a message is still a live human.
   // This check must run before voicemail matching, otherwise the words
@@ -32,9 +40,17 @@ export function detectCallStateFromTranscript(transcript, agentConfig = null) {
     return { state: CallStates.HUMAN_LIVE, action: 'continue' };
   }
 
+  if (/\b(?:can|may|could)\s+i\s+take\s+(?:a\s+)?message\b|\b(?:would|do)\s+you\s+(?:like|want)\s+to\s+leave\b.{0,45}\bmessage\b.{0,25}\bwith\s+me\b/.test(text)) {
+    return { state: CallStates.HUMAN_LIVE, action: 'continue' };
+  }
+
   // Screening is not voicemail: identify yourself and wait for the recipient.
   if (/\b(?:say|state|record|provide)\b.{0,30}\b(?:your name|name and (?:reason|purpose))\b|\b(?:name|reason for calling)\b.{0,50}\b(?:connect|screen|accept)\b/.test(text)) {
     return { state: CallStates.SCREENING, action: 'identify' };
+  }
+  const nameNumberMessage = /\b(?:please\s+)?leave\s+(?:me\s+|us\s+)?(?:your\s+|a\s+)?(?:name\s*(?:,|and|&)\s*(?:(?:phone|telephone|contact|callback)\s+)?number|(?:phone|telephone|contact|callback)\s+number\s*(?:,|and|&)\s*(?:your\s+)?name)\b/.test(text);
+  if (nameNumberMessage && !/\bwith\s+(?:me|us|the\s+receptionist)\b/.test(text)) {
+    return { state: CallStates.VOICEMAIL, action: endOnVoicemail ? 'hangup' : 'leave_message' };
   }
   const conversationalMention = /\b(?:i|i've|i was|we were)\b.{0,35}\b(?:checking|checked|heard|listening to)\b.{0,25}\bvoicemail\b/.test(text);
   if (!conversationalMention && /\b(?:please\s+)?leave (?:us |me |your )?(?:a )?(?:short |brief |quick |voice |detailed )?message\b|\bleave\s+(?:a\s+)?(?:text\s+message|voice\s*mail|voicemail)\b|\byou(?:'ve| have) reached\b.{0,100}\bleave\b.{0,45}\bmessage\b|\b(?:please\s+)?record (?:your|a) message\b|\b(?:after|at|following) the (?:tone|beep|sound)\b|\byou(?:'ve| have) reached (?:the )?(?:voice ?mail|mailbox)\b|\b(?:you have|you've) reached us after (?:our )?(?:normal )?business hours\b|\bmailbox (?:is full|has not been set up|belonging to)\b|\bcall has been forwarded to (?:an? )?(?:automated )?voice messaging system\b|\bperson (?:you are|you're) calling (?:is )?(?:not available|unavailable)\b/.test(text)) {
@@ -46,11 +62,6 @@ export function detectCallStateFromTranscript(transcript, agentConfig = null) {
     return { state: CallStates.IVR_OR_MENU, action: endOnIvr ? 'hangup' : 'wait' };
   }
 
-  // 3. AI Receptionist
-  if (text.includes('i am a virtual assistant') || text.includes('i am an ai') || text.includes('how can i help you today') && text.includes('bot')) {
-    return { state: CallStates.AI_RECEPTIONIST_OR_BOT, action: 'identify' };
-  }
-
   // 4. Closed / After Hours
   if (/\b(?:office|business) is (?:currently )?closed\b|\bnormal business hours\b|\b(?:person|subscriber|customer).{0,35}\b(?:not available|unavailable)\b/.test(text)) {
     return { state: CallStates.CLOSED_OR_HOURS, action: 'wait' };
@@ -60,7 +71,7 @@ export function detectCallStateFromTranscript(transcript, agentConfig = null) {
   // "please hold", "hold please", "stay on the line" = transfer in progress
   // "recorded for quality", "is being recorded" = compliance announcement before human
   // Bare "hold" alone is NOT matched (humans say "hold on" casually)
-  if (/\bplease\s+hold\b|\bhold\s+please\b|\bstay on the line\b|\bplease wait while we (?:transfer|connect)\b|\brecorded for quality\b|\bis being recorded\b|\bquality (?:assurance|and training)\b|\bmonitored or recorded\b/.test(text)) {
+  if (/\bplease\s+hold\b|\bhold\s+please\b|\bstay on the line\b|\bplease wait while we (?:transfer|connect)\b|\brecorded for quality\b|\bis being recorded\b|\bquality (?:assurance|and training)\b|\bmonitored or recorded\b|\b(?:may|will)\s+be\s+(?:recorded|transcribed)\b|\b(?:representative|csr|live support)\b.{0,45}\b(?:with you shortly|assisting other customers|available shortly)\b/.test(text)) {
     return { state: CallStates.TRANSFER_OR_AD, action: 'wait' };
   }
 

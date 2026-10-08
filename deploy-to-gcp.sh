@@ -66,64 +66,7 @@ pnpm rebuild || true
 
 echo "→ Applying SaaS billing/access migrations..."
 cd /home/jafar-tayyar-siddiqi/enrichment-saas/apps/api
-node << 'NODE'
-const fs = require('fs');
-const path = require('path');
-const pg = require('pg');
-require('dotenv').config({ path: '.env' });
-
-const migrations = [
-  '012_saas_and_phone_numbers.sql',
-  '013_saas_tenant_schema.sql',
-  '014_wallets_payments_metering.sql',
-  '015_calls_module_tenant_isolation.sql',
-  '016_calling_subscription_enforcement.sql',
-  '017_contacts_follow_up.sql',
-  '018_customer_team_access.sql',
-  '019_global_lead_cache.sql',
-  '020_demo_number_pool.sql',
-  '021_agents_table.sql',
-  '022_durable_demo_trials.sql',
-  '023_call_recording_entitlement.sql',
-  '024_customer_employee_access.sql',
-  '025_employee_permissions.sql',
-  '026_admin_bulk_provisioning.sql',
-  '027_call_destination_cooldown.sql',
-  '028_launch_readiness.sql',
-  '029_platform_default_ai_calling.sql',
-  '030_multi_ai_calling.sql',
-  '031_multi_calling_agent_config.sql',
-  '032_multi_calling_shared_niche.sql',
-  '033_call_session_agent_snapshot.sql'
-];
-
-async function main() {
-  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-  try {
-    for (const migration of migrations) {
-      const file = path.resolve('src/db/migrations', migration);
-      const sql = fs.readFileSync(file, 'utf8');
-      console.log(`   applying ${migration}`);
-      try {
-        await pool.query(sql);
-      } catch (e) {
-        if (['42P07', '42710', '42701'].includes(e.code)) {
-          console.log(`   [skip] ${migration} (already applied)`);
-        } else {
-          throw e;
-        }
-      }
-    }
-  } finally {
-    await pool.end();
-  }
-}
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
-NODE
+node run-migration.js
 
 # Tenantless legacy manager sessions use the platform's default AI Calling
 # workspace. Keep this explicit so customer tenants are never guessed.
